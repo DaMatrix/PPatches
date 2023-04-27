@@ -1,0 +1,188 @@
+/*
+ * Adapted from the Wizardry License
+ *
+ * Copyright (c) 2018-2020 DaPorkchop_ and contributors
+ *
+ * Permission is hereby granted to any persons and/or organizations using this software to copy, modify, merge, publish, and distribute it.
+ * Said persons and/or organizations are not allowed to use the software or any derivatives of the work for commercial use or any other means to generate income, nor are they allowed to claim this software as their own.
+ *
+ * The persons and/or organizations are also disallowed from sub-licensing and/or trademarking this software without explicit permission from DaPorkchop_.
+ *
+ * Any persons and/or organizations using this software must disclose their source code and have it publicly available, include this license, provide sufficient credit to the original authors of the project (IE: DaPorkchop_), as well as provide a link to the original project.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON INFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ */
+
+buildscript {
+    repositories {
+        jcenter()
+        maven {
+            name = "forge"
+            url = "https://files.minecraftforge.net/maven"
+        }
+        maven {
+            name = "SpongePowered"
+            url = "https://repo.spongepowered.org/maven"
+        }
+    }
+    dependencies {
+        classpath "net.minecraftforge.gradle:ForgeGradle:2.3-SNAPSHOT"
+        classpath "org.spongepowered:mixingradle:0.6-SNAPSHOT"
+    }
+}
+
+apply plugin: "net.minecraftforge.gradle.forge"
+apply plugin: "org.spongepowered.mixin"
+
+ext {
+    //general things
+    javaVersion = "1.8"
+    ppatchesVersion = "0.0.1." + ('git rev-list --count HEAD'.execute().text.trim())
+
+    //minecraft things
+    mcpmappingsVersion = "stable_39"
+    minecraftforgeVersion = "14.23.5.2847"
+    minecraftVersion = "1.12.2"
+
+    //dependency things
+    guavaVersion = "21.0"
+    lombokVersion = "1.16.20"
+    mixinVersion = "0.8.2"
+    porklibVersion = "0.5.5-SNAPSHOT"
+}
+
+version = "$ppatchesVersion"
+group = "net.daporkchop"
+archivesBaseName = "ppatches"
+
+compileJava {
+    sourceCompatibility = targetCompatibility = "$javaVersion"
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = "UTF-8"
+}
+
+minecraft {
+    version = "$minecraftVersion-$minecraftforgeVersion"
+    runDir = "run"
+
+    mappings = "$mcpmappingsVersion"
+    makeObfSourceJar = false
+    coreMod = "net.daporkchop.ppatches.LoadingPlugin"
+
+    def args = [
+            "-Dmixin.checks.interfaces=true",
+            "-Dmixin.debug.export=true",
+            "-Dmixin.debug.verbose=true",
+            "-Dmixin.hotSwap=true",
+            "-Xmx2G",
+            "-XX:+UseG1GC",
+            "-ea",
+            "-da:io.netty..."
+    ]
+    clientJvmArgs += args
+    serverJvmArgs += args
+}
+
+configurations {
+    shade
+    compile.extendsFrom shade
+
+    all {
+        resolutionStrategy {
+            force("com.google.guava:guava:$guavaVersion")
+        }
+    }
+}
+
+repositories {
+    maven {
+        name = "DaPorkchop_"
+        url = "https://maven.daporkchop.net/"
+    }
+    maven {
+        name = "spongepowered-repo"
+        url = "https://repo.spongepowered.org/maven/"
+    }
+    mavenCentral()
+}
+
+dependencies {
+    shade("org.spongepowered:mixin:$mixinVersion") {
+        //transitive = false
+    }
+
+    annotationProcessor "org.spongepowered:mixin:$mixinVersion:processor"
+
+    //shade "net.daporkchop.lib:unsafe:$porklibVersion"
+
+    compileOnly "org.projectlombok:lombok:$lombokVersion"
+    annotationProcessor "org.projectlombok:lombok:$lombokVersion"
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mcversion", project.minecraft.version
+
+    from(sourceSets.main.resources.srcDirs) {
+        include "mcmod.info"
+        expand "version": project.version, "mcversion": project.minecraft.version
+    }
+
+    from(sourceSets.main.resources.srcDirs) {
+        exclude "mcmod.info"
+    }
+
+    rename '(.+_at.cfg)', 'META-INF/$1'
+}
+
+mixin {
+    defaultObfuscationEnv searge
+    add sourceSets.main, "mixins.ppatches.refmap.json"
+}
+
+reobf.jar {
+    mappingType = "SEARGE"
+    classpath = sourceSets.main.compileClasspath
+}
+
+jar {
+    archiveName "PPatches-v$minecraftVersion-$ppatchesVersion" + ".jar"
+
+    from {
+        configurations.shade.collect {
+            it.isDirectory() ? it : zipTree(it)
+        }.unique(true)
+    } {
+        exclude "META-INF/**"
+        exclude sourceSets.main.output.asFileTree.collect {
+            return it.getPath().split("java/main/").last()
+        }
+    }
+
+    manifest {
+        attributes(
+                "tweakClass": "org.spongepowered.asm.launch.MixinTweaker",
+                "TweakOrder": 0,
+                "FMLCorePluginContainsFMLMod": "false",
+                "FMLCorePlugin": "net.daporkchop.ppatches.LoadingPlugin",
+                "ForceLoadAsMod": "false",
+                "FMLAT": "ppatches_at.cfg"
+        )
+    }
+}
+
+task preIntellijRuns {
+    doFirst {
+        java.util.stream.StreamSupport.stream(configurations.annotationProcessor.spliterator(), false).filter({
+            java.nio.file.Paths.get(it.absolutePath).getFileName().toString().matches("mixin-\\d+(\\.\\d+)*(-.*)?\\.jar")
+            System.out.println(it.absolutePath)
+        }).findAny().ifPresent({ file ->
+            minecraft.clientJvmArgs += "-javaagent:" + file.absolutePath
+            minecraft.serverJvmArgs += "-javaagent:" + file.absolutePath
+        })
+    }
+}
+genIntellijRuns.dependsOn(preIntellijRuns)

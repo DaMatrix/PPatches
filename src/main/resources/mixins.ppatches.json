@@ -1,0 +1,10 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.core.asm",
+  "refmap": "mixins.ppatches.refmap.json",
+  "target": "@env(INIT)",
+  "mixins": [
+    "MixinLoader"
+  ]
+}
