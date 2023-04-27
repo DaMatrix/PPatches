@@ -86,6 +86,13 @@ public abstract class MixinPlayerHeads {
             return null;
         }
 
+        //remove all properties which aren't "textures", and strip signature from all texture properties
+        /*List<Property> textureProperties = new ArrayList<>(profile.getProperties().get("textures"));
+        profile.getProperties().clear();
+        for (Property textureProperty : textureProperties) {
+            profile.getProperties().put("textures", new Property(textureProperty.getName(), textureProperty.getValue()));
+        }*/
+
         NBTTagCompound skullOwner = new NBTTagCompound();
         NBTUtil.writeGameProfile(skullOwner, profile);
 
