@@ -63,11 +63,25 @@ public abstract class MixinLoader {
             // This will very likely break on the next major mixin release.
             Class<?> proxyClass = Class.forName("org.spongepowered.asm.mixin.transformer.Proxy");
             Field transformerField = proxyClass.getDeclaredField("transformer");
-
             transformerField.setAccessible(true);
             Object transformer = transformerField.get(null);
 
             Class<?> mixinTransformerClass = Class.forName("org.spongepowered.asm.mixin.transformer.MixinTransformer");
+
+            // Mixin 0.7.11
+            try {
+                Method selectConfigsMethod = mixinTransformerClass.getDeclaredMethod("selectConfigs", MixinEnvironment.class);
+                selectConfigsMethod.setAccessible(true);
+                selectConfigsMethod.invoke(transformer, MixinEnvironment.getCurrentEnvironment());
+
+                Method prepareConfigs = mixinTransformerClass.getDeclaredMethod("prepareConfigs", MixinEnvironment.class);
+                prepareConfigs.setAccessible(true);
+                prepareConfigs.invoke(transformer, MixinEnvironment.getCurrentEnvironment());
+                return;
+            } catch (NoSuchMethodException ex) {
+                // no-op
+            }
+
             Field processorField = mixinTransformerClass.getDeclaredField("processor");
             processorField.setAccessible(true);
             Object processor = processorField.get(transformer);
