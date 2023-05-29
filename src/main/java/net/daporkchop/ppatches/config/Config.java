@@ -88,6 +88,7 @@ public final class Config {
     }
 
     private final JustPlayerHeads justPlayerHeads = new JustPlayerHeads();
+    private final Vanilla vanilla = new Vanilla();
 
     @NoArgsConstructor(access = AccessLevel.PRIVATE)
     @Data
@@ -99,5 +100,11 @@ public final class Config {
     @Getter
     public static final class JustPlayerHeads {
         private final BaseModule fixSkinRetrieval = new BaseModule();
+    }
+
+    @NoArgsConstructor(access = AccessLevel.PRIVATE)
+    @Getter
+    public static final class Vanilla {
+        private final BaseModule optimizeWorldHashing = new BaseModule();
     }
 }
