@@ -57,7 +57,7 @@ public abstract class MixinLoader {
             }
         }
 
-        LoadingPlugin.loadModules();
+        LoadingPlugin.loadModules(MixinEnvironment.Phase.DEFAULT);
 
         try {
             // This will very likely break on the next major mixin release.

@@ -32,30 +32,41 @@ public class LoadingPlugin implements IFMLLoadingPlugin {
 
     private static Map<String, Boolean> moduleStates;
 
-    public static void loadModules() {
+    private static MixinEnvironment.Phase moduleLoadPhase(String moduleName) {
+        //TODO: improve this
+        return moduleName.startsWith("vanilla.") ? MixinEnvironment.Phase.PREINIT : MixinEnvironment.Phase.DEFAULT;
+    }
+
+    public static void loadModules(MixinEnvironment.Phase phase) {
         for (Map.Entry<String, Boolean> entry : moduleStates.entrySet()) {
-            if (entry.getValue()) {
+            if (entry.getValue() && moduleLoadPhase(entry.getKey()) == phase) {
                 Mixins.addConfiguration("mixins.ppatches." + entry.getKey() + ".json");
             }
         }
-        moduleStates = null;
+
+        if (phase == MixinEnvironment.Phase.DEFAULT) { //allow garbage collection now that all mixins have been loaded
+            moduleStates = null;
+        }
     }
 
     public LoadingPlugin() {
         FMLLog.log.info("\n\n\nPPatches Mixin init\n\n");
         MixinBootstrap.init();
 
-        moduleStates = Config.load();
+        Map<String, Boolean> moduleStates = Config.load();
         for (Map.Entry<String, Boolean> entry : moduleStates.entrySet()) {
-            if (entry.getValue()) { //at least one module is enabled
+            if (entry.getValue()) { //at least one module is enabled, we can register stuff to start loading
+                LoadingPlugin.moduleStates = moduleStates;
+
                 LogManager.getLogger("PPatches").info("Adding root loader mixin...");
                 Mixins.addConfiguration("mixins.ppatches.json");
+                loadModules(MixinEnvironment.Phase.PREINIT);
+
+                MixinEnvironment.getDefaultEnvironment().setObfuscationContext("searge");
+                FMLLog.log.info(MixinEnvironment.getDefaultEnvironment().getObfuscationContext());
                 break;
             }
         }
-
-        MixinEnvironment.getDefaultEnvironment().setObfuscationContext("searge");
-        FMLLog.log.info(MixinEnvironment.getDefaultEnvironment().getObfuscationContext());
     }
 
     @Override
