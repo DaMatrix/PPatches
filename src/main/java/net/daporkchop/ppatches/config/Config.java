@@ -87,6 +87,7 @@ public final class Config {
         }
     }
 
+    private final FoamFix foamFix = new FoamFix();
     private final JustPlayerHeads justPlayerHeads = new JustPlayerHeads();
     private final Vanilla vanilla = new Vanilla();
 
@@ -94,6 +95,12 @@ public final class Config {
     @Data
     public static class BaseModule {
         private final boolean enabled = false;
+    }
+
+    @NoArgsConstructor(access = AccessLevel.PRIVATE)
+    @Getter
+    public static final class FoamFix {
+        private final BaseModule respectOptiFineSmartAnimations = new BaseModule();
     }
 
     @NoArgsConstructor(access = AccessLevel.PRIVATE)

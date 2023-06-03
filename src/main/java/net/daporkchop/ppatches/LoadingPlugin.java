@@ -16,7 +16,9 @@
 
 package net.daporkchop.ppatches;
 
+import lombok.SneakyThrows;
 import net.daporkchop.ppatches.config.Config;
+import net.minecraft.launchwrapper.LaunchClassLoader;
 import net.minecraftforge.fml.common.FMLLog;
 import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin;
 import org.apache.logging.log4j.LogManager;
@@ -25,7 +27,9 @@ import org.spongepowered.asm.mixin.MixinEnvironment;
 import org.spongepowered.asm.mixin.Mixins;
 
 import javax.annotation.Nullable;
+import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.Set;
 
 public class LoadingPlugin implements IFMLLoadingPlugin {
     public static boolean isObfuscatedEnvironment;
@@ -37,7 +41,20 @@ public class LoadingPlugin implements IFMLLoadingPlugin {
         return moduleName.startsWith("vanilla.") ? MixinEnvironment.Phase.PREINIT : MixinEnvironment.Phase.DEFAULT;
     }
 
+    @SneakyThrows
     public static void loadModules(MixinEnvironment.Phase phase) {
+        if (phase == MixinEnvironment.Phase.DEFAULT) { //TODO: find a nicer place to put this
+            Field field = LaunchClassLoader.class.getDeclaredField("transformerExceptions");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Set<String> transformerExclusions = (Set<String>) field.get(LoadingPlugin.class.getClassLoader());
+
+            //allow transforming non-core FoamFix classes (FoamFix adds an exclusion for the entire mod)
+            if (transformerExclusions.remove("pl.asie.foamfix")) {
+                transformerExclusions.add("pl.asie.foamfix.coremod");
+            }
+        }
+
         for (Map.Entry<String, Boolean> entry : moduleStates.entrySet()) {
             if (entry.getValue() && moduleLoadPhase(entry.getKey()) == phase) {
                 Mixins.addConfiguration("mixins.ppatches." + entry.getKey() + ".json");
