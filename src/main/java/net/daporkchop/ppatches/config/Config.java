@@ -100,6 +100,7 @@ public final class Config {
     @NoArgsConstructor(access = AccessLevel.PRIVATE)
     @Getter
     public static final class FoamFix {
+        private final BaseModule optimizeTextureInterpolation = new BaseModule();
         private final BaseModule respectOptiFineSmartAnimations = new BaseModule();
     }
 
