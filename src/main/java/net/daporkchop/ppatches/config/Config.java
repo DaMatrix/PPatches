@@ -120,6 +120,7 @@ public final class Config {
     @NoArgsConstructor(access = AccessLevel.PRIVATE)
     @Getter
     public static final class Vanilla {
+        private final BaseModule optimizeTessellatorDraw = new BaseModule();
         private final BaseModule optimizeWorldHashing = new BaseModule();
     }
 }
