@@ -88,6 +88,7 @@ public final class Config {
     }
 
     private final FoamFix foamFix = new FoamFix();
+    private final JourneyMap journeyMap = new JourneyMap();
     private final JustPlayerHeads justPlayerHeads = new JustPlayerHeads();
     private final Vanilla vanilla = new Vanilla();
 
@@ -102,6 +103,12 @@ public final class Config {
     public static final class FoamFix {
         private final BaseModule optimizeTextureInterpolation = new BaseModule();
         private final BaseModule respectOptiFineSmartAnimations = new BaseModule();
+    }
+
+    @NoArgsConstructor(access = AccessLevel.PRIVATE)
+    @Getter
+    public static final class JourneyMap {
+        private final BaseModule skipRenderingOffscreenTooltips = new BaseModule();
     }
 
     @NoArgsConstructor(access = AccessLevel.PRIVATE)
