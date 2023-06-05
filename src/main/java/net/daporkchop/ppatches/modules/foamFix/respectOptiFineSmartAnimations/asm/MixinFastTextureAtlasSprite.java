@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.modules.foamfix.respectoptifinesmartanimations.asm;
+package net.daporkchop.ppatches.modules.foamFix.respectOptiFineSmartAnimations.asm;
 
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import org.spongepowered.asm.mixin.Mixin;

@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.modules.journeymap.skiprenderingoffscreentooltips.asm;
+package net.daporkchop.ppatches.modules.journeyMap.skipRenderingOffscreenTooltips.asm;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;

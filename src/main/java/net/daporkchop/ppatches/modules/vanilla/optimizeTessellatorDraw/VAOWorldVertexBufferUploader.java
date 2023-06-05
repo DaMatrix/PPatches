@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.modules.vanilla.optimizetessellatordraw;
+package net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw;
 
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 import net.minecraft.client.Minecraft;

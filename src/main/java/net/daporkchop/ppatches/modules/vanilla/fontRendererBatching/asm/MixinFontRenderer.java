@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.modules.vanilla.fontrendererbatching.asm;
+package net.daporkchop.ppatches.modules.vanilla.fontRendererBatching.asm;
 
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.BufferBuilder;

@@ -1,6 +1,6 @@
-package net.daporkchop.ppatches.modules.vanilla.optimizetessellatordraw.asm;
+package net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.asm;
 
-import net.daporkchop.ppatches.modules.vanilla.optimizetessellatordraw.VAOWorldVertexBufferUploader;
+import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.VAOWorldVertexBufferUploader;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.WorldVertexBufferUploader;
 import org.spongepowered.asm.mixin.Mixin;

@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.modules.vanilla.optimizeworldhashing.asm;
+package net.daporkchop.ppatches.modules.vanilla.optimizeWorldHashing.asm;
 
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;

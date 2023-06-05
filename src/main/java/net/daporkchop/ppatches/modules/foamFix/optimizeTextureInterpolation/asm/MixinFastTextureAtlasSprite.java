@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.modules.foamfix.optimizetextureinterpolation.asm;
+package net.daporkchop.ppatches.modules.foamFix.optimizeTextureInterpolation.asm;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;

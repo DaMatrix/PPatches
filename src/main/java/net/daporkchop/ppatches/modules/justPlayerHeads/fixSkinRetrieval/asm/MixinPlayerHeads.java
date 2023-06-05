@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.modules.justplayerheads.fixskinretrieval.asm;
+package net.daporkchop.ppatches.modules.justPlayerHeads.fixSkinRetrieval.asm;
 
 import com.mojang.authlib.GameProfile;
 import net.minecraft.init.Items;
