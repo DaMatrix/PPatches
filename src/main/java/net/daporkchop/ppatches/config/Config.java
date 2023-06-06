@@ -121,6 +121,7 @@ public final class Config {
     @Getter
     public static final class Vanilla {
         private final BaseModule fontRendererBatching = new BaseModule();
+        private final BaseModule fontRendererFixStyleResetShadow = new BaseModule();
         private final BaseModule optimizeTessellatorDraw = new BaseModule();
         private final BaseModule optimizeWorldHashing = new BaseModule();
     }
