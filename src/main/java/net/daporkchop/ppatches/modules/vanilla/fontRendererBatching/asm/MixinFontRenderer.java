@@ -6,6 +6,7 @@ import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.renderer.vertex.VertexFormat;
+import net.minecraft.client.resources.IResource;
 import net.minecraft.util.ResourceLocation;
 import org.lwjgl.opengl.GL11;
 import org.spongepowered.asm.mixin.Final;
@@ -16,8 +17,13 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.Surrogate;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
+
+import java.awt.image.BufferedImage;
+import java.util.Properties;
 
 /**
  * @author DaPorkchop_
@@ -41,10 +47,11 @@ public abstract class MixinFontRenderer {
     @Shadow
     protected abstract void bindTexture(ResourceLocation location);
 
+    @Shadow
+    protected abstract void loadGlyphTexture(int page);
+
     @Unique
     protected Tessellator ppatches_fontRendererBatching_defaultCharTessellator;
-    @Unique
-    protected Tessellator ppatches_fontRendererBatching_strikethroughUnderlineTessellator;
 
     @Unique
     protected float ppatches_fontRendererBatching_currentRed;
@@ -55,11 +62,17 @@ public abstract class MixinFontRenderer {
     @Unique
     protected float ppatches_fontRendererBatching_currentAlpha;
 
+    @Unique
+    protected float ppatches_fontRendererBatching_whitePixelX;
+    @Unique
+    protected float ppatches_fontRendererBatching_whitePixelY;
+
+    @Unique
+    protected boolean ppatches_fontRendererBatching_drawnAnyUnicode;
+
     @Inject(method = "<init>", at = @At("RETURN"))
     private void ppatches_fontRendererBatching_init(CallbackInfo ci) {
         (this.ppatches_fontRendererBatching_defaultCharTessellator = new Tessellator(2097152)).getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
-        (this.ppatches_fontRendererBatching_strikethroughUnderlineTessellator = new Tessellator(2097152)).getBuffer()
-                .begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
     }
 
     @Unique
@@ -69,26 +82,47 @@ public abstract class MixinFontRenderer {
             this.ppatches_fontRendererBatching_defaultCharTessellator.draw();
             this.ppatches_fontRendererBatching_defaultCharTessellator.getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
         }
-
-        if (this.ppatches_fontRendererBatching_strikethroughUnderlineTessellator.getBuffer().getVertexCount() != 0) {
-            GlStateManager.disableTexture2D();
-            this.ppatches_fontRendererBatching_strikethroughUnderlineTessellator.draw();
-            GlStateManager.enableTexture2D();
-            this.ppatches_fontRendererBatching_strikethroughUnderlineTessellator.getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
-        }
     }
 
     @Inject(method = "Lnet/minecraft/client/gui/FontRenderer;renderStringAtPos(Ljava/lang/String;Z)V",
             at = @At("RETURN"),
             require = 1, allow = 1)
-    private void ppatches_fontRendererBatching_flushTessellatorBuffers(String text, boolean shadow, CallbackInfo ci) {
+    private void ppatches_fontRendererBatching_renderStringAtPos_flushTessellatorBuffers(String text, boolean shadow, CallbackInfo ci) {
         //we don't flush the tessellators if we're drawing the shadow pass, since we know this method will be called again immediately afterwards with the same string
         //  for the non-shadow pass, so we can keep appending to the same buffer and draw everything in one go.
-        //however, this optimization isn't possible if the text being rendered contains any strikethrough or underline decorations, as they're rendered out-of-order
-        //  and could cause visual artifacts. (this can be mitigated in the future by rendering everything from a single buffer)
-        if (!shadow || this.ppatches_fontRendererBatching_strikethroughUnderlineTessellator.getBuffer().getVertexCount() != 0) {
+        //however, this optimization isn't possible if any unicode symbols were present in the string, as they're not present in the buffer and are therefore
+        //  out-of-order with respect to the other characters, which will cause them to overlap strangely with the shadow text
+        if (!shadow | this.ppatches_fontRendererBatching_drawnAnyUnicode) {
+            this.ppatches_fontRendererBatching_drawnAnyUnicode = false;
             this.ppatches_fontRendererBatching_flushTessellators();
         }
+    }
+
+    @Inject(method = "Lnet/minecraft/client/gui/FontRenderer;readFontTexture()V",
+            at = @At(value = "INVOKE", target = "Ljava/awt/image/BufferedImage;getRGB(IIII[III)[I", shift = At.Shift.AFTER),
+            locals = LocalCapture.CAPTURE_FAILHARD,
+            allow = 1, require = 1)
+    private void ppatches_fontRendererBatching_readFontTexture_findWhitePixel(CallbackInfo ci, IResource resource, BufferedImage bufferedImage, int width, int height, int[] pixels) {
+        for (int i = 0; i < pixels.length; i++) {
+            if (pixels[i] == -1) { //an opaque white pixel
+                int px = i / height;
+                int py = i % height;
+
+                this.ppatches_fontRendererBatching_whitePixelX = px / 128.0f;
+                this.ppatches_fontRendererBatching_whitePixelY = py / 128.0f;
+                return;
+            }
+        }
+
+        throw new IllegalStateException("couldn't find any solid white pixels on ascii.png!");
+    }
+
+    // OptiFine compatibility
+    @Surrogate
+    private void ppatches_fontRendererBatching_readFontTexture_findWhitePixel(CallbackInfo ci, IResource resource, BufferedImage bufferedImage, Properties properties, int width, int height) {
+        int[] pixels = new int[width * height];
+        bufferedImage.getRGB(0, 0, width, height, pixels, 0, width);
+        this.ppatches_fontRendererBatching_readFontTexture_findWhitePixel(ci, resource, bufferedImage, width, height, pixels);
     }
 
     @Redirect(method = "Lnet/minecraft/client/gui/FontRenderer;doDraw(F)V",
@@ -96,7 +130,7 @@ public abstract class MixinFontRenderer {
                     target = "Lnet/minecraft/client/renderer/Tessellator;getInstance()Lnet/minecraft/client/renderer/Tessellator;"),
             require = 2, allow = 2)
     private Tessellator ppatches_fontRendererBatching_doDraw_useCustomTessellators() {
-        return this.ppatches_fontRendererBatching_strikethroughUnderlineTessellator;
+        return this.ppatches_fontRendererBatching_defaultCharTessellator;
     }
 
     @Redirect(method = "Lnet/minecraft/client/gui/FontRenderer;doDraw(F)V",
@@ -115,7 +149,8 @@ public abstract class MixinFontRenderer {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/BufferBuilder;endVertex()V"),
             require = 8, allow = 8)
     private void ppatches_fontRendererBatching_doDraw_appendColorToVertex(BufferBuilder builder) {
-        builder.color(this.ppatches_fontRendererBatching_currentRed, this.ppatches_fontRendererBatching_currentGreen, this.ppatches_fontRendererBatching_currentBlue, this.ppatches_fontRendererBatching_currentAlpha)
+        builder.tex(this.ppatches_fontRendererBatching_whitePixelX, this.ppatches_fontRendererBatching_whitePixelY)
+                .color(this.ppatches_fontRendererBatching_currentRed, this.ppatches_fontRendererBatching_currentGreen, this.ppatches_fontRendererBatching_currentBlue, this.ppatches_fontRendererBatching_currentAlpha)
                 .endVertex();
     }
 
@@ -179,6 +214,13 @@ public abstract class MixinFontRenderer {
     //
     // renderUnicodeChar uses a separate set of textures, so we can't batch it together with the normal render output buffer
     //
+
+    @Inject(method = "Lnet/minecraft/client/gui/FontRenderer;renderUnicodeChar(CZ)F",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/FontRenderer;loadGlyphTexture(I)V"),
+            allow = 1, require = 1)
+    private void ppatches_fontRendererBatching_renderUnicodeChar_markUnicodeDrawn(CallbackInfoReturnable<Float> ci) {
+        this.ppatches_fontRendererBatching_drawnAnyUnicode = true;
+    }
 
     @Inject(method = "Lnet/minecraft/client/gui/FontRenderer;renderUnicodeChar(CZ)F",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GlStateManager;glBegin(I)V"),
