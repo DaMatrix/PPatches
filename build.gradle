@@ -170,7 +170,7 @@ jar {
                 "FMLCorePluginContainsFMLMod": "false",
                 "FMLCorePlugin": "net.daporkchop.ppatches.LoadingPlugin",
                 "ForceLoadAsMod": "false",
-                "FMLAT": "ppatches_at.cfg"
+                "FMLAT": "vanilla_fontRendererBatching_at.cfg"
         )
     }
 }
