@@ -22,6 +22,12 @@ public class ModuleConfigOptimizeTessellatorDraw extends PPatchesConfig.ModuleCo
     public int stagingBufferCapacity = 16 << 10;
 
     @Config.Comment({
+            "If the mode is STAGING_BUFFER, invalidate the staging buffer contents should be kept in client memory (i.e. RAM instead of VRAM).",
+            "Whether or not this will give a performance increase depends on your GPU driver. NVIDIA devices seem to benefit from having it enabled.",
+    })
+    public boolean stagingBufferClientStorage = true;
+
+    @Config.Comment({
             "If the mode is STAGING_BUFFER, invalidate the staging buffer contents every time the staging buffer is filled up and reset.",
             "Disabling this may cause visual artifacts, however not all GPU vendors may support it.",
     })

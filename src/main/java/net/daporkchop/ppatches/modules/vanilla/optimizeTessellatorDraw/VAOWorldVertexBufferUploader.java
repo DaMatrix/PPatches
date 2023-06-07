@@ -10,6 +10,8 @@ import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.WorldVertexBufferUploader;
 import net.minecraft.client.renderer.vertex.VertexFormat;
 import net.minecraft.client.renderer.vertex.VertexFormatElement;
+import net.minecraft.util.text.TextComponentString;
+import net.minecraft.util.text.TextFormatting;
 import net.minecraftforge.fml.common.FMLLog;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
@@ -36,9 +38,7 @@ import java.util.WeakHashMap;
 public class VAOWorldVertexBufferUploader extends WorldVertexBufferUploader {
     public static final Set<VAOWorldVertexBufferUploader> ALL_INSTANCES = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
 
-    protected static final int FLAGS = GL30.GL_MAP_WRITE_BIT | GL44.GL_MAP_PERSISTENT_BIT | GL44.GL_MAP_COHERENT_BIT;
-    protected static final int MAP_FLAGS = FLAGS | GL30.GL_MAP_INVALIDATE_BUFFER_BIT;
-    protected static final int STORAGE_FLAGS = FLAGS | GL44.GL_CLIENT_STORAGE_BIT;
+    protected static final int STAGING_BUFFER_FLAGS = GL30.GL_MAP_WRITE_BIT | GL44.GL_MAP_PERSISTENT_BIT | GL44.GL_MAP_COHERENT_BIT;
 
     protected final Reference2IntOpenHashMap<VertexFormat> format2vao = new Reference2IntOpenHashMap<>();
 
@@ -49,11 +49,6 @@ public class VAOWorldVertexBufferUploader extends WorldVertexBufferUploader {
 
     public VAOWorldVertexBufferUploader() {
         ContextCapabilities capabilities = GLContext.getCapabilities();
-
-        if (!(capabilities.OpenGL44 | capabilities.GL_ARB_buffer_storage)) { //we need persistently mapped buffers
-            throw new UnsupportedOperationException("OpenGL 4.4 or ARB_buffer_storage is required!");
-        }
-
         this.directStateAccess = capabilities.OpenGL45 | capabilities.GL_ARB_direct_state_access | capabilities.GL_EXT_direct_state_access;
 
         this.recreateBuffer();
@@ -103,20 +98,32 @@ public class VAOWorldVertexBufferUploader extends WorldVertexBufferUploader {
 
         switch (PPatchesConfig.vanilla_optimizeTessellatorDraw.mode) {
             case STAGING_BUFFER: {
-                int stagingBufferCapacity = Math.multiplyExact(PPatchesConfig.vanilla_optimizeTessellatorDraw.stagingBufferCapacity, 1024);
+                ContextCapabilities capabilities = GLContext.getCapabilities();
+                if (capabilities.OpenGL44 | capabilities.GL_ARB_buffer_storage) { //we have persistently mapped buffers
+                    int stagingBufferCapacity = Math.multiplyExact(PPatchesConfig.vanilla_optimizeTessellatorDraw.stagingBufferCapacity, 1024);
+                    int storageFlags = STAGING_BUFFER_FLAGS | (PPatchesConfig.vanilla_optimizeTessellatorDraw.stagingBufferClientStorage ? GL44.GL_CLIENT_STORAGE_BIT : 0);
 
-                //allocate buffer storage and create a persistent mapping
-                if (this.directStateAccess) {
-                    ARBDirectStateAccess.glNamedBufferStorage(this.buffer, stagingBufferCapacity, STORAGE_FLAGS);
-                    this.stagingBuffer = ARBDirectStateAccess.glMapNamedBufferRange(this.buffer, 0L, stagingBufferCapacity, MAP_FLAGS, this.stagingBuffer);
-                } else {
-                    GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
-                    ARBBufferStorage.glBufferStorage(GL15.GL_ARRAY_BUFFER, stagingBufferCapacity, STORAGE_FLAGS);
-                    this.stagingBuffer = GL30.glMapBufferRange(GL15.GL_ARRAY_BUFFER, 0L, stagingBufferCapacity, MAP_FLAGS, this.stagingBuffer);
-                    GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+                    //allocate buffer storage and create a persistent mapping
+                    if (this.directStateAccess) {
+                        ARBDirectStateAccess.glNamedBufferStorage(this.buffer, stagingBufferCapacity, storageFlags);
+                        this.stagingBuffer = ARBDirectStateAccess.glMapNamedBufferRange(this.buffer, 0L, stagingBufferCapacity, STAGING_BUFFER_FLAGS, this.stagingBuffer);
+                    } else {
+                        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
+                        ARBBufferStorage.glBufferStorage(GL15.GL_ARRAY_BUFFER, stagingBufferCapacity, storageFlags);
+                        this.stagingBuffer = GL30.glMapBufferRange(GL15.GL_ARRAY_BUFFER, 0L, stagingBufferCapacity, STAGING_BUFFER_FLAGS, this.stagingBuffer);
+                        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+                    }
+                    this.stagingBuffer.clear();
+                    break;
                 }
-                this.stagingBuffer.clear();
-                break;
+
+                String msg = "vanilla.optimizeTessellatorDraw: OpenGL 4.4 or ARB_buffer_storage is required to use STAGING_BUFFER mode! Falling back to ORPHAN_BUFFER.";
+                if (Minecraft.getMinecraft().player != null) {
+                    Minecraft.getMinecraft().player.sendMessage(new TextComponentString(TextFormatting.RED + msg));
+                } else {
+                    PPatchesMod.LOGGER.error(msg);
+                }
+                //fall through
             }
             case ORPHAN_BUFFER:
                 //set the buffer to null so we know we're not using a staging buffer
@@ -137,11 +144,11 @@ public class VAOWorldVertexBufferUploader extends WorldVertexBufferUploader {
             //  (this prevents us from having to deal with a bunch of extra synchronization stuff)
             if (this.directStateAccess) {
                 ARBDirectStateAccess.glUnmapNamedBuffer(this.buffer);
-                this.stagingBuffer = ARBDirectStateAccess.glMapNamedBufferRange(this.buffer, 0L, this.stagingBuffer.capacity(), MAP_FLAGS | GL30.GL_MAP_INVALIDATE_BUFFER_BIT, this.stagingBuffer);
+                this.stagingBuffer = ARBDirectStateAccess.glMapNamedBufferRange(this.buffer, 0L, this.stagingBuffer.capacity(), STAGING_BUFFER_FLAGS | GL30.GL_MAP_INVALIDATE_BUFFER_BIT, this.stagingBuffer);
             } else {
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
                 GL15.glUnmapBuffer(GL15.GL_ARRAY_BUFFER);
-                this.stagingBuffer = GL30.glMapBufferRange(GL15.GL_ARRAY_BUFFER, 0L, this.stagingBuffer.capacity(), MAP_FLAGS | GL30.GL_MAP_INVALIDATE_BUFFER_BIT, this.stagingBuffer);
+                this.stagingBuffer = GL30.glMapBufferRange(GL15.GL_ARRAY_BUFFER, 0L, this.stagingBuffer.capacity(), STAGING_BUFFER_FLAGS | GL30.GL_MAP_INVALIDATE_BUFFER_BIT, this.stagingBuffer);
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
             }
         } else {
