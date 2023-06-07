@@ -33,6 +33,7 @@ import java.util.SortedMap;
 import java.util.stream.Collectors;
 
 public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
+    public static boolean isStarted;
     public static boolean isObfuscatedEnvironment;
 
     private static Map<String, Boolean> moduleStates;
@@ -64,6 +65,7 @@ public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
 
         if (phase == MixinEnvironment.Phase.DEFAULT) { //allow garbage collection now that all mixins have been loaded
             moduleStates = null;
+            isStarted = true;
         }
     }
 

@@ -1,8 +1,8 @@
 package net.daporkchop.ppatches;
 
-import net.minecraftforge.fml.client.event.ConfigChangedEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * @author DaPorkchop_
@@ -14,10 +14,5 @@ public final class PPatchesMod {
     public static final String MODID = "ppatches";
     public static final String NAME = "PPatches";
 
-    @SubscribeEvent
-    public void configChanged(ConfigChangedEvent.OnConfigChangedEvent event) {
-        if (MODID.equals(event.getModID())) {
-            PPatchesConfig.load();
-        }
-    }
+    public static final Logger LOGGER = LogManager.getLogger(NAME);
 }

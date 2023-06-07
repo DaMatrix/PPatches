@@ -6,20 +6,27 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
 import net.minecraftforge.common.config.Config;
 import net.minecraftforge.common.config.ConfigCategory;
 import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.common.config.Property;
+import net.minecraftforge.fml.client.event.ConfigChangedEvent;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
 import java.io.File;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * @author DaPorkchop_
  */
 @UtilityClass
+@Mod.EventBusSubscriber(modid = PPatchesMod.MODID)
 public class PPatchesConfig {
     public static final Configuration CONFIGURATION;
 
@@ -27,13 +34,13 @@ public class PPatchesConfig {
             "Patches FoamFix to optimize the algorithm used for blending between frames of animated textures with interpolation enabled, such as lava or command blocks.",
             "This is unlikely to give any meaningful performance benefits.",
     })
-    public static final BaseModule foamFix_optimizeTextureInterpolation = new BaseModule();
+    public static final ModuleConfigBase foamFix_optimizeTextureInterpolation = new ModuleConfigBase();
 
     @Config.Comment({
             "Patches FoamFix to make OptiFine's \"Smart Animations\" work.",
             "Without this patch, OptiFine's \"Smart Animations\" will have no effect if FoamFix is installed.",
     })
-    public static final BaseModule foamFix_respectOptiFineSmartAnimations = new BaseModule();
+    public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase();
 
     @Config.Comment({
             "Patches JourneyMap to prevent it from rendering a tooltip for every widget on the screen, regardless of whether or not the mouse is hovering over the widget"
@@ -42,7 +49,7 @@ public class PPatchesConfig {
             "In a test world with JourneyMap's minimap set to size 30, and all visible chunks claimed using FTB Utilities, this produced roughly a 3.5x speedup in"
             + " JourneyMap map rendering (from ~60% of the total frame time to ~15%).",
     })
-    public static final BaseModule journeyMap_skipRenderingOffscreenTooltips = new BaseModule();
+    public static final ModuleConfigBase journeyMap_skipRenderingOffscreenTooltips = new ModuleConfigBase();
 
     @Config.Comment({
             "Patches JustPlayerHeads to make it be able to retrieve player skins again.",
@@ -51,14 +58,14 @@ public class PPatchesConfig {
             + " expected when the API data format was changed. This patch makes JustPlayerHeads use Minecraft's built-in player profile cache to retrieve skin data"
             + " without using Mojang's API directly (and also ends up being quite a bit faster as a result, since 99% of the time the skin data is already cached locally!)",
     })
-    public static final BaseModule justPlayerHeads_fixSkinRetrieval = new BaseModule();
+    public static final ModuleConfigBase justPlayerHeads_fixSkinRetrieval = new ModuleConfigBase();
 
     @Config.Comment({
             "Patches Minecraft's font renderer to group together entire strings and send them to the GPU at once, instead of drawing each letter individually.",
             "Whether or not this will give a performance increase depends on your GPU driver. AMD GPUs appear to benefit the most from this, have an FPS increase "
             + " of roughly 5% when the F3 menu is open.",
     })
-    public static final BaseModule vanilla_fontRendererBatching = new BaseModule();
+    public static final ModuleConfigBase vanilla_fontRendererBatching = new ModuleConfigBase();
 
     @Config.Comment({
             "Patches Minecraft's font renderer to reset the text style when drawing text with a shadow.",
@@ -66,7 +73,7 @@ public class PPatchesConfig {
             + " beginning or end.",
             "This has no meaningful performance impact.",
     })
-    public static final BaseModule vanilla_fontRendererFixStyleResetShadow = new BaseModule();
+    public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase();
 
     @Config.Comment({
             "Patches Minecraft's Tessellator to use an alternative technique for sending draw commands to the GPU, which may be more efficient on some systems.",
@@ -75,7 +82,7 @@ public class PPatchesConfig {
             "Whether or not this will give a performance increase depends on your GPU driver, and on some drivers it may cause visual bugs. NVIDIA GPUs in particular"
             + " seem to get roughly 10-15% higher FPS without any noticeable issues, however AMD's driver seems to glitch out most of the time.",
     })
-    public static final BaseModule vanilla_optimizeTessellatorDraw = new BaseModule();
+    public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTessellatorDraw = new ModuleConfigOptimizeTessellatorDraw();
 
     @Config.Comment({
             "Patches Minecraft's World class to cache its hash code, instead of using Java's default implementation.",
@@ -86,11 +93,11 @@ public class PPatchesConfig {
             + " the total frame time to ~1.5%). Your mileage may vary, however even in the worst case this patch should have no effect (enabling it won't make your game"
             + " run slower).",
     })
-    public static final BaseModule vanilla_optimizeWorldHashing = new BaseModule();
+    public static final ModuleConfigBase vanilla_optimizeWorldHashing = new ModuleConfigBase();
 
     @NoArgsConstructor(access = AccessLevel.PROTECTED)
     @Data
-    public static class BaseModule implements IModuleConfig {
+    public static class ModuleConfigBase implements IModuleConfig {
         @Config.RequiresMcRestart
         public boolean enabled = false;
     }
@@ -119,7 +126,7 @@ public class PPatchesConfig {
     }
 
     @SneakyThrows(ReflectiveOperationException.class)
-    public synchronized static void load() {
+    private synchronized static void load(boolean init) {
         for (Field field : PPatchesConfig.class.getDeclaredFields()) {
             Object value = field.get(null);
             if (value instanceof IModuleConfig) {
@@ -131,7 +138,7 @@ public class PPatchesConfig {
                 category.setRequiresWorldRestart(requiresWorldRestart(field));
                 category.setRequiresMcRestart(requiresMcRestart(field));
 
-                ((IModuleConfig) value).loadFromConfig(CONFIGURATION, categoryName);
+                ((IModuleConfig) value).loadFromConfig(CONFIGURATION, categoryName, init);
             }
         }
 
@@ -157,10 +164,13 @@ public class PPatchesConfig {
         boolean isEnabled();
 
         @SneakyThrows(ReflectiveOperationException.class)
-        default void loadFromConfig(Configuration configuration, String category) {
+        default void loadFromConfig(Configuration configuration, String category, boolean init) {
+            Set<String> unknownKeys = new TreeSet<>(configuration.getCategory(category).keySet());
+
             for (Field field : this.getClass().getFields()) {
                 Class<?> type = field.getType();
                 String name = getName(field.getName(), field);
+                unknownKeys.remove(name);
 
                 Property property;
                 if (configuration.hasKey(category, name)) {
@@ -169,63 +179,81 @@ public class PPatchesConfig {
                     property = configuration.getCategory(category).get(name);
                 } else {
                     if (type == boolean.class) {
-                        property = configuration.get(category, name, field.getBoolean(this));
+                        property = configuration.get(category, name, false);
                     } else if (type == int.class) {
-                        property = configuration.get(category, name, field.getInt(this));
+                        property = configuration.get(category, name, 0);
                     } else if (type == double.class) {
-                        property = configuration.get(category, name, field.getDouble(this));
+                        property = configuration.get(category, name, 0.0d);
                     } else if (type == String.class) {
-                        property = configuration.get(category, name, (String) field.get(this));
+                        property = configuration.get(category, name, "");
                     } else if (type.isEnum()) {
                         property = configuration.get(category, name, ((Enum<?>) field.get(this)).name());
+                    } else {
+                        throw new IllegalStateException("don't know how to handle " + field);
+                    }
+                }
 
+                if (init) {
+                    if (type == boolean.class) {
+                        property.setDefaultValue(field.getBoolean(this));
+                    } else if (type == int.class) {
+                        property.setDefaultValue(field.getInt(this));
+                    } else if (type == double.class) {
+                        property.setDefaultValue(field.getDouble(this));
+                    } else if (type == String.class) {
+                        property.setDefaultValue((String) field.get(this));
+                    } else if (type.isEnum()) {
+                        property.setDefaultValue(((Enum<?>) field.get(this)).name());
+                    } else {
+                        throw new IllegalStateException("don't know how to handle " + field);
+                    }
+
+                    if (type.isEnum()) {
                         Enum<?>[] values = (Enum<?>[]) type.getEnumConstants();
                         String[] names = new String[values.length];
                         for (int i = 0; i < values.length; i++) {
                             names[i] = values[i].name();
                         }
                         property.setValidValues(names);
-                    } else {
-                        throw new IllegalStateException("don't know how to handle " + field);
                     }
-                }
 
-                String comment = getComment(field);
-                StringBuilder commentBuilder = new StringBuilder();
-                if (comment != null) {
-                    commentBuilder.append(comment).append('\n');
-                }
-                commentBuilder.append("[default: ").append(property.isList() ? Arrays.toString(property.getDefaults()) : property.getDefault()).append(']');
-                if (property.getValidValues() != null && property.getValidValues().length != 0) {
-                    commentBuilder.append("\nAccepted values:");
-                    for (String validValue : property.getValidValues()) {
-                        commentBuilder.append("\n- ").append(validValue);
+                    String comment = getComment(field);
+                    StringBuilder commentBuilder = new StringBuilder();
+                    if (comment != null) {
+                        commentBuilder.append(comment).append('\n');
                     }
-                }
-
-                property.setComment(commentBuilder.toString());
-                property.setLanguageKey(getLangKey(category + '.' + name, field));
-                property.setRequiresWorldRestart(requiresMcRestart(field));
-                property.setRequiresMcRestart(requiresMcRestart(field));
-
-                {
-                    Config.RangeInt annotation = field.getAnnotation(Config.RangeInt.class);
-                    if (annotation != null) {
-                        if (type != int.class) {
-                            throw new IllegalStateException(Config.RangeInt.class + " cannot be applied to " + field);
+                    commentBuilder.append("[default: ").append(property.isList() ? Arrays.toString(property.getDefaults()) : property.getDefault()).append(']');
+                    if (property.getValidValues() != null && property.getValidValues().length != 0) {
+                        commentBuilder.append("\nAccepted values:");
+                        for (String validValue : property.getValidValues()) {
+                            commentBuilder.append("\n- ").append(validValue);
                         }
-                        property.setMinValue(annotation.min());
-                        property.setMaxValue(annotation.max());
                     }
-                }
-                {
-                    Config.RangeDouble annotation = field.getAnnotation(Config.RangeDouble.class);
-                    if (annotation != null) {
-                        if (type != double.class) {
-                            throw new IllegalStateException(Config.RangeDouble.class + " cannot be applied to " + field);
+
+                    property.setComment(commentBuilder.toString());
+                    property.setLanguageKey(getLangKey(category + '.' + name, field));
+                    property.setRequiresWorldRestart(requiresMcRestart(field));
+                    property.setRequiresMcRestart(requiresMcRestart(field));
+
+                    {
+                        Config.RangeInt annotation = field.getAnnotation(Config.RangeInt.class);
+                        if (annotation != null) {
+                            if (type != int.class) {
+                                throw new IllegalStateException(Config.RangeInt.class + " cannot be applied to " + field);
+                            }
+                            property.setMinValue(annotation.min());
+                            property.setMaxValue(annotation.max());
                         }
-                        property.setMinValue(annotation.min());
-                        property.setMaxValue(annotation.max());
+                    }
+                    {
+                        Config.RangeDouble annotation = field.getAnnotation(Config.RangeDouble.class);
+                        if (annotation != null) {
+                            if (type != double.class) {
+                                throw new IllegalStateException(Config.RangeDouble.class + " cannot be applied to " + field);
+                            }
+                            property.setMinValue(annotation.min());
+                            property.setMaxValue(annotation.max());
+                        }
                     }
                 }
 
@@ -245,11 +273,22 @@ public class PPatchesConfig {
                     throw new IllegalStateException("don't know how to handle " + field);
                 }
             }
+
+            if (!unknownKeys.isEmpty()) { //some config keys aren't present any more, remove them
+                configuration.getCategory(category).keySet().removeAll(unknownKeys);
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void configChanged(ConfigChangedEvent.OnConfigChangedEvent event) {
+        if (PPatchesMod.MODID.equals(event.getModID())) {
+            load(false);
         }
     }
 
     static { //this needs to be at the end of the class
         CONFIGURATION = new Configuration(new File("config", "ppatches.cfg"), true);
-        load();
+        load(true);
     }
 }
