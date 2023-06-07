@@ -72,7 +72,7 @@ public abstract class MixinFontRenderer {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void ppatches_fontRendererBatching_init(CallbackInfo ci) {
-        (this.ppatches_fontRendererBatching_defaultCharTessellator = new Tessellator(2097152)).getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
+        (this.ppatches_fontRendererBatching_defaultCharTessellator = new Tessellator(4096)).getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
     }
 
     @Unique
