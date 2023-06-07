@@ -70,7 +70,7 @@ minecraft {
 
     mappings = "$mcpmappingsVersion"
     makeObfSourceJar = false
-    coreMod = "net.daporkchop.ppatches.LoadingPlugin"
+    coreMod = "net.daporkchop.ppatches.PPatchesLoadingPlugin"
 
     def args = [
             "-Dmixin.checks.interfaces=true",
@@ -158,7 +158,7 @@ jar {
             it.isDirectory() ? it : zipTree(it)
         }.unique(true)
     } {
-        exclude "META-INF/**"
+        exclude "META-INF/MANIFEST.MF"
         exclude sourceSets.main.output.asFileTree.collect {
             return it.getPath().split("java/main/").last()
         }
@@ -168,9 +168,9 @@ jar {
         attributes(
                 "tweakClass": "org.spongepowered.asm.launch.MixinTweaker",
                 "TweakOrder": 0,
-                "FMLCorePluginContainsFMLMod": "false",
-                "FMLCorePlugin": "net.daporkchop.ppatches.LoadingPlugin",
-                "ForceLoadAsMod": "false",
+                "FMLCorePluginContainsFMLMod": "true",
+                "FMLCorePlugin": "net.daporkchop.ppatches.PPatchesLoadingPlugin",
+                "ForceLoadAsMod": "true",
                 "FMLAT": "vanilla_fontRendererBatching_at.cfg"
         )
     }
