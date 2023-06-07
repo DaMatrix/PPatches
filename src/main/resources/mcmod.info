@@ -1,0 +1,18 @@
+[
+  {
+    "modid": "ppatches",
+    "name": "PPatches",
+    "description": "Allows Forge configurations to be setup at any point in time.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "https://daporkchop.net",
+    "updateUrl": "",
+    "authorList": [
+      "DaPorkchop_"
+    ],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]

@@ -17,7 +17,6 @@
 package net.daporkchop.ppatches;
 
 import lombok.SneakyThrows;
-import net.daporkchop.ppatches.config.Config;
 import net.minecraft.launchwrapper.LaunchClassLoader;
 import net.minecraftforge.fml.common.FMLLog;
 import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin;
@@ -30,8 +29,10 @@ import javax.annotation.Nullable;
 import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.stream.Collectors;
 
-public class LoadingPlugin implements IFMLLoadingPlugin {
+public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
     public static boolean isObfuscatedEnvironment;
 
     private static Map<String, Boolean> moduleStates;
@@ -47,7 +48,7 @@ public class LoadingPlugin implements IFMLLoadingPlugin {
             Field field = LaunchClassLoader.class.getDeclaredField("transformerExceptions");
             field.setAccessible(true);
             @SuppressWarnings("unchecked")
-            Set<String> transformerExclusions = (Set<String>) field.get(LoadingPlugin.class.getClassLoader());
+            Set<String> transformerExclusions = (Set<String>) field.get(PPatchesLoadingPlugin.class.getClassLoader());
 
             //allow transforming non-core FoamFix classes (FoamFix adds an exclusion for the entire mod)
             if (transformerExclusions.remove("pl.asie.foamfix")) {
@@ -66,14 +67,14 @@ public class LoadingPlugin implements IFMLLoadingPlugin {
         }
     }
 
-    public LoadingPlugin() {
+    public PPatchesLoadingPlugin() {
         FMLLog.log.info("\n\n\nPPatches Mixin init\n\n");
         MixinBootstrap.init();
 
-        Map<String, Boolean> moduleStates = Config.load();
+        Map<String, Boolean> moduleStates = PPatchesConfig.listModules().entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().isEnabled()));
         for (Map.Entry<String, Boolean> entry : moduleStates.entrySet()) {
             if (entry.getValue()) { //at least one module is enabled, we can register stuff to start loading
-                LoadingPlugin.moduleStates = moduleStates;
+                PPatchesLoadingPlugin.moduleStates = moduleStates;
 
                 LogManager.getLogger("PPatches").info("Adding root loader mixin...");
                 Mixins.addConfiguration("mixins.ppatches.json");

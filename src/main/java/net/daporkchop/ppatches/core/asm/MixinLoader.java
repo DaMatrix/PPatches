@@ -1,7 +1,6 @@
 package net.daporkchop.ppatches.core.asm;
 
-import net.daporkchop.ppatches.LoadingPlugin;
-import net.minecraft.launchwrapper.Launch;
+import net.daporkchop.ppatches.PPatchesLoadingPlugin;
 import net.minecraft.launchwrapper.LaunchClassLoader;
 import net.minecraftforge.fml.common.Loader;
 import net.minecraftforge.fml.common.ModClassLoader;
@@ -13,7 +12,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.transformer.Proxy;
 import org.spongepowered.asm.mixin.transformer.ext.Extensions;
 
 import java.lang.reflect.Field;
@@ -57,7 +55,7 @@ public abstract class MixinLoader {
             }
         }
 
-        LoadingPlugin.loadModules(MixinEnvironment.Phase.DEFAULT);
+        PPatchesLoadingPlugin.loadModules(MixinEnvironment.Phase.DEFAULT);
 
         try {
             // This will very likely break on the next major mixin release.

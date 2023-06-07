@@ -46,6 +46,7 @@ ext {
     minecraftVersion = "1.12.2"
 
     //dependency things
+    configanytimeVersion = "1.0"
     guavaVersion = "21.0"
     lombokVersion = "1.16.20"
     mixinVersion = "0.8.2"
@@ -101,7 +102,7 @@ repositories {
         name = "DaPorkchop_"
         url = "https://maven.daporkchop.net/"
     }
-    maven {
+    maven { //Mixin
         name = "spongepowered-repo"
         url = "https://repo.spongepowered.org/maven/"
     }
