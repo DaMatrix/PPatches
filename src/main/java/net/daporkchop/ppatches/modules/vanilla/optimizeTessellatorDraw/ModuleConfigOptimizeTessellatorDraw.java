@@ -12,6 +12,11 @@ import net.minecraftforge.fml.relauncher.SideOnly;
  * @author DaPorkchop_
  */
 public class ModuleConfigOptimizeTessellatorDraw extends PPatchesConfig.ModuleConfigBase {
+    @Config.Comment({
+            "Selects the technique to use for uploading vertex data to the GPU.",
+            "Which mode is the fastest depends on your GPU driver. Testing indicates that NVIDIA devices work best with STAGING_BUFFER, while AMD devices get better"
+            + " performance when using ORPHAN_BUFFER. If you are seeing visual artifacts after enabling this module, try switching to another render mode.",
+    })
     public Mode mode = Mode.STAGING_BUFFER;
 
     @Config.Comment({
@@ -51,7 +56,14 @@ public class ModuleConfigOptimizeTessellatorDraw extends PPatchesConfig.ModuleCo
     }
 
     public enum Mode {
+        @Config.Comment({
+                "Copies data directly to OpenGL using a persistently mapped buffer. Note that this requires driver support for either OpenGL 4.4 or ARB_buffer_storage!",
+        })
         STAGING_BUFFER,
+        @Config.Comment({
+                "Uses glBufferData to upload data to OpenGL, orphaning the previous buffer contents in the process. This should be supported everywhere, but may result in"
+                + " worse performance than STAGING_BUFFER on some drivers.",
+        })
         ORPHAN_BUFFER,
     }
 }

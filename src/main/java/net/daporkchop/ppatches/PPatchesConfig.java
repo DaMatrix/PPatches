@@ -18,6 +18,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import java.io.File;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.TreeSet;
@@ -168,6 +169,10 @@ public class PPatchesConfig {
             Set<String> unknownKeys = new TreeSet<>(configuration.getCategory(category).keySet());
 
             for (Field field : this.getClass().getFields()) {
+                if ((field.getModifiers() & Modifier.TRANSIENT) != 0 || field.isAnnotationPresent(Config.Ignore.class)) { //skip ignored fields
+                    continue;
+                }
+
                 Class<?> type = field.getType();
                 String name = getName(field.getName(), field);
                 unknownKeys.remove(name);
@@ -227,6 +232,14 @@ public class PPatchesConfig {
                         commentBuilder.append("\nAccepted values:");
                         for (String validValue : property.getValidValues()) {
                             commentBuilder.append("\n- ").append(validValue);
+                            if (type.isEnum()) {
+                                Field enumField = type.getField(validValue);
+                                assert enumField.getDeclaringClass() == type : enumField + " is declared in class " + enumField.getDeclaringClass().getTypeName();
+                                String enumComment = getComment(enumField);
+                                if (enumComment != null) { //append enum value description to comment
+                                    commentBuilder.append(":\n   ").append(enumComment.replace("\n", "   \n"));
+                                }
+                            }
                         }
                     }
 

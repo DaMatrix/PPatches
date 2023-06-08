@@ -49,7 +49,7 @@ public class VAOWorldVertexBufferUploader extends WorldVertexBufferUploader {
 
     public VAOWorldVertexBufferUploader() {
         ContextCapabilities capabilities = GLContext.getCapabilities();
-        this.directStateAccess = capabilities.OpenGL45 | capabilities.GL_ARB_direct_state_access | capabilities.GL_EXT_direct_state_access;
+        this.directStateAccess = capabilities.OpenGL45 | capabilities.GL_ARB_direct_state_access;
 
         this.recreateBuffer();
 
