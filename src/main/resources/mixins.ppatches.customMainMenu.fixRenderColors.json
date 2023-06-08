@@ -1,0 +1,9 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.customMainMenu.fixRenderColors.asm",
+  "refmap": "mixins.ppatches.refmap.json",
+  "client": [
+    "MixinGuiCustom"
+  ]
+}

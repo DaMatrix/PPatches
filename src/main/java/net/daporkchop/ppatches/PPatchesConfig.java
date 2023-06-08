@@ -32,6 +32,13 @@ public class PPatchesConfig {
     public static final Configuration CONFIGURATION;
 
     @Config.Comment({
+            "Patches CustomMainMenu to use GlStateManager instead of directly invoking glColor*.",
+            "This is a bug that normally makes no difference, but is noticeable when using the vanilla.optimizeTessellatorDraw module. It should have no performance"
+            + " implications.",
+    })
+    public static final ModuleConfigBase customMainMenu_fixRenderColors = new ModuleConfigBase();
+
+    @Config.Comment({
             "Patches FoamFix to optimize the algorithm used for blending between frames of animated textures with interpolation enabled, such as lava or command blocks.",
             "This is unlikely to give any meaningful performance benefits.",
     })
@@ -184,13 +191,13 @@ public class PPatchesConfig {
                     property = configuration.getCategory(category).get(name);
                 } else {
                     if (type == boolean.class) {
-                        property = configuration.get(category, name, false);
+                        property = configuration.get(category, name, field.getBoolean(this));
                     } else if (type == int.class) {
-                        property = configuration.get(category, name, 0);
+                        property = configuration.get(category, name, field.getInt(this));
                     } else if (type == double.class) {
-                        property = configuration.get(category, name, 0.0d);
+                        property = configuration.get(category, name, field.getDouble(this));
                     } else if (type == String.class) {
-                        property = configuration.get(category, name, "");
+                        property = configuration.get(category, name, (String) field.get(this));
                     } else if (type.isEnum()) {
                         property = configuration.get(category, name, ((Enum<?>) field.get(this)).name());
                     } else {
