@@ -1,8 +1,10 @@
 package net.daporkchop.ppatches.modules.foamFix.respectOptiFineSmartAnimations.asm;
 
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import org.spongepowered.asm.mixin.Dynamic;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -18,10 +20,14 @@ import java.lang.reflect.Field;
 @Pseudo
 @Mixin(targets = "pl.asie.foamfix.client.FastTextureAtlasSprite", remap = false)
 public abstract class MixinFastTextureAtlasSprite extends TextureAtlasSprite {
+    @Unique
     private static final MethodHandle SMARTANIMATIONS_ISACTIVE;
+    @Unique
     private static final MethodHandle SMARTANIMATIONS_ISSPRITERENDERED;
 
+    @Unique
     private static final MethodHandle TEXTUREATLASSPRITE_GETANIMATIONINDEX;
+    @Unique
     private static final MethodHandle TEXTUREATLASSPRITE_SETANIMATIONACTIVE;
 
     static {
@@ -48,6 +54,7 @@ public abstract class MixinFastTextureAtlasSprite extends TextureAtlasSprite {
         super(spriteName);
     }
 
+    @Dynamic
     @Inject(
             method = {
                     "Lpl/asie/foamfix/client/FastTextureAtlasSprite;updateAnimation()V",

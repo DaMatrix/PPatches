@@ -1,5 +1,6 @@
 package net.daporkchop.ppatches.modules.journeyMap.skipRenderingOffscreenTooltips.asm;
 
+import org.spongepowered.asm.mixin.Dynamic;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Shadow;
@@ -27,6 +28,7 @@ public abstract class MixinBaseOverlayDrawStep {
     @Shadow
     protected Point2D.Double titlePosition;
 
+    @Dynamic
     @Inject(method = "<init>",
             at = @At("RETURN"),
             allow = 1, require = 1)

@@ -1,5 +1,6 @@
 package net.daporkchop.ppatches.modules.foamFix.optimizeTextureInterpolation.asm;
 
+import org.spongepowered.asm.mixin.Dynamic;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Pseudo;
@@ -14,6 +15,7 @@ public abstract class MixinFastTextureAtlasSprite {
      * @reason use a more optimized implementation of texture interpolation which only uses integer math
      * @author DaPorkchop_
      */
+    @Dynamic
     @Overwrite
     private boolean interpolateFrame(int[] to, int[] from1, int[] from2, double ratioIn) {
         if (from1.length != from2.length) {
