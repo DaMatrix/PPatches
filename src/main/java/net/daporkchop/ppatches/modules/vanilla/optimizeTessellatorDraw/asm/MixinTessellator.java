@@ -16,25 +16,8 @@ public abstract class MixinTessellator {
             at = @At(value = "NEW", target = "net/minecraft/client/renderer/WorldVertexBufferUploader"),
             allow = 1, require = 1)
     private WorldVertexBufferUploader ppatches_vaoRendering_useVaoBufferUploader() {
-        return new VAOWorldVertexBufferUploader();
+        return Tessellator.getInstance() == null
+                ? new VAOWorldVertexBufferUploader() //this is the main Tessellator instance, create a new uploader
+                : Tessellator.getInstance().vboUploader; //re-use the uploader instance from the main Tessellator
     }
-
-    /*@Unique
-    private VAOWorldVertexBufferUploader ppatches_vaoRendering_vaoUploader;
-
-    @Inject(method = "<init>",
-            at = @At("RETURN"),
-            allow = 1, require = 1)
-    private void ppatches_vaoRendering_init(CallbackInfo ci) {
-        this.ppatches_vaoRendering_vaoUploader = new VAOWorldVertexBufferUploader();
-    }
-
-    @Redirect(method = "draw()V",
-            at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/client/renderer/WorldVertexBufferUploader;draw(Lnet/minecraft/client/renderer/BufferBuilder;)V"),
-            allow = 1, require = 1)
-    private void ppatches_vaoRendering_draw(WorldVertexBufferUploader uploader, BufferBuilder builder) {
-        //uploader.draw(builder);
-        this.ppatches_vaoRendering_vaoUploader.draw(builder);
-    }*/
 }

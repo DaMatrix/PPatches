@@ -1,3 +1,5 @@
+import java.nio.file.Files
+
 /*
  * Adapted from the Wizardry License
  *
@@ -171,7 +173,11 @@ jar {
                 "FMLCorePluginContainsFMLMod": "true",
                 "FMLCorePlugin": "net.daporkchop.ppatches.PPatchesLoadingPlugin",
                 "ForceLoadAsMod": "true",
-                "FMLAT": "vanilla_fontRendererBatching_at.cfg"
+                "FMLAT": sourceSets.main.resources.srcDirs.stream().flatMap { dir ->
+                    project.fileTree(dir) {
+                        include "**_at.cfg"
+                    }.getFiles().stream().map { file -> dir.toPath().relativize(file.toPath()).toString() }
+                }.sorted().collect(java.util.stream.Collectors.joining(" "))
         )
     }
 }
