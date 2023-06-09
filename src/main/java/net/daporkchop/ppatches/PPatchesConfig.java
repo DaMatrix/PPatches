@@ -33,8 +33,8 @@ public class PPatchesConfig {
 
     @Config.Comment({
             "Patches CustomMainMenu to use GlStateManager instead of directly invoking glColor*.",
-            "This is a bug that normally makes no difference, but is noticeable when using the vanilla.optimizeTessellatorDraw module. It should have no performance"
-            + " implications.",
+            "This fixes a bug that normally makes no difference, but is noticeable when using the vanilla.optimizeTessellatorDraw module. Enabling this patch should have"
+            + " no performance implications.",
     })
     public static final ModuleConfigBase customMainMenu_fixRenderColors = new ModuleConfigBase();
 
@@ -118,6 +118,52 @@ public class PPatchesConfig {
     private static String getComment(AnnotatedElement element) {
         Config.Comment annotation = element.getAnnotation(Config.Comment.class);
         return annotation != null ? String.join("\n", annotation.value()) : null;
+    }
+
+    @SneakyThrows(ReflectiveOperationException.class)
+    private static String getComment(Class<?> type, Property property, AnnotatedElement element) {
+        StringBuilder builder = new StringBuilder();
+
+        Config.Comment commentAnnotation = element.getAnnotation(Config.Comment.class);
+        if (commentAnnotation != null) {
+            for (String line : commentAnnotation.value()) {
+                builder.append(line).append('\n');
+            }
+            if (builder.length() > 0) { //remove trailing newline
+                builder.setLength(builder.length() - 1);
+            }
+        }
+
+        //append additional comment text describing the property
+        builder.append("[default: ").append(property.isList() ? Arrays.toString(property.getDefaults()) : property.getDefault()).append(']');
+
+        if (property.getValidValues() != null && property.getValidValues().length != 0) { //only some values are actually allowed, add them
+            builder.append("\nAccepted values:");
+            for (String validValue : property.getValidValues()) {
+                builder.append("\n- ").append(validValue);
+
+                if (type.isEnum()) { //the field is an enum, the enum properties might be annotated with a comment describing the value
+                    Field enumField = type.getField(validValue);
+                    assert enumField.getDeclaringClass() == type : enumField + " is declared in class " + enumField.getDeclaringClass().getTypeName();
+                    String enumComment = getComment(enumField);
+                    if (enumComment != null) { //append enum value description to comment
+                        builder.append(":\n   ").append(enumComment.replace("\n", "   \n"));
+                    }
+                }
+            }
+        }
+
+        Config.RangeInt rangeAnnotationInt = element.getAnnotation(Config.RangeInt.class);
+        if (rangeAnnotationInt != null) {
+            builder.append("\nMinimum: ").append(rangeAnnotationInt.min()).append(", maximum: ").append(rangeAnnotationInt.max());
+        }
+
+        Config.RangeDouble rangeAnnotationDouble = element.getAnnotation(Config.RangeDouble.class);
+        if (rangeAnnotationDouble != null) {
+            builder.append("\nMinimum: ").append(rangeAnnotationDouble.min()).append(", maximum: ").append(rangeAnnotationDouble.max());
+        }
+
+        return builder.toString();
     }
 
     private static String getLangKey(String fallback, AnnotatedElement element) {
@@ -216,63 +262,53 @@ public class PPatchesConfig {
                         property.setDefaultValue((String) field.get(this));
                     } else if (type.isEnum()) {
                         property.setDefaultValue(((Enum<?>) field.get(this)).name());
-                    } else {
-                        throw new IllegalStateException("don't know how to handle " + field);
-                    }
 
-                    if (type.isEnum()) {
                         Enum<?>[] values = (Enum<?>[]) type.getEnumConstants();
                         String[] names = new String[values.length];
                         for (int i = 0; i < values.length; i++) {
                             names[i] = values[i].name();
                         }
                         property.setValidValues(names);
+                    } else {
+                        throw new IllegalStateException("don't know how to handle " + field);
                     }
 
-                    String comment = getComment(field);
-                    StringBuilder commentBuilder = new StringBuilder();
-                    if (comment != null) {
-                        commentBuilder.append(comment).append('\n');
-                    }
-                    commentBuilder.append("[default: ").append(property.isList() ? Arrays.toString(property.getDefaults()) : property.getDefault()).append(']');
-                    if (property.getValidValues() != null && property.getValidValues().length != 0) {
-                        commentBuilder.append("\nAccepted values:");
-                        for (String validValue : property.getValidValues()) {
-                            commentBuilder.append("\n- ").append(validValue);
-                            if (type.isEnum()) {
-                                Field enumField = type.getField(validValue);
-                                assert enumField.getDeclaringClass() == type : enumField + " is declared in class " + enumField.getDeclaringClass().getTypeName();
-                                String enumComment = getComment(enumField);
-                                if (enumComment != null) { //append enum value description to comment
-                                    commentBuilder.append(":\n   ").append(enumComment.replace("\n", "   \n"));
-                                }
-                            }
-                        }
-                    }
-
-                    property.setComment(commentBuilder.toString());
+                    property.setComment(getComment(type, property, field));
                     property.setLanguageKey(getLangKey(category + '.' + name, field));
                     property.setRequiresWorldRestart(requiresMcRestart(field));
                     property.setRequiresMcRestart(requiresMcRestart(field));
 
-                    {
-                        Config.RangeInt annotation = field.getAnnotation(Config.RangeInt.class);
-                        if (annotation != null) {
-                            if (type != int.class) {
-                                throw new IllegalStateException(Config.RangeInt.class + " cannot be applied to " + field);
-                            }
-                            property.setMinValue(annotation.min());
-                            property.setMaxValue(annotation.max());
+                    Config.RangeInt rangeAnnotationInt = field.getAnnotation(Config.RangeInt.class);
+                    if (rangeAnnotationInt != null) {
+                        if (type != int.class) {
+                            throw new IllegalStateException(Config.RangeInt.class + " cannot be applied to " + field);
+                        }
+
+                        int value = property.getInt();
+                        int min = rangeAnnotationInt.min();
+                        int max = rangeAnnotationInt.max();
+
+                        property.setMinValue(min);
+                        property.setMaxValue(max);
+                        if (value < min || value > max) { //enforce limits on configured values
+                            property.setValue(Math.min(Math.max(value, min), max));
                         }
                     }
-                    {
-                        Config.RangeDouble annotation = field.getAnnotation(Config.RangeDouble.class);
-                        if (annotation != null) {
-                            if (type != double.class) {
-                                throw new IllegalStateException(Config.RangeDouble.class + " cannot be applied to " + field);
-                            }
-                            property.setMinValue(annotation.min());
-                            property.setMaxValue(annotation.max());
+
+                    Config.RangeDouble rangeAnnotationDouble = field.getAnnotation(Config.RangeDouble.class);
+                    if (rangeAnnotationDouble != null) {
+                        if (type != double.class) {
+                            throw new IllegalStateException(Config.RangeDouble.class + " cannot be applied to " + field);
+                        }
+
+                        double value = property.getDouble();
+                        double min = rangeAnnotationDouble.min();
+                        double max = rangeAnnotationDouble.max();
+
+                        property.setMinValue(min);
+                        property.setMaxValue(max);
+                        if (value < min || value > max) { //enforce limits on configured values
+                            property.setValue(Math.min(Math.max(value, min), max));
                         }
                     }
                 }
