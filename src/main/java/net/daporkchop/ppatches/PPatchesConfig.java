@@ -1,9 +1,6 @@
 package net.daporkchop.ppatches;
 
 import com.google.common.collect.ImmutableSortedMap;
-import lombok.AccessLevel;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
@@ -16,6 +13,10 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
 import java.io.File;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -36,19 +37,20 @@ public class PPatchesConfig {
             "This fixes a bug that normally makes no difference, but is noticeable when using the vanilla.optimizeTessellatorDraw module. Enabling this patch should have"
             + " no performance implications.",
     })
-    public static final ModuleConfigBase customMainMenu_fixRenderColors = new ModuleConfigBase();
+    public static final ModuleConfigBase customMainMenu_fixRenderColors = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches FoamFix to optimize the algorithm used for blending between frames of animated textures with interpolation enabled, such as lava or command blocks.",
             "This is unlikely to give any meaningful performance benefits.",
     })
-    public static final ModuleConfigBase foamFix_optimizeTextureInterpolation = new ModuleConfigBase();
+    public static final ModuleConfigBase foamFix_optimizeTextureInterpolation = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches FoamFix to make OptiFine's \"Smart Animations\" work.",
             "Without this patch, OptiFine's \"Smart Animations\" will have no effect if FoamFix is installed.",
     })
-    public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase();
+    @AdditionalDependencies(classes = "net.optifine.SmartAnimations")
+    public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches JourneyMap to prevent it from rendering a tooltip for every widget on the screen, regardless of whether or not the mouse is hovering over the widget"
@@ -57,7 +59,7 @@ public class PPatchesConfig {
             "In a test world with JourneyMap's minimap set to size 30, and all visible chunks claimed using FTB Utilities, this produced roughly a 3.5x speedup in"
             + " JourneyMap map rendering (from ~60% of the total frame time to ~15%).",
     })
-    public static final ModuleConfigBase journeyMap_skipRenderingOffscreenTooltips = new ModuleConfigBase();
+    public static final ModuleConfigBase journeyMap_skipRenderingOffscreenTooltips = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches JustPlayerHeads to make it be able to retrieve player skins again.",
@@ -66,14 +68,14 @@ public class PPatchesConfig {
             + " expected when the API data format was changed. This patch makes JustPlayerHeads use Minecraft's built-in player profile cache to retrieve skin data"
             + " without using Mojang's API directly (and also ends up being quite a bit faster as a result, since 99% of the time the skin data is already cached locally!)",
     })
-    public static final ModuleConfigBase justPlayerHeads_fixSkinRetrieval = new ModuleConfigBase();
+    public static final ModuleConfigBase justPlayerHeads_fixSkinRetrieval = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches Minecraft's font renderer to group together entire strings and send them to the GPU at once, instead of drawing each letter individually.",
             "Whether or not this will give a performance increase depends on your GPU driver. AMD GPUs appear to benefit the most from this, have an FPS increase "
             + " of roughly 5% when the F3 menu is open.",
     })
-    public static final ModuleConfigBase vanilla_fontRendererBatching = new ModuleConfigBase();
+    public static final ModuleConfigBase vanilla_fontRendererBatching = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches Minecraft's font renderer to reset the text style when drawing text with a shadow.",
@@ -81,7 +83,7 @@ public class PPatchesConfig {
             + " beginning or end.",
             "This has no meaningful performance impact.",
     })
-    public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase();
+    public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches Minecraft's Tessellator to use an alternative technique for sending draw commands to the GPU, which may be more efficient on some systems.",
@@ -90,7 +92,7 @@ public class PPatchesConfig {
             "Whether or not this will give a performance increase depends on your GPU driver, and on some drivers it may cause visual bugs. NVIDIA GPUs in particular"
             + " seem to get roughly 10-15% higher FPS without any noticeable issues, however AMD's driver seems to glitch out most of the time.",
     })
-    public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTessellatorDraw = new ModuleConfigOptimizeTessellatorDraw();
+    public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTessellatorDraw = new ModuleConfigOptimizeTessellatorDraw(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches Minecraft's World class to cache its hash code, instead of using Java's default implementation.",
@@ -101,124 +103,23 @@ public class PPatchesConfig {
             + " the total frame time to ~1.5%). Your mileage may vary, however even in the worst case this patch should have no effect (enabling it won't make your game"
             + " run slower).",
     })
-    public static final ModuleConfigBase vanilla_optimizeWorldHashing = new ModuleConfigBase();
-
-    @NoArgsConstructor(access = AccessLevel.PROTECTED)
-    @Data
-    public static class ModuleConfigBase implements IModuleConfig {
-        @Config.RequiresMcRestart
-        public boolean enabled = false;
-    }
-
-    private static String getName(String fallback, AnnotatedElement element) {
-        Config.Name annotation = element.getAnnotation(Config.Name.class);
-        return annotation != null ? annotation.value() : fallback;
-    }
-
-    private static String getComment(AnnotatedElement element) {
-        Config.Comment annotation = element.getAnnotation(Config.Comment.class);
-        return annotation != null ? String.join("\n", annotation.value()) : null;
-    }
-
-    @SneakyThrows(ReflectiveOperationException.class)
-    private static String getComment(Class<?> type, Property property, AnnotatedElement element) {
-        StringBuilder builder = new StringBuilder();
-
-        Config.Comment commentAnnotation = element.getAnnotation(Config.Comment.class);
-        if (commentAnnotation != null) {
-            for (String line : commentAnnotation.value()) {
-                builder.append(line).append('\n');
-            }
-            if (builder.length() > 0) { //remove trailing newline
-                builder.setLength(builder.length() - 1);
-            }
-        }
-
-        //append additional comment text describing the property
-        builder.append("[default: ").append(property.isList() ? Arrays.toString(property.getDefaults()) : property.getDefault()).append(']');
-
-        if (property.getValidValues() != null && property.getValidValues().length != 0) { //only some values are actually allowed, add them
-            builder.append("\nAccepted values:");
-            for (String validValue : property.getValidValues()) {
-                builder.append("\n- ").append(validValue);
-
-                if (type.isEnum()) { //the field is an enum, the enum properties might be annotated with a comment describing the value
-                    Field enumField = type.getField(validValue);
-                    assert enumField.getDeclaringClass() == type : enumField + " is declared in class " + enumField.getDeclaringClass().getTypeName();
-                    String enumComment = getComment(enumField);
-                    if (enumComment != null) { //append enum value description to comment
-                        builder.append(":\n   ").append(enumComment.replace("\n", "   \n"));
-                    }
-                }
-            }
-        }
-
-        Config.RangeInt rangeAnnotationInt = element.getAnnotation(Config.RangeInt.class);
-        if (rangeAnnotationInt != null) {
-            builder.append("\nMinimum: ").append(rangeAnnotationInt.min()).append(", maximum: ").append(rangeAnnotationInt.max());
-        }
-
-        Config.RangeDouble rangeAnnotationDouble = element.getAnnotation(Config.RangeDouble.class);
-        if (rangeAnnotationDouble != null) {
-            builder.append("\nMinimum: ").append(rangeAnnotationDouble.min()).append(", maximum: ").append(rangeAnnotationDouble.max());
-        }
-
-        return builder.toString();
-    }
-
-    private static String getLangKey(String fallback, AnnotatedElement element) {
-        Config.LangKey annotation = element.getAnnotation(Config.LangKey.class);
-        return annotation != null ? annotation.value() : PPatchesMod.MODID + '.' + fallback;
-    }
-
-    private static boolean requiresWorldRestart(AnnotatedElement element) {
-        return element.isAnnotationPresent(Config.RequiresWorldRestart.class);
-    }
-
-    private static boolean requiresMcRestart(AnnotatedElement element) {
-        return element.isAnnotationPresent(Config.RequiresMcRestart.class);
-    }
-
-    @SneakyThrows(ReflectiveOperationException.class)
-    private synchronized static void load(boolean init) {
-        for (Field field : PPatchesConfig.class.getDeclaredFields()) {
-            Object value = field.get(null);
-            if (value instanceof IModuleConfig) {
-                String categoryName = field.getName().replace('_', '.');
-                ConfigCategory category = CONFIGURATION.getCategory(categoryName);
-
-                category.setComment(getComment(field));
-                category.setLanguageKey(getLangKey(categoryName, field));
-                category.setRequiresWorldRestart(requiresWorldRestart(field));
-                category.setRequiresMcRestart(requiresMcRestart(field));
-
-                ((IModuleConfig) value).loadFromConfig(CONFIGURATION, categoryName, init);
-            }
-        }
-
-        CONFIGURATION.save();
-    }
-
-    @SneakyThrows(ReflectiveOperationException.class)
-    public static ImmutableSortedMap<String, IModuleConfig> listModules() {
-        ImmutableSortedMap.Builder<String, IModuleConfig> builder = ImmutableSortedMap.naturalOrder();
-        for (Field field : PPatchesConfig.class.getDeclaredFields()) {
-            Object value = field.get(null);
-            if (value instanceof IModuleConfig) {
-                builder.put(field.getName().replace('_', '.'), (IModuleConfig) value);
-            }
-        }
-        return builder.build();
-    }
+    public static final ModuleConfigBase vanilla_optimizeWorldHashing = new ModuleConfigBase(ModuleState.ENABLED);
 
     /**
      * @author DaPorkchop_
      */
-    public interface IModuleConfig {
-        boolean isEnabled();
+    public static class ModuleConfigBase {
+        @Config.RequiresMcRestart
+        public ModuleState state;
 
+        public transient AdditionalDependencies additionalDependencies;
+
+        public ModuleConfigBase(ModuleState defaultState) {
+            this.state = defaultState;
+        }
+        
         @SneakyThrows(ReflectiveOperationException.class)
-        default void loadFromConfig(Configuration configuration, String category, boolean init) {
+        public void loadFromConfig(Configuration configuration, String category, boolean init) {
             Set<String> unknownKeys = new TreeSet<>(configuration.getCategory(category).keySet());
 
             for (Field field : this.getClass().getFields()) {
@@ -334,6 +235,124 @@ public class PPatchesConfig {
                 configuration.getCategory(category).keySet().removeAll(unknownKeys);
             }
         }
+    }
+
+    private static String getName(String fallback, AnnotatedElement element) {
+        Config.Name annotation = element.getAnnotation(Config.Name.class);
+        return annotation != null ? annotation.value() : fallback;
+    }
+
+    private static String getComment(AnnotatedElement element) {
+        Config.Comment annotation = element.getAnnotation(Config.Comment.class);
+        return annotation != null ? String.join("\n", annotation.value()) : null;
+    }
+
+    @SneakyThrows(ReflectiveOperationException.class)
+    private static String getComment(Class<?> type, Property property, AnnotatedElement element) {
+        StringBuilder builder = new StringBuilder();
+
+        Config.Comment commentAnnotation = element.getAnnotation(Config.Comment.class);
+        if (commentAnnotation != null) {
+            for (String line : commentAnnotation.value()) {
+                builder.append(line).append('\n');
+            }
+        }
+
+        //append additional comment text describing the property
+        builder.append("[default: ").append(property.isList() ? Arrays.toString(property.getDefaults()) : property.getDefault()).append(']');
+
+        if (property.getValidValues() != null && property.getValidValues().length != 0) { //only some values are actually allowed, add them
+            builder.append("\nAccepted values:");
+            for (String validValue : property.getValidValues()) {
+                builder.append("\n- ").append(validValue);
+
+                if (type.isEnum()) { //the field is an enum, the enum properties might be annotated with a comment describing the value
+                    Field enumField = type.getField(validValue);
+                    assert enumField.getDeclaringClass() == type : enumField + " is declared in class " + enumField.getDeclaringClass().getTypeName();
+                    String enumComment = getComment(enumField);
+                    if (enumComment != null) { //append enum value description to comment
+                        builder.append(":\n   ").append(enumComment.replace("\n", "   \n"));
+                    }
+                }
+            }
+        }
+
+        Config.RangeInt rangeAnnotationInt = element.getAnnotation(Config.RangeInt.class);
+        if (rangeAnnotationInt != null) {
+            builder.append("\nMinimum: ").append(rangeAnnotationInt.min()).append(", maximum: ").append(rangeAnnotationInt.max());
+        }
+
+        Config.RangeDouble rangeAnnotationDouble = element.getAnnotation(Config.RangeDouble.class);
+        if (rangeAnnotationDouble != null) {
+            builder.append("\nMinimum: ").append(rangeAnnotationDouble.min()).append(", maximum: ").append(rangeAnnotationDouble.max());
+        }
+
+        return builder.toString();
+    }
+
+    private static String getLangKey(String fallback, AnnotatedElement element) {
+        Config.LangKey annotation = element.getAnnotation(Config.LangKey.class);
+        return annotation != null ? annotation.value() : PPatchesMod.MODID + '.' + fallback;
+    }
+
+    private static boolean requiresWorldRestart(AnnotatedElement element) {
+        return element.isAnnotationPresent(Config.RequiresWorldRestart.class);
+    }
+
+    private static boolean requiresMcRestart(AnnotatedElement element) {
+        return element.isAnnotationPresent(Config.RequiresMcRestart.class);
+    }
+
+    @SneakyThrows(ReflectiveOperationException.class)
+    private synchronized static void load(boolean init) {
+        for (Field field : PPatchesConfig.class.getDeclaredFields()) {
+            Object value = field.get(null);
+            if (value instanceof ModuleConfigBase) {
+                String categoryName = field.getName().replace('_', '.');
+                ConfigCategory category = CONFIGURATION.getCategory(categoryName);
+
+                category.setComment(getComment(field));
+                category.setLanguageKey(getLangKey(categoryName, field));
+                category.setRequiresWorldRestart(requiresWorldRestart(field));
+                category.setRequiresMcRestart(requiresMcRestart(field));
+
+                ((ModuleConfigBase) value).loadFromConfig(CONFIGURATION, categoryName, init);
+            }
+        }
+
+        CONFIGURATION.save();
+    }
+
+    @SneakyThrows(ReflectiveOperationException.class)
+    public static ImmutableSortedMap<String, ModuleConfigBase> listModules() {
+        ImmutableSortedMap.Builder<String, ModuleConfigBase> builder = ImmutableSortedMap.naturalOrder();
+        for (Field field : PPatchesConfig.class.getDeclaredFields()) {
+            Object value = field.get(null);
+            if (value instanceof ModuleConfigBase) {
+                ModuleConfigBase moduleConfig = (ModuleConfigBase) value;
+                moduleConfig.additionalDependencies = field.getAnnotation(AdditionalDependencies.class);
+                builder.put(field.getName().replace('_', '.'), moduleConfig);
+            }
+        }
+        return builder.build();
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    public enum ModuleState {
+        ENABLED,
+        DISABLED,
+        AUTO,
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @Target({ ElementType.FIELD })
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface AdditionalDependencies {
+        String[] classes() default {};
     }
 
     @SubscribeEvent

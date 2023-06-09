@@ -44,6 +44,10 @@ public class ModuleConfigOptimizeTessellatorDraw extends PPatchesConfig.ModuleCo
     })
     public boolean stagingBufferLogOnReset = false;
 
+    public ModuleConfigOptimizeTessellatorDraw(PPatchesConfig.ModuleState defaultState) {
+        super(defaultState);
+    }
+
     @Override
     @SideOnly(Side.CLIENT)
     public void loadFromConfig(Configuration configuration, String category, boolean init) {
