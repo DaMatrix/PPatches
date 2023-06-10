@@ -3,6 +3,7 @@ package net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw;
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 import net.daporkchop.ppatches.PPatchesConfig;
 import net.daporkchop.ppatches.PPatchesMod;
+import net.daporkchop.ppatches.util.client.render.RenderUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.GlStateManager;
@@ -227,47 +228,7 @@ public class VAOWorldVertexBufferUploader extends WorldVertexBufferUploader {
         GL30.glBindVertexArray(vao);
         OpenGlHelper.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
 
-        int stride = currFormat.getSize();
-        List<VertexFormatElement> list = currFormat.getElements();
-        for (int j = 0; j < list.size(); ++j) {
-            VertexFormatElement attr = list.get(j);
-            int offset = currFormat.getOffset(j);
-
-            // moved to VertexFormatElement.preDraw
-            int count = attr.getElementCount();
-            int constant = attr.getType().getGlConstant();
-            switch (attr.getUsage()) {
-                case POSITION:
-                    GlStateManager.glVertexPointer(count, constant, stride, offset);
-                    GlStateManager.glEnableClientState(GL11.GL_VERTEX_ARRAY);
-                    break;
-                case NORMAL:
-                    if (count != 3) {
-                        throw new IllegalArgumentException("Normal attribute should have the size 3: " + attr);
-                    }
-                    GL11.glNormalPointer(constant, stride, offset);
-                    GlStateManager.glEnableClientState(GL11.GL_NORMAL_ARRAY);
-                    break;
-                case COLOR:
-                    GlStateManager.glColorPointer(count, constant, stride, offset);
-                    GlStateManager.glEnableClientState(GL11.GL_COLOR_ARRAY);
-                    break;
-                case UV:
-                    OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit + attr.getIndex());
-                    GlStateManager.glTexCoordPointer(count, constant, stride, offset);
-                    GlStateManager.glEnableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
-                    OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
-                    break;
-                case PADDING:
-                    break;
-                case GENERIC:
-                    GL20.glEnableVertexAttribArray(attr.getIndex());
-                    GL20.glVertexAttribPointer(attr.getIndex(), count, constant, false, stride, offset);
-                    break;
-                default:
-                    FMLLog.log.fatal("Unimplemented vanilla attribute upload: {}", attr.getUsage().getDisplayName());
-            }
-        }
+        RenderUtils.prepareVertexAttributesFromVBO(currFormat);
 
         OpenGlHelper.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
         GL30.glBindVertexArray(0);

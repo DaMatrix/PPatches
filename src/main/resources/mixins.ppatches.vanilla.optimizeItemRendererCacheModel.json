@@ -1,0 +1,9 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.asm",
+  "refmap": "mixins.ppatches.refmap.json",
+  "client": [
+    "MixinRenderItem"
+  ]
+}

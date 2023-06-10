@@ -86,6 +86,12 @@ public class PPatchesConfig {
     public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Patches Minecraft's item renderer to re-use the same vertex data when rendering items which have the same mesh.",
+            "This should notably improve performance when rendering many items (generally during GUI rendering) by ~5% or more, and will definitely help reduce GC churn.",
+    })
+    public static final ModuleConfigBase vanilla_optimizeItemRendererCacheModel = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Minecraft's Tessellator to use an alternative technique for sending draw commands to the GPU, which may be more efficient on some systems.",
             "The tessellator is used for drawing many parts of the GUI (such as backgrounds, items in the inventory, and some tile entities), as well as for text if"
             + " PPatches' \"fontRendererBatching\" module is enabled.",
