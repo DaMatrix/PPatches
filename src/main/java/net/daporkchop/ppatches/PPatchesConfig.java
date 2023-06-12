@@ -23,9 +23,13 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.TreeSet;
 
 /**
@@ -328,18 +332,44 @@ public class PPatchesConfig {
     }
 
     private synchronized static void load(boolean init) {
+        Set<String> unusedCategoryNames = null;
+        if (init) {
+            unusedCategoryNames = new HashSet<>(CONFIGURATION.getCategoryNames());
+        }
+
         for (Map.Entry<String, ModuleConfigBase> entry : listModules().entrySet()) {
             String categoryName = entry.getKey();
             ModuleConfigBase module = entry.getValue();
 
             ConfigCategory category = CONFIGURATION.getCategory(categoryName);
 
-            category.setComment(getComment(module.field));
-            category.setLanguageKey(getLangKey(categoryName, module.field));
-            category.setRequiresWorldRestart(requiresWorldRestart(module.field));
-            category.setRequiresMcRestart(requiresMcRestart(module.field));
+            if (init) {
+                unusedCategoryNames.remove(categoryName);
+
+                category.setComment(getComment(module.field));
+                category.setLanguageKey(getLangKey(categoryName, module.field));
+                category.setRequiresWorldRestart(requiresWorldRestart(module.field));
+                category.setRequiresMcRestart(requiresMcRestart(module.field));
+            }
 
             module.loadFromConfig(CONFIGURATION, categoryName, init);
+        }
+
+        if (init) {
+            boolean anyChange;
+            do {
+                anyChange = false;
+                for (String unusedCategoryName : unusedCategoryNames) {
+                    if (CONFIGURATION.hasCategory(unusedCategoryName)) { //the category might be removed already if it was the child of another unused category
+                        ConfigCategory category = CONFIGURATION.getCategory(unusedCategoryName);
+                        if (category.getChildren().isEmpty()) {
+                            CONFIGURATION.removeCategory(category);
+                            PPatchesMod.LOGGER.info("Removed empty config category {}", unusedCategoryName);
+                            anyChange = true;
+                        }
+                    }
+                }
+            } while (anyChange); //keep looping around in order to recursively delete categories which contain only empty categories
         }
 
         sortConfigurationCategories(CONFIGURATION);
@@ -348,20 +378,25 @@ public class PPatchesConfig {
 
     @SneakyThrows(ReflectiveOperationException.class)
     private static void sortConfigurationCategories(@SuppressWarnings("SameParameterValue") Configuration configuration) {
-        //for some reason the child categories of a category aren't stored in a sorted datastructure, and so aren't alphabetized automatically like everything else.
-        // this is kinda gross, but i don't care.
-
         Field field = ConfigCategory.class.getDeclaredField("children");
         field.setAccessible(true);
 
-        Comparator<ConfigCategory> comparator = Comparator.comparing(ConfigCategory::getName);
+        Comparator<ConfigCategory> compareCategoriesByName = Comparator.comparing(ConfigCategory::getName);
 
         for (String categoryName : configuration.getCategoryNames()) {
             ConfigCategory category = configuration.getCategory(categoryName);
 
+            //for some reason the child categories of a category aren't stored in a sorted datastructure, and so aren't alphabetized automatically like everything else.
+            // this is kinda gross, but i don't care.
             @SuppressWarnings("unchecked")
             ArrayList<ConfigCategory> children = (ArrayList<ConfigCategory>) field.get(category);
-            children.sort(comparator);
+            children.sort(compareCategoriesByName);
+
+            List<String> propertyOrder = new ArrayList<>(category.size());
+            if (category.containsKey("state")) { //ensure "state" property always comes before all other fields
+                propertyOrder.add("state");
+            }
+            category.setPropertyOrder(propertyOrder);
         }
     }
 
