@@ -71,6 +71,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase justPlayerHeads_fixSkinRetrieval = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches Mekanism to avoid triggering sky light updates in dimensions which don't have sky light.",
+            "This will dramatically reduce lag spikes when loading chunks containing large numbers of Mekanism machines in dimensions which don't have sky light, as the"
+            + " lighting algorithm is extremely slow at calculating sky light in these dimensions.",
+    })
+    public static final ModuleConfigBase mekanism_optimizeSkyLightUpdates = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Minecraft's font renderer to group together entire strings and send them to the GPU at once, instead of drawing each letter individually.",
             "Whether or not this will give a performance increase depends on your GPU driver. AMD GPUs appear to benefit the most from this, have an FPS increase "
             + " of roughly 5% when the F3 menu is open.",
