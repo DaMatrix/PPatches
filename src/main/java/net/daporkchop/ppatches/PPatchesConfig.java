@@ -21,6 +21,8 @@ import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -31,6 +33,7 @@ import java.util.TreeSet;
 @Mod.EventBusSubscriber(modid = PPatchesMod.MODID)
 public class PPatchesConfig {
     public static final Configuration CONFIGURATION;
+    private static ImmutableSortedMap<String, ModuleConfigBase> MODULES;
 
     @Config.Comment({
             "Patches CustomMainMenu to use GlStateManager instead of directly invoking glColor*.",
@@ -49,7 +52,7 @@ public class PPatchesConfig {
             "Patches FoamFix to make OptiFine's \"Smart Animations\" work.",
             "Without this patch, OptiFine's \"Smart Animations\" will have no effect if FoamFix is installed.",
     })
-    @AdditionalDependencies(classes = "net.optifine.SmartAnimations")
+    @ModuleDescriptor(requiredClasses = "net.optifine.SmartAnimations")
     public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
@@ -82,6 +85,7 @@ public class PPatchesConfig {
             "Whether or not this will give a performance increase depends on your GPU driver. AMD GPUs appear to benefit the most from this, have an FPS increase "
             + " of roughly 5% when the F3 menu is open.",
     })
+    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
     public static final ModuleConfigBase vanilla_fontRendererBatching = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
@@ -90,12 +94,14 @@ public class PPatchesConfig {
             + " beginning or end.",
             "This has no meaningful performance impact.",
     })
+    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
     public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches Minecraft's item renderer to re-use the same vertex data when rendering items which have the same mesh.",
             "This should notably improve performance when rendering many items (generally during GUI rendering) by ~5% or more, and will definitely help reduce GC churn.",
     })
+    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
     public static final ModuleConfigBase vanilla_optimizeItemRendererCacheModel = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
@@ -105,6 +111,7 @@ public class PPatchesConfig {
             "Whether or not this will give a performance increase depends on your GPU driver, and on some drivers it may cause visual bugs. NVIDIA GPUs in particular"
             + " seem to get roughly 10-15% higher FPS without any noticeable issues, however AMD's driver seems to glitch out most of the time.",
     })
+    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
     public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTessellatorDraw = new ModuleConfigOptimizeTessellatorDraw(ModuleState.DISABLED);
 
     @Config.Comment({
@@ -116,6 +123,7 @@ public class PPatchesConfig {
             + " the total frame time to ~1.5%). Your mileage may vary, however even in the worst case this patch should have no effect (enabling it won't make your game"
             + " run slower).",
     })
+    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
     public static final ModuleConfigBase vanilla_optimizeWorldHashing = new ModuleConfigBase(ModuleState.ENABLED);
 
     /**
@@ -125,12 +133,13 @@ public class PPatchesConfig {
         @Config.RequiresMcRestart
         public ModuleState state;
 
-        public transient AdditionalDependencies additionalDependencies;
+        public transient ModuleDescriptor descriptor;
+        public transient Field field;
 
         public ModuleConfigBase(ModuleState defaultState) {
             this.state = defaultState;
         }
-        
+
         @SneakyThrows(ReflectiveOperationException.class)
         public void loadFromConfig(Configuration configuration, String category, boolean init) {
             Set<String> unknownKeys = new TreeSet<>(configuration.getCategory(category).keySet());
@@ -316,38 +325,52 @@ public class PPatchesConfig {
         return element.isAnnotationPresent(Config.RequiresMcRestart.class);
     }
 
-    @SneakyThrows(ReflectiveOperationException.class)
     private synchronized static void load(boolean init) {
-        for (Field field : PPatchesConfig.class.getDeclaredFields()) {
-            Object value = field.get(null);
-            if (value instanceof ModuleConfigBase) {
-                String categoryName = field.getName().replace('_', '.');
-                ConfigCategory category = CONFIGURATION.getCategory(categoryName);
+        for (Map.Entry<String, ModuleConfigBase> entry : listModules().entrySet()) {
+            String categoryName = entry.getKey();
+            ModuleConfigBase module = entry.getValue();
 
-                category.setComment(getComment(field));
-                category.setLanguageKey(getLangKey(categoryName, field));
-                category.setRequiresWorldRestart(requiresWorldRestart(field));
-                category.setRequiresMcRestart(requiresMcRestart(field));
+            ConfigCategory category = CONFIGURATION.getCategory(categoryName);
 
-                ((ModuleConfigBase) value).loadFromConfig(CONFIGURATION, categoryName, init);
-            }
+            category.setComment(getComment(module.field));
+            category.setLanguageKey(getLangKey(categoryName, module.field));
+            category.setRequiresWorldRestart(requiresWorldRestart(module.field));
+            category.setRequiresMcRestart(requiresMcRestart(module.field));
+
+            module.loadFromConfig(CONFIGURATION, categoryName, init);
         }
 
         CONFIGURATION.save();
     }
 
+    /**
+     * This field exists only to be annotated with a default {@link ModuleDescriptor} annotation.
+     */
+    @ModuleDescriptor
+    private static final boolean DUMMY_FIELD = false;
+
     @SneakyThrows(ReflectiveOperationException.class)
     public static ImmutableSortedMap<String, ModuleConfigBase> listModules() {
+        if (MODULES != null) {
+            return MODULES;
+        }
+
+        ModuleDescriptor defaultDescriptor = Objects.requireNonNull(PPatchesConfig.class.getDeclaredField("DUMMY_FIELD").getAnnotation(ModuleDescriptor.class));
+
         ImmutableSortedMap.Builder<String, ModuleConfigBase> builder = ImmutableSortedMap.naturalOrder();
         for (Field field : PPatchesConfig.class.getDeclaredFields()) {
             Object value = field.get(null);
             if (value instanceof ModuleConfigBase) {
-                ModuleConfigBase moduleConfig = (ModuleConfigBase) value;
-                moduleConfig.additionalDependencies = field.getAnnotation(AdditionalDependencies.class);
-                builder.put(field.getName().replace('_', '.'), moduleConfig);
+                ModuleConfigBase module = (ModuleConfigBase) value;
+
+                ModuleDescriptor descriptor = field.getAnnotation(ModuleDescriptor.class);
+                module.descriptor = descriptor != null ? descriptor : defaultDescriptor;
+                module.field = field;
+
+                builder.put(field.getName().replace('_', '.'), module);
             }
         }
-        return builder.build();
+        return MODULES = builder.build();
     }
 
     /**
@@ -364,8 +387,12 @@ public class PPatchesConfig {
      */
     @Target({ ElementType.FIELD })
     @Retention(RetentionPolicy.RUNTIME)
-    public @interface AdditionalDependencies {
-        String[] classes() default {};
+    public @interface ModuleDescriptor {
+        String[] requiredClasses() default {};
+
+        boolean hasMixins() default true;
+
+        String mixinRegisterPhase() default "DEFAULT";
     }
 
     @SubscribeEvent
@@ -375,7 +402,7 @@ public class PPatchesConfig {
         }
     }
 
-    static { //this needs to be at the end of the class
+    static {
         CONFIGURATION = new Configuration(new File("config", "ppatches.cfg"), true);
         load(true);
     }

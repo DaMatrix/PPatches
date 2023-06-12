@@ -19,9 +19,7 @@ package net.daporkchop.ppatches;
 import lombok.SneakyThrows;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraft.launchwrapper.LaunchClassLoader;
-import net.minecraftforge.fml.common.FMLLog;
 import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin;
-import org.apache.logging.log4j.LogManager;
 import org.spongepowered.asm.launch.MixinBootstrap;
 import org.spongepowered.asm.mixin.MixinEnvironment;
 import org.spongepowered.asm.mixin.Mixins;
@@ -35,15 +33,8 @@ public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
     public static boolean isStarted;
     public static boolean isObfuscatedEnvironment;
 
-    private static Map<String, PPatchesConfig.ModuleConfigBase> enabledModuleNames;
-
-    private static MixinEnvironment.Phase moduleLoadPhase(String moduleName) {
-        //TODO: improve this
-        return moduleName.startsWith("vanilla.") ? MixinEnvironment.Phase.PREINIT : MixinEnvironment.Phase.DEFAULT;
-    }
-
     @SneakyThrows
-    public static void loadModules(MixinEnvironment.Phase phase) {
+    public static void loadMixins(MixinEnvironment.Phase phase) {
         if (phase == MixinEnvironment.Phase.DEFAULT) { //TODO: find a nicer place to put this
             Field field = LaunchClassLoader.class.getDeclaredField("transformerExceptions");
             field.setAccessible(true);
@@ -56,50 +47,48 @@ public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
             }
         }
 
-        for (Map.Entry<String, PPatchesConfig.ModuleConfigBase> entry : enabledModuleNames.entrySet()) {
-            if (moduleLoadPhase(entry.getKey()) != phase) {
+        for (Map.Entry<String, PPatchesConfig.ModuleConfigBase> entry : PPatchesConfig.listModules().entrySet()) {
+            String name = entry.getKey();
+            PPatchesConfig.ModuleConfigBase module = entry.getValue();
+
+            if (!module.descriptor.hasMixins() || MixinEnvironment.Phase.forName(module.descriptor.mixinRegisterPhase()) != phase) {
                 continue;
             }
 
             LOAD_MODULE:
-            switch (entry.getValue().state) {
+            switch (module.state) {
                 case DISABLED:
-                    PPatchesMod.LOGGER.info("Not enabling module {} (disabled by config)", entry.getKey());
+                    PPatchesMod.LOGGER.info("Not enabling mixins for module {} (disabled by config)", name);
                     break;
                 case AUTO:
-                    if (entry.getValue().additionalDependencies != null) {
-                        for (String className : entry.getValue().additionalDependencies.classes()) {
-                            if (Launch.classLoader.getResource(className.replace('.', '/') + ".class") == null) {
-                                PPatchesMod.LOGGER.info("Not enabling module {} (dependency class {} can't be found)", entry.getKey(), className);
-                                break LOAD_MODULE;
-                            }
+                    for (String className : module.descriptor.requiredClasses()) {
+                        if (Launch.classLoader.getResource(className.replace('.', '/') + ".class") == null) {
+                            PPatchesMod.LOGGER.info("Not enabling mixins for module {} (dependency class {} can't be found)", name, className);
+                            break LOAD_MODULE;
                         }
                     }
 
                     //fall through
                 case ENABLED:
-                    PPatchesMod.LOGGER.info("Enabling module {}", entry.getKey());
-                    Mixins.addConfiguration("mixins.ppatches." + entry.getKey() + ".json");
+                    PPatchesMod.LOGGER.info("Enabling mixins for module {}", name);
+                    Mixins.addConfiguration("mixins.ppatches." + name + ".json");
                     break;
             }
         }
 
-        if (phase == MixinEnvironment.Phase.DEFAULT) { //allow garbage collection now that all mixins have been loaded
-            enabledModuleNames = null;
+        if (phase == MixinEnvironment.Phase.DEFAULT) {
             isStarted = true;
         }
     }
 
     public PPatchesLoadingPlugin() {
-        FMLLog.log.info("\n\n\nPPatches Mixin init\n\n");
+        PPatchesMod.LOGGER.info("Initializing Mixin...");
         MixinBootstrap.init();
 
         PPatchesMod.LOGGER.info("Adding root loader mixin...");
         Mixins.addConfiguration("mixins.ppatches.json");
 
-        //we want to list the modules here, as by now
-        PPatchesLoadingPlugin.enabledModuleNames = PPatchesConfig.listModules();
-        loadModules(MixinEnvironment.Phase.PREINIT);
+        loadMixins(MixinEnvironment.Phase.PREINIT);
     }
 
     @Override
