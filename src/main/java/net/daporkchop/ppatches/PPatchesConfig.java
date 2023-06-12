@@ -20,7 +20,9 @@ import java.lang.annotation.Target;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -340,7 +342,27 @@ public class PPatchesConfig {
             module.loadFromConfig(CONFIGURATION, categoryName, init);
         }
 
+        sortConfigurationCategories(CONFIGURATION);
         CONFIGURATION.save();
+    }
+
+    @SneakyThrows(ReflectiveOperationException.class)
+    private static void sortConfigurationCategories(@SuppressWarnings("SameParameterValue") Configuration configuration) {
+        //for some reason the child categories of a category aren't stored in a sorted datastructure, and so aren't alphabetized automatically like everything else.
+        // this is kinda gross, but i don't care.
+
+        Field field = ConfigCategory.class.getDeclaredField("children");
+        field.setAccessible(true);
+
+        Comparator<ConfigCategory> comparator = Comparator.comparing(ConfigCategory::getName);
+
+        for (String categoryName : configuration.getCategoryNames()) {
+            ConfigCategory category = configuration.getCategory(categoryName);
+
+            @SuppressWarnings("unchecked")
+            ArrayList<ConfigCategory> children = (ArrayList<ConfigCategory>) field.get(category);
+            children.sort(comparator);
+        }
     }
 
     /**
