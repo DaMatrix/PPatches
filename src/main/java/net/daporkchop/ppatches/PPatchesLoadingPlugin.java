@@ -17,6 +17,8 @@
 package net.daporkchop.ppatches;
 
 import lombok.SneakyThrows;
+import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
+import net.daporkchop.ppatches.core.transform.PPatchesTransformerRoot;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraft.launchwrapper.LaunchClassLoader;
 import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin;
@@ -26,6 +28,8 @@ import org.spongepowered.asm.mixin.Mixins;
 
 import javax.annotation.Nullable;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -92,8 +96,46 @@ public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
     }
 
     @Override
+    @SneakyThrows(ReflectiveOperationException.class)
     public String[] getASMTransformerClass() {
-        return new String[0];
+        List<ITreeClassTransformer> transformers = new ArrayList<>();
+
+        for (Map.Entry<String, PPatchesConfig.ModuleConfigBase> entry : PPatchesConfig.listModules().entrySet()) {
+            String name = entry.getKey();
+            PPatchesConfig.ModuleConfigBase module = entry.getValue();
+
+            String transformerClass = module.descriptor.transformerClass();
+            if (transformerClass.isEmpty()) { //module has no transformer, ignore it
+                continue;
+            }
+
+            LOAD_MODULE:
+            switch (entry.getValue().state) {
+                case DISABLED:
+                    PPatchesMod.LOGGER.info("Not registering transformer for module {} (disabled by config)", name);
+                    break;
+                case AUTO:
+                    for (String className : module.descriptor.requiredClasses()) {
+                        if (Launch.classLoader.getResource(className.replace('.', '/') + ".class") == null) {
+                            PPatchesMod.LOGGER.info("Not registering transformer for module {} (dependency class {} can't be found)", name, className);
+                            break LOAD_MODULE;
+                        }
+                    }
+
+                    //fall through
+                case ENABLED:
+                    PPatchesMod.LOGGER.info("Registering transformer for module {}", name);
+                    transformers.add((ITreeClassTransformer) Class.forName(transformerClass).newInstance());
+                    break;
+            }
+        }
+
+        if (transformers.isEmpty()) {
+            return new String[0];
+        } else {
+            PPatchesTransformerRoot.TRANSFORMERS = transformers.toArray(new ITreeClassTransformer[0]);
+            return new String[] { "net.daporkchop.ppatches.core.transform.PPatchesTransformerRoot" };
+        }
     }
 
     @Override

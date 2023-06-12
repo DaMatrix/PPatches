@@ -87,6 +87,16 @@ public class PPatchesConfig {
     public static final ModuleConfigBase mekanism_optimizeSkyLightUpdates = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches OptiFine to use MethodHandles in place of Java reflection.",
+            "This could give some minor performance benefits when OptiFine is installed.",
+    })
+    @ModuleDescriptor(
+            requiredClasses = "net.optifine.reflect.Reflector",
+            hasMixins = false,
+            transformerClass = "net.daporkchop.ppatches.modules.optifine.optimizeReflector.OptimizeReflectorTransformer")
+    public static final ModuleConfigBase optifine_optimizeReflector = new ModuleConfigBase(ModuleState.DISABLED);
+
+    @Config.Comment({
             "Patches Minecraft's font renderer to group together entire strings and send them to the GPU at once, instead of drawing each letter individually.",
             "Whether or not this will give a performance increase depends on your GPU driver. AMD GPUs appear to benefit the most from this, have an FPS increase "
             + " of roughly 5% when the F3 menu is open.",
@@ -450,6 +460,8 @@ public class PPatchesConfig {
         boolean hasMixins() default true;
 
         String mixinRegisterPhase() default "DEFAULT";
+
+        String transformerClass() default "";
     }
 
     @SubscribeEvent
