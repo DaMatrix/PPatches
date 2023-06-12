@@ -88,13 +88,13 @@ public class PPatchesConfig {
 
     @Config.Comment({
             "Patches OptiFine to use MethodHandles in place of Java reflection.",
-            "This could give some minor performance benefits when OptiFine is installed.",
+            "This could give some minor performance benefits when OptiFine is installed, and will definitely help reduce GC churn.",
     })
     @ModuleDescriptor(
             requiredClasses = "net.optifine.reflect.Reflector",
             hasMixins = false,
             transformerClass = "net.daporkchop.ppatches.modules.optifine.optimizeReflector.OptimizeReflectorTransformer")
-    public static final ModuleConfigBase optifine_optimizeReflector = new ModuleConfigBase(ModuleState.DISABLED);
+    public static final ModuleConfigBase optifine_optimizeReflector = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches Minecraft's font renderer to group together entire strings and send them to the GPU at once, instead of drawing each letter individually.",

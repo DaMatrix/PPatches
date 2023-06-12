@@ -139,7 +139,7 @@ public class OptimizeReflectorBootstrap {
             }
             handle = MethodHandles.dropArguments(returnDefaultValue, 0, type.parameterArray());
         } else {
-            handle = lookup.unreflect(targetMethod).asSpreader(Object[].class, targetMethod.getParameterCount());
+            handle = lookup.unreflect(targetMethod);
         }
         return new ConstantCallSite(handle.asType(type));
     }
@@ -154,7 +154,7 @@ public class OptimizeReflectorBootstrap {
         if (targetConstructor == null) { //the method wasn't found, return the default value
             handle = MethodHandles.dropArguments(MethodHandles.constant(type.returnType(), null), 0, type.parameterArray());
         } else {
-            handle = lookup.unreflectConstructor(targetConstructor).asSpreader(Object[].class, targetConstructor.getParameterCount());
+            handle = lookup.unreflectConstructor(targetConstructor);
         }
         return new ConstantCallSite(handle.asType(type));
     }

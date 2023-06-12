@@ -20,11 +20,13 @@ import java.nio.file.attribute.BasicFileAttributes;
  * @author DaPorkchop_
  */
 public class PPatchesTransformerRoot implements IClassTransformer {
+    public static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
+
     public static ITreeClassTransformer[] TRANSFORMERS;
 
     @SneakyThrows(IOException.class)
     public PPatchesTransformerRoot() {
-        if (Files.exists(Paths.get(".ppatches_transformed"))) {
+        if (DUMP_CLASSES && Files.exists(Paths.get(".ppatches_transformed"))) {
             Files.walkFileTree(Paths.get(".ppatches_transformed"), new FileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
@@ -81,7 +83,7 @@ public class PPatchesTransformerRoot implements IClassTransformer {
             ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
             classNode.accept(writer);
 
-            if (true) {
+            if (DUMP_CLASSES) {
                 try {
                     Path path = Paths.get(".ppatches_transformed" + File.separatorChar + transformedName.replace('.', File.separatorChar) + ".class");
                     Files.createDirectories(path.getParent());
