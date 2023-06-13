@@ -1,6 +1,5 @@
 package net.daporkchop.ppatches.modules.optifine.optimizeReflector;
 
-import jdk.internal.org.objectweb.asm.util.Printer;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
@@ -12,6 +11,8 @@ import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.TypeInsnNode;
+import org.objectweb.asm.util.Printer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,11 @@ import static org.objectweb.asm.Opcodes.*;
  * @author DaPorkchop_
  */
 public class OptimizeReflectorTransformer implements ITreeClassTransformer {
+    @Override
+    public boolean interestedInClass(String name, String transformedName) {
+        return transformedName.startsWith("net.minecraft.") || transformedName.startsWith("net.optifine.");
+    }
+
     @Override
     public boolean transformClass(String name, String transformedName, ClassNode classNode) {
         if ("net.optifine.reflect.Reflector".equals(transformedName)) {
@@ -67,10 +73,20 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
             }
         }
 
+        String effectiveCallDesc = methodInsnNode.desc;
+        List<AbstractInsnNode> insnsToRemoveOnReplacement = null;
+        if (effectiveCallDesc.length() > 1 && methodInsnNode.getNext().getOpcode() == CHECKCAST) {
+            TypeInsnNode castAfterCallInsn = (TypeInsnNode) methodInsnNode.getNext();
+            effectiveCallDesc = Type.getMethodDescriptor(Type.getObjectType(castAfterCallInsn.desc), Type.getArgumentTypes(effectiveCallDesc));
+
+            insnsToRemoveOnReplacement = new ArrayList<>();
+            insnsToRemoveOnReplacement.add(castAfterCallInsn);
+        }
+
         //if the method takes an object array as its last argument, it's probably a method call or a constructor. we'll undo the code for putting the arguments
         //  into the array in order to pass them individually, and avoid boxing them if possible.
-        String spreadMethodDesc = methodInsnNode.desc;
-        List<AbstractInsnNode> spreadInsnsToDelete = null;
+        String spreadMethodDesc = effectiveCallDesc;
+        List<AbstractInsnNode> insnsToRemoveIfSpread = null;
         if (BytecodeHelper.isConstant(reflectorFieldLoadInsn.getNext())) {
             AbstractInsnNode arrayLengthNode = reflectorFieldLoadInsn.getNext();
             Object arrayLengthConstant = BytecodeHelper.decodeConstant(arrayLengthNode);
@@ -82,9 +98,9 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                 int arrayLength = (Integer) arrayLengthConstant;
                 AbstractInsnNode newArrayNode = arrayLengthNode.getNext();
 
-                spreadInsnsToDelete = new ArrayList<>();
-                spreadInsnsToDelete.add(arrayLengthNode);
-                spreadInsnsToDelete.add(newArrayNode);
+                insnsToRemoveIfSpread = new ArrayList<>();
+                insnsToRemoveIfSpread.add(arrayLengthNode);
+                insnsToRemoveIfSpread.add(newArrayNode);
 
                 StringBuilder descBuilder = new StringBuilder();
 
@@ -98,7 +114,8 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
 
                     do {
                         node = node.getNext();
-                    } while (node.getOpcode() != AASTORE); //technically there could be some weirdness if someone's passing an array to a method, but i don't think that'll actually happen
+                    } while (node.getOpcode()
+                             != AASTORE); //technically there could be some weirdness if someone's passing an array to a method, but i don't think that'll actually happen
 
                     boolean appendedDesc = false;
                     if (node.getPrevious().getOpcode() == INVOKESTATIC) {
@@ -127,7 +144,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                                     break;
                             }
                             if (appendedDesc) {
-                                spreadInsnsToDelete.add(invokeStaticNode);
+                                insnsToRemoveIfSpread.add(invokeStaticNode);
                             }
                         }
                     }
@@ -135,9 +152,9 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                         descBuilder.append("Ljava/lang/Object;");
                     }
 
-                    spreadInsnsToDelete.add(dupNode);
-                    spreadInsnsToDelete.add(putIndexConstantNode);
-                    spreadInsnsToDelete.add(node);
+                    insnsToRemoveIfSpread.add(dupNode);
+                    insnsToRemoveIfSpread.add(putIndexConstantNode);
+                    insnsToRemoveIfSpread.add(node);
                 }
 
                 spreadMethodDesc = spreadMethodDesc.replace("[Ljava/lang/Object;)", descBuilder.append(')').toString());
@@ -153,7 +170,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
             case "net/optifine/reflect/Reflector":
                 //this is disabled since it's not easy to test and isn't even remotely performance-critical
                 /*if (methodInsnNode.name.startsWith("setFieldValue")) {
-                    replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, methodInsnNode.desc.replace("Lnet/optifine/reflect/ReflectorField;", ""),
+                    replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, effectiveCallDesc.replace("Lnet/optifine/reflect/ReflectorField;", ""),
                             new Handle(H_INVOKESTATIC, Type.getInternalName(OptimizeReflectorBootstrap.class), "bootstrap_setFieldValue",
                                     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
                             Type.getType('L' + reflectorFieldLoadInsn.owner + ';'),
@@ -163,7 +180,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                 }*/
 
                 if (methodInsnNode.name.startsWith("getFieldValue")) {
-                    if (methodInsnNode.desc.contains("Lnet/optifine/reflect/ReflectorFields;")) {
+                    if (effectiveCallDesc.contains("Lnet/optifine/reflect/ReflectorFields;")) {
                         assert methodInsnNode.desc.endsWith("Lnet/optifine/reflect/ReflectorFields;I)Ljava/lang/Object;") : methodInsnNode.desc;
 
                         AbstractInsnNode prev = methodInsnNode.getPrevious();
@@ -173,7 +190,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                             return false;
                         }
 
-                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, methodInsnNode.desc.replace("Lnet/optifine/reflect/ReflectorFields;I)", ")"),
+                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, effectiveCallDesc.replace("Lnet/optifine/reflect/ReflectorFields;I)", ")"),
                                 new Handle(H_INVOKESTATIC, Type.getInternalName(OptimizeReflectorBootstrap.class), "bootstrap_getFieldValue",
                                         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodHandle;I)Ljava/lang/invoke/CallSite;", false),
                                 Type.getType('L' + reflectorFieldLoadInsn.owner + ';'),
@@ -187,7 +204,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                         methodNode.instructions.remove(prev);
                     } else {
                         //a normal field accessor
-                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, methodInsnNode.desc.replace("Lnet/optifine/reflect/ReflectorField;", ""),
+                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, effectiveCallDesc.replace("Lnet/optifine/reflect/ReflectorField;", ""),
                                 new Handle(H_INVOKESTATIC, Type.getInternalName(OptimizeReflectorBootstrap.class), "bootstrap_getFieldValue",
                                         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
                                 Type.getType('L' + reflectorFieldLoadInsn.owner + ';'),
@@ -215,8 +232,8 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                             new Handle(H_INVOKEVIRTUAL, "net/optifine/reflect/ReflectorConstructor", "getTargetConstructor", "()Ljava/lang/reflect/Constructor;", false));
                 } else if ("postForgeBusEvent".equals(methodInsnNode.name)) {
                     Handle eventBusPostMethod = new Handle(H_INVOKEVIRTUAL, "net/minecraftforge/fml/common/eventhandler/EventBus", "post", "(Lnet/minecraftforge/fml/common/eventhandler/Event;)Z", false);
-                    if ("(Ljava/lang/Object;)Z".equals(methodInsnNode.desc)) {
-                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, methodInsnNode.desc.replace("Lnet/optifine/reflect/ReflectorConstructor;", ""),
+                    if ("(Ljava/lang/Object;)Z".equals(effectiveCallDesc)) {
+                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, effectiveCallDesc,
                                 new Handle(H_INVOKESTATIC, Type.getInternalName(OptimizeReflectorBootstrap.class), "bootstrap_postForgeBusEvent",
                                         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
                                 eventBusPostMethod);
@@ -236,7 +253,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
             case "net/optifine/reflect/ReflectorClass":
                 switch (methodInsnNode.name) {
                     case "isInstance":
-                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, methodInsnNode.desc,
+                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, effectiveCallDesc,
                                 new Handle(H_INVOKESTATIC, Type.getInternalName(OptimizeReflectorBootstrap.class), "bootstrapClass_isInstance",
                                         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
                                 Type.getType('L' + reflectorFieldLoadInsn.owner + ';'),
@@ -250,7 +267,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                 switch (methodInsnNode.name) {
                     case "getValue":
                     case "setValue":
-                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, methodInsnNode.desc,
+                        replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, effectiveCallDesc,
                                 new Handle(H_INVOKESTATIC, Type.getInternalName(OptimizeReflectorBootstrap.class), "bootstrapField_" + methodInsnNode.name,
                                         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
                                 Type.getType('L' + reflectorFieldLoadInsn.owner + ';'),
@@ -269,7 +286,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
             case "exists":
             case "getTargetClass":
             case "getTargetClassName":
-                replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, methodInsnNode.desc,
+                replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, effectiveCallDesc,
                         new Handle(H_INVOKESTATIC, Type.getInternalName(OptimizeReflectorBootstrap.class), "bootstrapSimple",
                                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
                         Type.getType('L' + reflectorFieldLoadInsn.owner + ';'),
@@ -284,9 +301,14 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
             //the method invocation is being replaced, remove the original GETSTATIC
             //  (this is safe, assuming the InsnList implementation doesn't change)
             methodNode.instructions.remove(reflectorFieldLoadInsn);
+            if (insnsToRemoveOnReplacement != null) {
+                for (AbstractInsnNode insnToRemove : insnsToRemoveOnReplacement) {
+                    methodNode.instructions.remove(insnToRemove);
+                }
+            }
             if (shouldSpread) {
-                for (AbstractInsnNode spreadInsnToDelete : spreadInsnsToDelete) {
-                    methodNode.instructions.remove(spreadInsnToDelete);
+                for (AbstractInsnNode insnToRemove : insnsToRemoveIfSpread) {
+                    methodNode.instructions.remove(insnToRemove);
                 }
             }
 

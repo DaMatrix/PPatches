@@ -26,8 +26,9 @@ public class PPatchesTransformerRoot implements IClassTransformer {
 
     @SneakyThrows(IOException.class)
     public PPatchesTransformerRoot() {
-        if (DUMP_CLASSES && Files.exists(Paths.get(".ppatches_transformed"))) {
-            Files.walkFileTree(Paths.get(".ppatches_transformed"), new FileVisitor<Path>() {
+        Path dir;
+        if (DUMP_CLASSES && Files.exists(dir = Paths.get(".ppatches_transformed"))) {
+            Files.walkFileTree(dir, new FileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                     return FileVisitResult.CONTINUE;

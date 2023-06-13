@@ -2,6 +2,8 @@ package net.daporkchop.ppatches.modules.optifine.optimizeReflector;
 
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.ppatches.PPatchesMod;
+import net.minecraftforge.client.settings.KeyConflictContext;
 import net.minecraftforge.common.MinecraftForge;
 
 import java.lang.invoke.CallSite;
@@ -19,13 +21,16 @@ import java.lang.reflect.Modifier;
  */
 @UtilityClass
 public class OptimizeReflectorBootstrap {
+    //we unfortunately have to do 'lookup.findStaticGetter(reflectorClass, reflectorName, reflectorInstanceClass).invoke()' instead of passing in an H_GETSTATIC method
+    //  handle from the invokedynamic instruction because forge's FMLDeobfuscatingRemapper is broken (actually, it seems to be an ASM bug)
+
     @SneakyThrows
     public static CallSite bootstrapSimple(MethodHandles.Lookup lookup, String name, MethodType type,
                                            Class<?> reflectorClass, String reflectorName, Class<?> reflectorInstanceClass, MethodHandle getValueMethod) {
         Object reflector = lookup.findStaticGetter(reflectorClass, reflectorName, reflectorInstanceClass).invoke();
 
         Object value = getValueMethod.invoke(reflector);
-        return new ConstantCallSite(MethodHandles.constant(type.returnType(), value).asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, MethodHandles.constant(type.returnType(), value));
     }
 
     @SneakyThrows
@@ -37,7 +42,7 @@ public class OptimizeReflectorBootstrap {
         MethodHandle handle = targetClass == null
                 ? MethodHandles.constant(boolean.class, false) //clazz == null means that the target class doesn't exist!
                 : lookup.bind(targetClass, name, type);
-        return new ConstantCallSite(handle.asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
     @SneakyThrows
@@ -49,7 +54,7 @@ public class OptimizeReflectorBootstrap {
         MethodHandle handle = targetField == null
                 ? MethodHandles.constant(Object.class, null)
                 : lookup.unreflectGetter(targetField);
-        return new ConstantCallSite(handle.asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
     @SneakyThrows
@@ -61,7 +66,7 @@ public class OptimizeReflectorBootstrap {
         MethodHandle handle = targetField == null
                 ? MethodHandles.constant(Object.class, null)
                 : lookup.unreflectSetter(targetField);
-        return new ConstantCallSite(handle.asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
     @SneakyThrows
@@ -83,7 +88,7 @@ public class OptimizeReflectorBootstrap {
                 handle = MethodHandles.dropArguments(handle, type.parameterCount() - 1, type.parameterType(type.parameterCount() - 1));
             }
         }
-        return new ConstantCallSite(handle.asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
     @SneakyThrows
@@ -101,9 +106,9 @@ public class OptimizeReflectorBootstrap {
             Field targetField = (Field) getTargetFieldMethod.invoke(reflectorField);
             handle = targetField == null
                     ? MethodHandles.dropArguments(MethodHandles.constant(type.returnType(), null), 0, type.parameterArray())
-                    : lookup.unreflectGetter(targetField).asType(type);
+                    : lookup.unreflectGetter(targetField);
         }
-        return new ConstantCallSite(handle.asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
     @SneakyThrows
@@ -115,7 +120,7 @@ public class OptimizeReflectorBootstrap {
         MethodHandle handle = targetField == null
                 ? MethodHandles.constant(boolean.class, false)
                 : MethodHandles.collectArguments(MethodHandles.constant(boolean.class, true), 0, lookup.unreflectSetter(targetField).asType(MethodType.methodType(void.class, type)));
-        return new ConstantCallSite(handle.asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
     @SneakyThrows
@@ -141,7 +146,7 @@ public class OptimizeReflectorBootstrap {
         } else {
             handle = lookup.unreflect(targetMethod);
         }
-        return new ConstantCallSite(handle.asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
     @SneakyThrows
@@ -156,7 +161,7 @@ public class OptimizeReflectorBootstrap {
         } else {
             handle = lookup.unreflectConstructor(targetConstructor);
         }
-        return new ConstantCallSite(handle.asType(type));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
     @SneakyThrows
@@ -174,5 +179,16 @@ public class OptimizeReflectorBootstrap {
 
     public static void empty() {
         //no-op
+    }
+
+    private static CallSite makeCallSite(MethodHandles.Lookup lookup, String name, MethodType type,
+                                       Class<?> reflectorClass, String reflectorName, Class<?> reflectorInstanceClass, MethodHandle handle) {
+        if (handle.type().equals(type)) {
+            PPatchesMod.LOGGER.debug("correct method type {} (for handle {})", type, handle);
+        } else {
+            PPatchesMod.LOGGER.debug("incorrect method type {}, converting to {} (for handle {})", handle.type(), type, handle);
+            handle = handle.asType(type);
+        }
+        return new ConstantCallSite(handle);
     }
 }
