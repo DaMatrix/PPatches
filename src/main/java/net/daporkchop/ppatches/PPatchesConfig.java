@@ -87,6 +87,14 @@ public class PPatchesConfig {
     public static final ModuleConfigBase mekanism_optimizeSkyLightUpdates = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches OpenBlocks to align the rotation angles of its fans to a multiple of 10° (the angle by which the fans are rotated when right-clicked).",
+            "Without this patch, there is almost no way to make neighboring fans point in the same exact direction, however it is disabled by default due to the very"
+            + " slim possibility that it may break existing builds which rely on extremely precise fan placement.",
+            "This has no meaningful performance impact.",
+    })
+    public static final ModuleConfigBase openBlocks_fanAngleRounding = new ModuleConfigBase(ModuleState.DISABLED);
+
+    @Config.Comment({
             "Patches OptiFine to use MethodHandles in place of Java reflection.",
             "This could give some minor performance benefits when OptiFine is installed, and will definitely help reduce GC churn.",
     })
