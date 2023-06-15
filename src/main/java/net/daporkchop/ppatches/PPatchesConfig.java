@@ -94,6 +94,8 @@ public class PPatchesConfig {
     })
     public static final ModuleConfigBase openBlocks_fanAngleRounding = new ModuleConfigBase(ModuleState.DISABLED);
 
+    public static final ModuleConfigBase openBlocks_fanUpdateBatching = new ModuleConfigBase(ModuleState.AUTO);
+
     @Config.Comment({
             "Patches OptiFine to use MethodHandles in place of Java reflection.",
             "This could give some minor performance benefits when OptiFine is installed, and will definitely help reduce GC churn.",
