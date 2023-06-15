@@ -75,7 +75,7 @@ public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
                     //fall through
                 case ENABLED:
                     PPatchesMod.LOGGER.info("Enabling mixins for module {}", name);
-                    Mixins.addConfiguration("mixins.ppatches." + name + ".json");
+                    Mixins.addConfiguration("net/daporkchop/ppatches/modules/" + name.replace('.', '/') + "/mixins.json");
                     break;
             }
         }

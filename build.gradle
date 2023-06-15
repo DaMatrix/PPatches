@@ -175,7 +175,7 @@ jar {
                 "ForceLoadAsMod": "true",
                 "FMLAT": sourceSets.main.resources.srcDirs.stream().flatMap { dir ->
                     project.fileTree(dir) {
-                        include "**_at.cfg"
+                        include "**/*_at.cfg"
                     }.getFiles().stream().map { file -> dir.toPath().relativize(file.toPath()).toString() }
                 }.sorted().collect(java.util.stream.Collectors.joining(" "))
         )
