@@ -95,6 +95,16 @@ public class PPatchesConfig {
     public static final ModuleConfigBase openBlocks_fanAngleRounding = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Patches OpenBlocks to optimize the processing of entities being pushed by fans.",
+            "This can have measurable performance benefits when there are many fans present in the world.",
+    })
+    @ModuleDescriptor(
+            requiredClasses = "openblocks.common.tileentity.TileEntityFan",
+            transformerRegisterPhase = "DEFAULT",
+            transformerClass = "net.daporkchop.ppatches.modules.openBlocks.fanEntityOptimization.FanEntityOptimizationTransformer")
+    public static final ModuleConfigBase openBlocks_fanEntityOptimization = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches OpenBlocks to avoid re-scanning entities in the world when many fans are placed near each other in the world.",
             "This can result in very large performance improvements for server tick rate when many OpenBlocks fans are placed close to each other.",
     })

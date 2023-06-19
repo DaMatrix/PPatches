@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.openBlocks.fanEntityOptimization.asm",
+  "refmap": "mixins.ppatches.refmap.json",
+  "mixins": [
+    "MixinOpenTileEntity",
+    "MixinSyncedTileEntity",
+    "MixinTileEntityFan"
+  ]
+}

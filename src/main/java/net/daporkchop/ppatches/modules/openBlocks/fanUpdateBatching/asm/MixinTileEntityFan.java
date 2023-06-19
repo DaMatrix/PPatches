@@ -1,11 +1,11 @@
 package net.daporkchop.ppatches.modules.openBlocks.fanUpdateBatching.asm;
 
+import com.google.common.base.Predicate;
 import lombok.SneakyThrows;
 import net.daporkchop.ppatches.modules.openBlocks.fanUpdateBatching.FanUpdateBatchGroup;
 import net.daporkchop.ppatches.util.compat.cubicChunks.CubicChunksCompatHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
@@ -15,6 +15,7 @@ import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Group;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -76,19 +77,41 @@ abstract class MixinTileEntityFan extends MixinSyncedTileEntity {
     }
 
     @Dynamic
+    @Group(name = "tryReturnCachedEntitiesOrCache", min = 1, max = 1)
     @Redirect(
             method = {
                     "Lopenblocks/common/tileentity/TileEntityFan;update()V",
                     "Lopenblocks/common/tileentity/TileEntityFan;func_73660_a()V", //mixin plugin can't automatically generate refmaps for this method, since it's a psuedo class
             },
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/world/World;getEntitiesWithinAABB(Ljava/lang/Class;Lnet/minecraft/util/math/AxisAlignedBB;)Ljava/util/List;", remap = true),
-            allow = 1, require = 1)
+                    target = "Lnet/minecraft/world/World;getEntitiesWithinAABB(Ljava/lang/Class;Lnet/minecraft/util/math/AxisAlignedBB;)Ljava/util/List;", remap = true))
     private List<Entity> ppatches_fanUpdateBatching_update_tryReturnCachedEntitiesOrCache(World world, Class<? extends Entity> entityClass, AxisAlignedBB aabb) {
         long currentTime = this.world.getTotalWorldTime();
 
         if (!this.ppatches_fanUpdateBatching_group.hasCurrentTickEntities(currentTime)) {
             this.ppatches_fanUpdateBatching_group.setCurrentTickEntities(world.getEntitiesWithinAABB(entityClass, aabb), currentTime);
+        }
+
+        return this.ppatches_fanUpdateBatching_group.consumeCurrentTickEntities(currentTime);
+    }
+
+    /**
+     * This is required if the {@code fanEntityOptimization} module is also enabled.
+     */
+    @Dynamic
+    @Group(name = "tryReturnCachedEntitiesOrCache")
+    @Redirect(
+            method = {
+                    "Lopenblocks/common/tileentity/TileEntityFan;update()V",
+                    "Lopenblocks/common/tileentity/TileEntityFan;func_73660_a()V", //mixin plugin can't automatically generate refmaps for this method, since it's a psuedo class
+            },
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/world/World;getEntitiesWithinAABB(Ljava/lang/Class;Lnet/minecraft/util/math/AxisAlignedBB;Lcom/google/common/base/Predicate;)Ljava/util/List;", remap = true))
+    private List<Entity> ppatches_fanUpdateBatching_update_tryReturnCachedEntitiesOrCache(World world, Class<? extends Entity> entityClass, AxisAlignedBB aabb, Predicate<? super Entity> predicate) {
+        long currentTime = this.world.getTotalWorldTime();
+
+        if (!this.ppatches_fanUpdateBatching_group.hasCurrentTickEntities(currentTime)) {
+            this.ppatches_fanUpdateBatching_group.setCurrentTickEntities(world.getEntitiesWithinAABB(entityClass, aabb, predicate), currentTime);
         }
 
         return this.ppatches_fanUpdateBatching_group.consumeCurrentTickEntities(currentTime);
