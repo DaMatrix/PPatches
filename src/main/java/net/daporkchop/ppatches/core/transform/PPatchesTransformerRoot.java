@@ -15,14 +15,27 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Arrays;
 
 /**
  * @author DaPorkchop_
  */
-public class PPatchesTransformerRoot implements IClassTransformer {
+public final class PPatchesTransformerRoot implements IClassTransformer {
     public static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
 
-    public static ITreeClassTransformer[] TRANSFORMERS;
+    private static ITreeClassTransformer[] TRANSFORMERS = new ITreeClassTransformer[0];
+
+    public synchronized static void registerTransformer(ITreeClassTransformer transformer) {
+        for (ITreeClassTransformer existingTransformer : TRANSFORMERS) {
+            if (transformer == existingTransformer) {
+                throw new IllegalArgumentException("transformer " + transformer + " already registered?!?");
+            }
+        }
+
+        ITreeClassTransformer[] newTransformers = Arrays.copyOf(TRANSFORMERS, TRANSFORMERS.length + 1);
+        newTransformers[TRANSFORMERS.length] = transformer;
+        TRANSFORMERS = newTransformers;
+    }
 
     @SneakyThrows(IOException.class)
     public PPatchesTransformerRoot() {

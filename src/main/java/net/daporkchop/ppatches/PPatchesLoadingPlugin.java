@@ -28,8 +28,6 @@ import org.spongepowered.asm.mixin.Mixins;
 
 import javax.annotation.Nullable;
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -55,27 +53,47 @@ public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
             String name = entry.getKey();
             PPatchesConfig.ModuleConfigBase module = entry.getValue();
 
-            if (!module.descriptor.hasMixins() || MixinEnvironment.Phase.forName(module.descriptor.mixinRegisterPhase()) != phase) {
+            boolean doMixins = module.descriptor.hasMixins() && MixinEnvironment.Phase.forName(module.descriptor.mixinRegisterPhase()) == phase;
+            boolean doTransformer = !module.descriptor.transformerClass().isEmpty()
+                                    && MixinEnvironment.Phase.forName(module.descriptor.transformerRegisterPhase()) == phase;
+
+            if (!(doMixins | doTransformer)) {
                 continue;
             }
 
             LOAD_MODULE:
             switch (module.state) {
                 case DISABLED:
-                    PPatchesMod.LOGGER.info("Not enabling mixins for module {} (disabled by config)", name);
+                    if (doTransformer) {
+                        PPatchesMod.LOGGER.info("Not registering transformer for module {} (disabled by config)", name);
+                    }
+                    if (doMixins) {
+                        PPatchesMod.LOGGER.info("Not enabling mixins for module {} (disabled by config)", name);
+                    }
                     break;
                 case AUTO:
                     for (String className : module.descriptor.requiredClasses()) {
                         if (Launch.classLoader.getResource(className.replace('.', '/') + ".class") == null) {
-                            PPatchesMod.LOGGER.info("Not enabling mixins for module {} (dependency class {} can't be found)", name, className);
+                            if (doTransformer) {
+                                PPatchesMod.LOGGER.info("Not registering transformer for module {} (dependency class {} can't be found)", name, className);
+                            }
+                            if (doMixins) {
+                                PPatchesMod.LOGGER.info("Not enabling mixins for module {} (dependency class {} can't be found)", name, className);
+                            }
                             break LOAD_MODULE;
                         }
                     }
 
                     //fall through
                 case ENABLED:
-                    PPatchesMod.LOGGER.info("Enabling mixins for module {}", name);
-                    Mixins.addConfiguration("net/daporkchop/ppatches/modules/" + name.replace('.', '/') + "/mixins.json");
+                    if (doTransformer) {
+                        PPatchesMod.LOGGER.info("Registering transformer for module {}", name);
+                        PPatchesTransformerRoot.registerTransformer((ITreeClassTransformer) Class.forName(module.descriptor.transformerClass()).newInstance());
+                    }
+                    if (doMixins) {
+                        PPatchesMod.LOGGER.info("Enabling mixins for module {}", name);
+                        Mixins.addConfiguration("net/daporkchop/ppatches/modules/" + name.replace('.', '/') + "/mixins.json");
+                    }
                     break;
             }
         }
@@ -96,46 +114,8 @@ public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
     }
 
     @Override
-    @SneakyThrows(ReflectiveOperationException.class)
     public String[] getASMTransformerClass() {
-        List<ITreeClassTransformer> transformers = new ArrayList<>();
-
-        for (Map.Entry<String, PPatchesConfig.ModuleConfigBase> entry : PPatchesConfig.listModules().entrySet()) {
-            String name = entry.getKey();
-            PPatchesConfig.ModuleConfigBase module = entry.getValue();
-
-            String transformerClass = module.descriptor.transformerClass();
-            if (transformerClass.isEmpty()) { //module has no transformer, ignore it
-                continue;
-            }
-
-            LOAD_MODULE:
-            switch (entry.getValue().state) {
-                case DISABLED:
-                    PPatchesMod.LOGGER.info("Not registering transformer for module {} (disabled by config)", name);
-                    break;
-                case AUTO:
-                    for (String className : module.descriptor.requiredClasses()) {
-                        if (Launch.classLoader.getResource(className.replace('.', '/') + ".class") == null) {
-                            PPatchesMod.LOGGER.info("Not registering transformer for module {} (dependency class {} can't be found)", name, className);
-                            break LOAD_MODULE;
-                        }
-                    }
-
-                    //fall through
-                case ENABLED:
-                    PPatchesMod.LOGGER.info("Registering transformer for module {}", name);
-                    transformers.add((ITreeClassTransformer) Class.forName(transformerClass).newInstance());
-                    break;
-            }
-        }
-
-        if (transformers.isEmpty()) {
-            return new String[0];
-        } else {
-            PPatchesTransformerRoot.TRANSFORMERS = transformers.toArray(new ITreeClassTransformer[0]);
-            return new String[] { "net.daporkchop.ppatches.core.transform.PPatchesTransformerRoot" };
-        }
+        return new String[]{ "net.daporkchop.ppatches.core.transform.PPatchesTransformerRoot" };
     }
 
     @Override

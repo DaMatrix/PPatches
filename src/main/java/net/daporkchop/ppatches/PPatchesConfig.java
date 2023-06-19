@@ -476,6 +476,8 @@ public class PPatchesConfig {
         String mixinRegisterPhase() default "DEFAULT";
 
         String transformerClass() default "";
+
+        String transformerRegisterPhase() default "PREINIT";
     }
 
     @SubscribeEvent
