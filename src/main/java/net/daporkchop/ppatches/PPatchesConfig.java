@@ -94,6 +94,10 @@ public class PPatchesConfig {
     })
     public static final ModuleConfigBase openBlocks_fanAngleRounding = new ModuleConfigBase(ModuleState.DISABLED);
 
+    @Config.Comment({
+            "Patches OpenBlocks to avoid re-scanning entities in the world when many fans are placed near each other in the world.",
+            "This can result in very large performance improvements for server tick rate when many OpenBlocks fans are placed close to each other.",
+    })
     public static final ModuleConfigBase openBlocks_fanUpdateBatching = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({

@@ -1,7 +1,8 @@
 package net.daporkchop.ppatches.modules.openBlocks.fanUpdateBatching.asm;
 
-import net.daporkchop.ppatches.PPatchesMod;
+import lombok.SneakyThrows;
 import net.daporkchop.ppatches.modules.openBlocks.fanUpdateBatching.FanUpdateBatchGroup;
+import net.daporkchop.ppatches.util.compat.cubicChunks.CubicChunksCompatHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
@@ -23,7 +24,9 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author DaPorkchop_
@@ -43,7 +46,7 @@ abstract class MixinTileEntityFan extends MixinSyncedTileEntity {
             MethodHandle syncableByte_get = lookup.findVirtual(syncableByteClass, "get", MethodType.methodType(byte.class));
             TILEENTITYFAN_GETPOWER = MethodHandles.filterReturnValue(tileEntityFan_power_getter, syncableByte_get);
         } catch (ReflectiveOperationException e) {
-            throw new RuntimeException("PPatches: openblocks.fanUpdateBatching failed to initialize", e);
+            throw new AssertionError("PPatches: openblocks.fanUpdateBatching failed to initialize", e);
         }
     }
 
@@ -85,9 +88,6 @@ abstract class MixinTileEntityFan extends MixinSyncedTileEntity {
         long currentTime = this.world.getTotalWorldTime();
 
         if (!this.ppatches_fanUpdateBatching_group.hasCurrentTickEntities(currentTime)) {
-            if (false && !this.world.isRemote) {
-                PPatchesMod.LOGGER.info("doing getEntities for group {} on tick {}", this.ppatches_fanUpdateBatching_group, currentTime);
-            }
             this.ppatches_fanUpdateBatching_group.setCurrentTickEntities(world.getEntitiesWithinAABB(entityClass, aabb), currentTime);
         }
 
@@ -113,32 +113,27 @@ abstract class MixinTileEntityFan extends MixinSyncedTileEntity {
         List<MixinTileEntityFan> fansInGroup = new ArrayList<>();
         fansInGroup.add(this);
 
-        //try to find neighboring lines of fans
-        for (EnumFacing facing : EnumFacing.VALUES) {
-            for (int dist = 1; ; dist++) {
-                TileEntity tileEntity = this.world.getTileEntity(ownPos.offset(facing, dist));
-                if (tileEntity instanceof MixinTileEntityFan) {
-                    MixinTileEntityFan fanTileEntity = (MixinTileEntityFan) tileEntity;
-
-                    if (fanTileEntity.ppatches_fanUpdateBatching_group != null
-                        || (byte) TILEENTITYFAN_GETPOWER.invokeExact(fanTileEntity) == 0) { //unpowered fans can't be included in the group
-                        break;
-                    }
-
-                    //expand bounding box to contain the newly discovered fan
-                    BlockPos fanPos = fanTileEntity.getPos();
-                    minX = Math.min(minX, fanPos.getX());
-                    maxX = Math.max(maxX, fanPos.getX());
-                    minY = Math.min(minY, fanPos.getY());
-                    maxY = Math.max(maxY, fanPos.getY());
-                    minZ = Math.min(minZ, fanPos.getZ());
-                    maxZ = Math.max(maxZ, fanPos.getZ());
-
-                    fansInGroup.add(fanTileEntity);
-                } else {
-                    break;
-                }
+        for (TileEntity tileEntity : this.ppatches_fanUpdateBatching_candidateGroupTileEntities()) {
+            if (!(tileEntity instanceof MixinTileEntityFan) || tileEntity == this) {
+                continue;
             }
+
+            MixinTileEntityFan fanTileEntity = (MixinTileEntityFan) tileEntity;
+            if (fanTileEntity.ppatches_fanUpdateBatching_group != null
+                || (byte) TILEENTITYFAN_GETPOWER.invokeExact(fanTileEntity) == 0) { //unpowered fans can't be included in the group
+                continue;
+            }
+
+            //expand bounding box to contain the newly discovered fan
+            BlockPos fanPos = fanTileEntity.getPos();
+            minX = Math.min(minX, fanPos.getX());
+            maxX = Math.max(maxX, fanPos.getX());
+            minY = Math.min(minY, fanPos.getY());
+            maxY = Math.max(maxY, fanPos.getY());
+            minZ = Math.min(minZ, fanPos.getZ());
+            maxZ = Math.max(maxZ, fanPos.getZ());
+
+            fansInGroup.add(fanTileEntity);
         }
 
         return new FanUpdateBatchGroup<>(fansInGroup.toArray(new MixinTileEntityFan[0]),
@@ -166,6 +161,21 @@ abstract class MixinTileEntityFan extends MixinSyncedTileEntity {
     }
 
     @Unique
+    @SneakyThrows
+    private Collection<TileEntity> ppatches_fanUpdateBatching_candidateGroupTileEntities() {
+        Map<BlockPos, TileEntity> tileEntityMap;
+        if (CubicChunksCompatHelper.ICUBICWORLD != null && CubicChunksCompatHelper.ICUBICWORLD.isInstance(this.world)
+            && (boolean) CubicChunksCompatHelper.ICUBICWORLD_ISCUBICWORLD.invokeExact(this.world)) { //special handling for cubic chunks!
+            //noinspection unchecked
+            tileEntityMap = (Map<BlockPos, TileEntity>) CubicChunksCompatHelper.ICUBICWORLD_GETCUBEFROMBLOCKCOORDS_THEN_GETTILEENTITYMAP.invokeExact(this.world, this.getPos());
+        } else {
+            tileEntityMap = this.world.getChunk(this.getPos()).getTileEntityMap();
+        }
+
+        return tileEntityMap.values();
+    }
+
+    @Unique
     private void ppatches_fanUpdateBatching_destroyGroup() {
         if (this.ppatches_fanUpdateBatching_group != null) { //remove all fans from the group
             for (MixinTileEntityFan fan : this.ppatches_fanUpdateBatching_group.fans) {
@@ -174,19 +184,17 @@ abstract class MixinTileEntityFan extends MixinSyncedTileEntity {
         }
 
         //destroy groups of any neighboring fans as well, in order to allow them to be merged with the current fan
-        for (EnumFacing facing : EnumFacing.VALUES) {
-            BlockPos pos = this.getPos().offset(facing);
-            if (!this.world.isBlockLoaded(pos)) {
-                continue;
-            }
-
-            TileEntity tileEntity = this.world.getTileEntity(pos);
+        for (TileEntity tileEntity : this.ppatches_fanUpdateBatching_candidateGroupTileEntities()) {
             if (tileEntity instanceof MixinTileEntityFan) {
                 MixinTileEntityFan fanTileEntity = (MixinTileEntityFan) tileEntity;
                 if (fanTileEntity.ppatches_fanUpdateBatching_group != null) {
                     for (MixinTileEntityFan fan : fanTileEntity.ppatches_fanUpdateBatching_group.fans) {
                         fan.ppatches_fanUpdateBatching_group = null;
                     }
+
+                    //if we managed to remove one other fan group from this candidate group, there will be no more to remove (since the candidate group covers all tile
+                    //  entities in this chunk/cube)
+                    break;
                 }
             }
         }

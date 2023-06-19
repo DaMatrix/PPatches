@@ -22,7 +22,7 @@ public final class FanUpdateBatchGroup<FAN extends TileEntity> extends AxisAlign
     }
 
     public void setCurrentTickEntities(List<Entity> entities, long currentTime) {
-        assert this.currentTickEntities == null : "not all fans in this batch were ticked?!? (cached entity list is non-null)";
+        //assert this.currentTickEntities == null : "not all fans in this batch were ticked?!? (cached entity list is non-null)";
 
         this.currentTickEntities = entities;
         this.currentTickRemaining = this.fans.length;
@@ -30,11 +30,11 @@ public final class FanUpdateBatchGroup<FAN extends TileEntity> extends AxisAlign
     }
 
     public boolean hasCurrentTickEntities(long currentTickTime) {
-        return this.currentTickEntities != null;
+        return this.currentTickEntities != null && this.currentTickTime == currentTickTime;
     }
 
     public List<Entity> consumeCurrentTickEntities(long currentTickTime) {
-        assert this.currentTickEntities != null : "too many fans in this batch were ticked?!? (cached entity list is null)";
+        //assert this.currentTickEntities != null : "too many fans in this batch were ticked?!? (cached entity list is null)";
 
         List<Entity> currentTickEntities = this.currentTickEntities;
         if (--this.currentTickRemaining == 0) {
