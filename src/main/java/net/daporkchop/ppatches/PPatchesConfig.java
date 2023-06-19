@@ -166,6 +166,15 @@ public class PPatchesConfig {
     @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
     public static final ModuleConfigBase vanilla_optimizeWorldHashing = new ModuleConfigBase(ModuleState.ENABLED);
 
+    @Config.Comment({
+            "Patches all references to the isRemote field of Minecraft's World class to be hard-coded to false on the dedicated server.",
+            "This will slightly improve dedicated server performance, although the improvement will be extremely difficult to measure.",
+    })
+    @ModuleDescriptor(
+            hasMixins = false,
+            transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeWorldIsRemoteOnDedicatedServer.OptimizeWorldIsRemoteOnDedicatedServerTransformer")
+    public static final ModuleConfigBase vanilla_optimizeWorldIsRemoteOnDedicatedServer = new ModuleConfigBase(ModuleState.ENABLED);
+
     /**
      * @author DaPorkchop_
      */

@@ -94,7 +94,8 @@ public final class PPatchesTransformerRoot implements IClassTransformer {
         }
 
         if (anyChanged) {
-            ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+            //TODO: figure out why i had COMPUTE_FRAMES enabled
+            ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS /*| ClassWriter.COMPUTE_FRAMES*/);
             classNode.accept(writer);
 
             if (DUMP_CLASSES) {
