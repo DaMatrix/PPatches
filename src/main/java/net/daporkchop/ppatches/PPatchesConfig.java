@@ -57,6 +57,12 @@ public class PPatchesConfig {
     public static final ModuleConfigBase extraUtilities2_disableSkyLightInCustomDimensions = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches Extra Utilities 2 to optimize the ItemCaptureHandler class to eliminate the need to create an item entity for each captured item drop.",
+            "This will result in a server-side performance increase of 15-30% for blocks which use it, in particular the Quantum Quarry.",
+    })
+    public static final ModuleConfigBase extraUtilities2_optimizeItemCaptureHandler = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches FoamFix to optimize the algorithm used for blending between frames of animated textures with interpolation enabled, such as lava or command blocks.",
             "This is unlikely to give any meaningful performance benefits.",
     })
