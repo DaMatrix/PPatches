@@ -1,10 +1,19 @@
 package net.daporkchop.ppatches.util.asm;
 
+import lombok.NonNull;
 import lombok.experimental.UtilityClass;
 import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.util.Printer;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -82,5 +91,73 @@ public class BytecodeHelper {
             default:
                 throw new IllegalArgumentException("not a constant value: " + Printer.OPCODES[insn.getOpcode()]);
         }
+    }
+
+    public static List<MethodNode> findMethod(ClassNode classNode, String name) {
+        List<MethodNode> out = null;
+        for (MethodNode methodNode : classNode.methods) {
+            if (name.equals(methodNode.name)) {
+                if (out == null) {
+                    out = new ArrayList<>();
+                }
+                out.add(methodNode);
+            }
+        }
+        return out != null ? out : Collections.emptyList();
+    }
+
+    public static Optional<MethodNode> findMethod(ClassNode classNode, String name, String desc) {
+        Optional<MethodNode> result = Optional.empty();
+        for (MethodNode methodNode : classNode.methods) {
+            if (name.equals(methodNode.name) && desc.equals(methodNode.desc)) {
+                if (result.isPresent()) {
+                    throw new IllegalStateException("already found a method named " + name + " with desc " + desc);
+                }
+                result = Optional.of(methodNode);
+            }
+        }
+        return result;
+    }
+
+    public static MethodNode findMethodOrThrow(ClassNode classNode, String name, String desc) {
+        Optional<MethodNode> result = findMethod(classNode, name, desc);
+        if (!result.isPresent()) {
+            throw new IllegalStateException("couldn't find method named " + name + " with desc " + desc + " in class " + classNode.name);
+        }
+        return result.get();
+    }
+
+    public static List<MethodNode> findObfuscatedMethod(ClassNode classNode, Collection<String> names) {
+        List<MethodNode> out = null;
+        for (MethodNode methodNode : classNode.methods) {
+            if (names.contains(methodNode.name)) {
+                if (out == null) {
+                    out = new ArrayList<>();
+                }
+                out.add(methodNode);
+            }
+        }
+        return out != null ? out : Collections.emptyList();
+    }
+
+    public static Optional<MethodNode> findObfuscatedMethod(ClassNode classNode, Collection<String> names, String desc) {
+        Optional<MethodNode> result = Optional.empty();
+        for (MethodNode methodNode : classNode.methods) {
+            if (desc.equals(methodNode.desc) && names.contains(methodNode.name)) {
+                if (result.isPresent()) {
+                    throw new IllegalStateException("already found a method named " + names + " with desc " + desc);
+                }
+                result = Optional.of(methodNode);
+            }
+        }
+        return result;
+    }
+
+    public static MethodNode findObfuscatedMethodOrThrow(ClassNode classNode, Collection<String> names, String desc) {
+        Optional<MethodNode> result = findObfuscatedMethod(classNode, names, desc);
+        if (!result.isPresent()) {
+            throw new IllegalStateException("couldn't find method named " + names + " with desc " + desc + " in class " + classNode.name);
+        }
+        return result.get();
     }
 }

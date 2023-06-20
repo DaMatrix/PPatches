@@ -26,10 +26,8 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Set;
-import java.util.SortedSet;
 import java.util.TreeSet;
 
 /**
@@ -47,6 +45,16 @@ public class PPatchesConfig {
             + " no performance implications.",
     })
     public static final ModuleConfigBase customMainMenu_fixRenderColors = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
+            "Patches Extra Utilities 2 to disable sky light in the Quantum Quarry and Deep Dark dimensions.",
+            "This could result in a slight performance increase on the server side, in particular when the Quantum Quarry is active.",
+    })
+    @ModuleDescriptor(
+            requiredClasses = "com.rwtema.extrautils2.dimensions.deep_dark.WorldProviderDeepDark",
+            transformerRegisterPhase = "DEFAULT",
+            transformerClass = "net.daporkchop.ppatches.modules.extraUtilities2.disableSkyLightInCustomDimensions.DisableSkyLightInCustomDimensionsTransformer")
+    public static final ModuleConfigBase extraUtilities2_disableSkyLightInCustomDimensions = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches FoamFix to optimize the algorithm used for blending between frames of animated textures with interpolation enabled, such as lava or command blocks.",
