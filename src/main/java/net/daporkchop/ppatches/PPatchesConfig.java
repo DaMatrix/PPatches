@@ -129,6 +129,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase optifine_optimizeReflector = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches Minecraft's networking code to avoid disconnecting players twice.",
+            "This helps avoid crashing the dedicated server when the server is shut down while players are online.",
+    })
+    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
+    public static final ModuleConfigBase vanilla_fixRemovePlayersOnServerShutdown = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Minecraft's font renderer to group together entire strings and send them to the GPU at once, instead of drawing each letter individually.",
             "Whether or not this will give a performance increase depends on your GPU driver. AMD GPUs appear to benefit the most from this, have an FPS increase "
             + " of roughly 5% when the F3 menu is open.",
