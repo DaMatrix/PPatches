@@ -1,8 +1,8 @@
 package net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw;
 
 import net.daporkchop.ppatches.PPatchesConfig;
-import net.daporkchop.ppatches.PPatchesLoadingPlugin;
 import net.daporkchop.ppatches.PPatchesMod;
+import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.minecraftforge.common.config.Config;
 import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.fml.relauncher.Side;
@@ -53,7 +53,7 @@ public class ModuleConfigOptimizeTessellatorDraw extends PPatchesConfig.ModuleCo
     public void loadFromConfig(Configuration configuration, String category, boolean init) {
         super.loadFromConfig(configuration, category, init);
 
-        if (PPatchesLoadingPlugin.isStarted && configuration.getCategory(category).hasChanged()) {
+        if (PPatchesBootstrap.currentPhase() == PPatchesBootstrap.Phase.MODS_ON_CLASSPATH && configuration.getCategory(category).hasChanged()) {
             PPatchesMod.LOGGER.info("vanilla.optimizeTessellatorDraw config changed, reloading...");
             VAOWorldVertexBufferUploader.ALL_INSTANCES.forEach(VAOWorldVertexBufferUploader::onConfigReload);
         }

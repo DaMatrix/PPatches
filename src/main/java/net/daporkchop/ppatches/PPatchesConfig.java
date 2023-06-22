@@ -3,7 +3,9 @@ package net.daporkchop.ppatches;
 import com.google.common.collect.ImmutableSortedMap;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
+import net.minecraft.launchwrapper.Launch;
 import net.minecraftforge.common.config.Config;
 import net.minecraftforge.common.config.ConfigCategory;
 import net.minecraftforge.common.config.Configuration;
@@ -11,6 +13,7 @@ import net.minecraftforge.common.config.Property;
 import net.minecraftforge.fml.client.event.ConfigChangedEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import org.apache.logging.log4j.Level;
 
 import java.io.File;
 import java.lang.annotation.ElementType;
@@ -52,7 +55,6 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             requiredClasses = "com.rwtema.extrautils2.dimensions.deep_dark.WorldProviderDeepDark",
-            transformerRegisterPhase = "DEFAULT",
             transformerClass = "net.daporkchop.ppatches.modules.extraUtilities2.disableSkyLightInCustomDimensions.DisableSkyLightInCustomDimensionsTransformer")
     public static final ModuleConfigBase extraUtilities2_disableSkyLightInCustomDimensions = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -114,7 +116,6 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             requiredClasses = "openblocks.common.tileentity.TileEntityFan",
-            transformerRegisterPhase = "DEFAULT",
             transformerClass = "net.daporkchop.ppatches.modules.openBlocks.fanEntityOptimization.FanEntityOptimizationTransformer")
     public static final ModuleConfigBase openBlocks_fanEntityOptimization = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -130,6 +131,7 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             requiredClasses = "net.optifine.reflect.Reflector",
+            registerPhase = PPatchesBootstrap.Phase.AFTER_MIXIN_DEFAULT,
             hasMixins = false,
             transformerClass = "net.daporkchop.ppatches.modules.optifine.optimizeReflector.OptimizeReflectorTransformer")
     public static final ModuleConfigBase optifine_optimizeReflector = new ModuleConfigBase(ModuleState.AUTO);
@@ -138,7 +140,7 @@ public class PPatchesConfig {
             "Patches Minecraft's networking code to avoid disconnecting players twice.",
             "This helps avoid crashing the dedicated server when the server is shut down while players are online.",
     })
-    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigBase vanilla_fixRemovePlayersOnServerShutdown = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
@@ -146,7 +148,7 @@ public class PPatchesConfig {
             "Whether or not this will give a performance increase depends on your GPU driver. AMD GPUs appear to benefit the most from this, have an FPS increase "
             + " of roughly 5% when the F3 menu is open.",
     })
-    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigBase vanilla_fontRendererBatching = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
@@ -155,14 +157,14 @@ public class PPatchesConfig {
             + " beginning or end.",
             "This has no meaningful performance impact.",
     })
-    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches Minecraft's item renderer to re-use the same vertex data when rendering items which have the same mesh.",
             "This should notably improve performance when rendering many items (generally during GUI rendering) by ~5% or more, and will definitely help reduce GC churn.",
     })
-    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigBase vanilla_optimizeItemRendererCacheModel = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
@@ -172,7 +174,7 @@ public class PPatchesConfig {
             "Whether or not this will give a performance increase depends on your GPU driver, and on some drivers it may cause visual bugs. NVIDIA GPUs in particular"
             + " seem to get roughly 10-15% higher FPS without any noticeable issues, however AMD's driver seems to glitch out most of the time.",
     })
-    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTessellatorDraw = new ModuleConfigOptimizeTessellatorDraw(ModuleState.DISABLED);
 
     @Config.Comment({
@@ -184,7 +186,7 @@ public class PPatchesConfig {
             + " the total frame time to ~1.5%). Your mileage may vary, however even in the worst case this patch should have no effect (enabling it won't make your game"
             + " run slower).",
     })
-    @ModuleDescriptor(mixinRegisterPhase = "PREINIT")
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigBase vanilla_optimizeWorldHashing = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
@@ -192,6 +194,7 @@ public class PPatchesConfig {
             "This will slightly improve dedicated server performance, although the improvement will be extremely difficult to measure.",
     })
     @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
             hasMixins = false,
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeWorldIsRemoteOnDedicatedServer.OptimizeWorldIsRemoteOnDedicatedServerTransformer")
     public static final ModuleConfigBase vanilla_optimizeWorldIsRemoteOnDedicatedServer = new ModuleConfigBase(ModuleState.ENABLED);
@@ -208,6 +211,29 @@ public class PPatchesConfig {
 
         public ModuleConfigBase(ModuleState defaultState) {
             this.state = defaultState;
+        }
+
+        public boolean isEnabled() {
+            return this.getDisabledReason() == null;
+        }
+
+        public String getDisabledReason() {
+            switch (this.state) {
+                case DISABLED:
+                    return "disabled by config";
+                case AUTO:
+                    for (String className : this.descriptor.requiredClasses()) {
+                        if (Launch.classLoader.getResource(className.replace('.', '/') + ".class") == null) {
+                            return "dependency class " + className + " can't be found";
+                        }
+                    }
+
+                    //fall through
+                case ENABLED:
+                    return null;
+                default:
+                    throw new IllegalStateException(String.valueOf(this.state));
+            }
         }
 
         @SneakyThrows(ReflectiveOperationException.class)
@@ -511,13 +537,11 @@ public class PPatchesConfig {
     public @interface ModuleDescriptor {
         String[] requiredClasses() default {};
 
+        PPatchesBootstrap.Phase registerPhase() default PPatchesBootstrap.Phase.MODS_ON_CLASSPATH;
+
         boolean hasMixins() default true;
 
-        String mixinRegisterPhase() default "DEFAULT";
-
         String transformerClass() default "";
-
-        String transformerRegisterPhase() default "PREINIT";
     }
 
     @SubscribeEvent

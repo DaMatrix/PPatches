@@ -1,28 +1,31 @@
 package net.daporkchop.ppatches.core.transform;
 
 import lombok.SneakyThrows;
+import net.daporkchop.ppatches.PPatchesMod;
+import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.minecraft.launchwrapper.IClassTransformer;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.ClassNode;
+import org.spongepowered.asm.service.ITransformer;
+import org.spongepowered.asm.transformers.MixinClassWriter;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.FileVisitResult;
-import java.nio.file.FileVisitor;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * @author DaPorkchop_
  */
-public final class PPatchesTransformerRoot implements IClassTransformer {
+public final class PPatchesTransformerRoot implements IClassTransformer, ITransformer {
     public static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
 
+    private static final List<PPatchesTransformerRoot> INSTANCES = new ArrayList<>();
     private static ITreeClassTransformer[] TRANSFORMERS = new ITreeClassTransformer[0];
 
     public synchronized static void registerTransformer(ITreeClassTransformer transformer) {
@@ -37,10 +40,15 @@ public final class PPatchesTransformerRoot implements IClassTransformer {
         TRANSFORMERS = newTransformers;
     }
 
+    private final PPatchesBootstrap.Phase phase = PPatchesBootstrap.currentPhase();
+    private boolean disabled = false;
+
     @SneakyThrows(IOException.class)
     public PPatchesTransformerRoot() {
+        PPatchesMod.LOGGER.info("Registering new transformer at {}", this.phase);
+
         Path dir;
-        if (DUMP_CLASSES && Files.exists(dir = Paths.get(".ppatches_transformed"))) {
+        if (DUMP_CLASSES && INSTANCES.isEmpty() && Files.exists(dir = Paths.get(".ppatches_transformed"))) {
             Files.walkFileTree(dir, new FileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
@@ -69,10 +77,23 @@ public final class PPatchesTransformerRoot implements IClassTransformer {
                 }
             });
         }
+
+        for (PPatchesTransformerRoot oldInstance : INSTANCES) {
+            if (oldInstance.phase.ordinal() >= this.phase.ordinal()) {
+                throw new IllegalStateException("a transformer already exists at phase " + oldInstance.phase + ", so we can't start at " + this.phase);
+            }
+            oldInstance.disabled = true;
+        }
+
+        INSTANCES.add(this);
     }
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] basicClass) {
+        if (this.disabled || basicClass == null) {
+            return basicClass;
+        }
+
         ClassNode classNode = null;
         boolean anyChanged = false;
 
@@ -94,8 +115,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer {
         }
 
         if (anyChanged) {
-            //TODO: figure out why i had COMPUTE_FRAMES enabled
-            ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS /*| ClassWriter.COMPUTE_FRAMES*/);
+            ClassWriter writer = new MixinClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
             classNode.accept(writer);
 
             if (DUMP_CLASSES) {
@@ -112,5 +132,15 @@ public final class PPatchesTransformerRoot implements IClassTransformer {
         } else {
             return basicClass;
         }
+    }
+
+    @Override
+    public String getName() {
+        return this.getClass().getName();
+    }
+
+    @Override
+    public boolean isDelegationExcluded() {
+        return true;
     }
 }
