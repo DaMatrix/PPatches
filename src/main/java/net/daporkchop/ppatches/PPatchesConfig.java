@@ -103,6 +103,16 @@ public class PPatchesConfig {
     public static final ModuleConfigBase mekanism_optimizeSkyLightUpdates = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches all Mixin injection points to replace eligible allocations of CallbackInfo with a static instance which can be re-used.",
+            "This can dramatically improve performance and/or reduce GC churn in some situations, especially when there are other mods installed which use Mixin.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            hasMixins = false,
+            transformerClass = "net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.OptimizeCallbackInfoAllocationTransformer")
+    public static final ModuleConfigBase mixin_optimizeCallbackInfoAllocation = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches OpenBlocks to align the rotation angles of its fans to a multiple of 10° (the angle by which the fans are rotated when right-clicked).",
             "Without this patch, there is almost no way to make neighboring fans point in the same exact direction, however it is disabled by default due to the very"
             + " slim possibility that it may break existing builds which rely on extremely precise fan placement.",
