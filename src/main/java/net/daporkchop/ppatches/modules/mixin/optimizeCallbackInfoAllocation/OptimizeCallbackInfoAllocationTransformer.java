@@ -4,6 +4,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectArrayMap;
+import lombok.AllArgsConstructor;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
@@ -38,21 +41,59 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 : "Lorg/spongepowered/asm/mixin/injection/callback/CallbackInfo;";
     }
 
-    @RequiredArgsConstructor
+    @AllArgsConstructor
     private static class CallbackInfoCreation {
         public final MethodNode creatingMethod;
         public final TypeInsnNode newInsn;
 
         public final List<AbstractInsnNode> creationInsns;
+        public InsnNode loadCancellableInsn; //this is also contained by creationInsns
+        public Optional<VarInsnNode> captureReturnValueInsn; //this is also contained by creationInsns
+        public final MethodInsnNode invokeCtorInsn;
         public final Optional<VarInsnNode> storeToLvtInsn;
 
-        public final String id;
-        public final boolean cancellable;
+        public String id;
+        public boolean cancellable;
 
         public final boolean callbackInfoIsReturnable;
-        public final boolean capturesReturnValue;
 
         public final List<CallbackInvocation> consumedByInvocations = new ArrayList<>();
+
+        public void setCancellable(boolean cancellable) {
+            if (this.cancellable != cancellable) {
+                //replace constant value instruction
+                for (ListIterator<AbstractInsnNode> itr = this.creationInsns.listIterator(); itr.hasNext(); ) {
+                    AbstractInsnNode insn = itr.next();
+                    if (insn == this.loadCancellableInsn) {
+                        this.loadCancellableInsn = new InsnNode(cancellable ? ICONST_1 : ICONST_0);
+                        this.cancellable = cancellable;
+                        itr.set(this.loadCancellableInsn);
+                        this.creatingMethod.instructions.set(insn, this.loadCancellableInsn);
+                        return;
+                    }
+                }
+
+                throw new IllegalStateException("couldn't find cancellable load instruction!");
+            }
+        }
+
+        public void changeId(String newId) {
+            if (!Objects.equals(this.id, newId)) {
+                //replace constant value instruction
+                for (ListIterator<AbstractInsnNode> itr = this.creationInsns.listIterator(); itr.hasNext(); ) {
+                    AbstractInsnNode insn = itr.next();
+                    if (BytecodeHelper.isConstant(insn) && Objects.equals(this.id, BytecodeHelper.decodeConstant(insn))) {
+                        AbstractInsnNode replacementInsn = newId == null ? new InsnNode(ACONST_NULL) : new LdcInsnNode(newId);
+                        itr.set(replacementInsn);
+                        this.creatingMethod.instructions.set(insn, replacementInsn);
+                        this.id = newId;
+                        return;
+                    }
+                }
+
+                throw new IllegalStateException("couldn't find ID load instruction!");
+            }
+        }
 
         public void removeInvocation(CallbackInvocation invocation) {
             PPatchesMod.LOGGER.info("removed {} from {}", invocation, this);
@@ -75,19 +116,31 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                         }
                     }
                 }
-
             }
         }
     }
 
-    @RequiredArgsConstructor
+    @AllArgsConstructor
     private static class CallbackInvocation {
         public final MethodNode callingMethod;
         public final CallbackInfoCreation callbackInfoCreation;
 
-        public final Optional<VarInsnNode> loadCallbackInfoFromLvtInsn;
+        public Optional<VarInsnNode> loadCallbackInfoFromLvtInsn;
         public final MethodInsnNode invokeCallbackMethodInsn;
         public final List<AbstractInsnNode> checkCancelledInsns;
+
+        public AbstractInsnNode finalCallbackInfoLoadForInvokeInsn() {
+            if (this.callbackInfoCreation.storeToLvtInsn.isPresent()) { //the callbackinfo is stored on the LVT, there's a corresponding ALOAD instruction somewhere before the actual callback invocation
+                int callbackInfoLvtIndex = this.callbackInfoCreation.storeToLvtInsn.get().var;
+                for (AbstractInsnNode currentInsn = this.invokeCallbackMethodInsn.getPrevious(); ; currentInsn = currentInsn.getPrevious()) {
+                    if (currentInsn.getOpcode() == ALOAD && ((VarInsnNode) currentInsn).var == callbackInfoLvtIndex) {
+                        return currentInsn;
+                    }
+                }
+            } else {
+                return this.callbackInfoCreation.creationInsns.get(this.callbackInfoCreation.creationInsns.size() - 1);
+            }
+        }
     }
 
     @RequiredArgsConstructor
@@ -96,20 +149,18 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         public final int callbackInfoLvtIndex;
         public final boolean callbackInfoIsReturnable;
 
-        public boolean callsGetId;
-        public boolean callsIsCancellable;
-        public boolean callsIsCancelled;
+        public final List<InfoUsage> callsGetId = new ArrayList<>();
+        public final List<InfoUsage> callsIsCancellable = new ArrayList<>();
+        public final List<InfoUsage> callsIsCancelled = new ArrayList<>();
 
-        public boolean callsCancel;
-        public boolean alwaysCallsCancel;
+        public final List<InfoUsage> callsCancel = new ArrayList<>();
+        public final List<InfoUsage> alwaysCallsCancel = new ArrayList<>();
 
-        public boolean callsGetReturnValue;
-        public boolean callsSetReturnValue;
+        public final List<InfoUsage> callsGetReturnValue = new ArrayList<>();
+        public final List<InfoUsage> callsSetReturnValue = new ArrayList<>();
         public boolean alwaysCallsSetReturnValue;
 
         public boolean usesCallbackInfoInstanceInUnknownWay;
-        public boolean forwardsCallbackInfoInstance;
-        public boolean replacesCallbackInfoInstance;
 
         public final List<CallbackInvocation> usedByInvocations = new ArrayList<>();
 
@@ -122,11 +173,18 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         }
 
         public boolean usesCallbackInfoInstanceAtAll() {
-            return this.callsGetId | this.callsIsCancellable | this.callsIsCancelled | this.callsCancel
-                    | this.callsGetReturnValue | this.callsSetReturnValue
-                    | this.usesCallbackInfoInstanceInUnknownWay
-                    | this.forwardsCallbackInfoInstance | this.replacesCallbackInfoInstance;
+            return !this.callsGetId.isEmpty() || !this.callsIsCancellable.isEmpty() || !this.callsIsCancelled.isEmpty()
+                    || !this.callsCancel.isEmpty()
+                    || !this.callsGetReturnValue.isEmpty() || !this.callsSetReturnValue.isEmpty()
+                    || this.usesCallbackInfoInstanceInUnknownWay;
         }
+    }
+
+    @RequiredArgsConstructor
+    private static class InfoUsage {
+        public final CallbackMethod callback;
+        public final VarInsnNode loadCallbackInfoInsn;
+        public final MethodInsnNode useCallbackInfoInsn;
     }
 
     @Override
@@ -209,72 +267,6 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         return doFinalTransform(classNode, callbackInfoCreations, callbackInvocations, callbackMethods);
     }
 
-    private static boolean transformCtor(ClassNode classNode, MethodNode methodNode, MethodInsnNode ctorInsn, ListIterator<AbstractInsnNode> itr, boolean captureReturnValue) {
-        CALLBACK_METHOD_SEARCH:
-        for (AbstractInsnNode invokeCallbackInsn = ctorInsn.getNext(); ; invokeCallbackInsn = invokeCallbackInsn.getNext()) {
-            switch (invokeCallbackInsn.getOpcode()) {
-                default:
-                    throw new IllegalStateException(Printer.OPCODES[invokeCallbackInsn.getOpcode()]);
-                case ASTORE: //TODO: do something when callbackinfos are stored in a local variable
-                    break CALLBACK_METHOD_SEARCH;
-                case ALOAD:
-                case ILOAD:
-                case LLOAD:
-                case FLOAD:
-                case DLOAD:
-                    continue;
-                case INVOKESPECIAL:
-                    MethodInsnNode methodInsnNode = (MethodInsnNode) invokeCallbackInsn;
-                    assert methodInsnNode.owner.equals(classNode.name);
-                    CallbackMethod wrapper = wrapCallbackMethod(classNode, BytecodeHelper.findMethodOrThrow(classNode, methodInsnNode.name, methodInsnNode.desc));
-                    break CALLBACK_METHOD_SEARCH;
-            }
-        }
-
-        AbstractInsnNode insn = ctorInsn;
-
-        VarInsnNode loadReturnValueInsn = null;
-        if (captureReturnValue) {
-            loadReturnValueInsn = (VarInsnNode) (insn = insn.getPrevious());
-        }
-
-        AbstractInsnNode loadCancellableValueInsn = insn.getPrevious();
-        boolean cancellable;
-        switch (loadCancellableValueInsn.getOpcode()) {
-            case ICONST_0: //cancellable = false, we can optimize this occurrence
-                cancellable = false;
-                break;
-            case ICONST_1: //cancellable = true, this occurrence can't be optimized (yet)
-                cancellable = true;
-                return false;
-            default:
-                PPatchesMod.LOGGER.warn("at {}.{}{}: call to {}.{}{} has an unexpected argument {} for 'cancellable' skipping...", classNode.name, methodNode.name, methodNode.desc, ctorInsn.owner, ctorInsn.name, ctorInsn.desc, Printer.OPCODES[loadCancellableValueInsn.getOpcode()]);
-                return false;
-        }
-
-        LdcInsnNode loadIdInsn = (LdcInsnNode) loadCancellableValueInsn.getPrevious();
-        String id = (String) loadIdInsn.cst;
-
-        AbstractInsnNode dupInsn = loadIdInsn.getPrevious();
-        assert dupInsn.getOpcode() == DUP : "expected " + Printer.OPCODES[DUP] + ", found " + Printer.OPCODES[dupInsn.getOpcode()];
-
-        AbstractInsnNode newInsn = dupInsn.getPrevious();
-        assert newInsn.getOpcode() == NEW : "expected " + Printer.OPCODES[NEW] + ", found " + Printer.OPCODES[newInsn.getOpcode()];
-
-        methodNode.instructions.remove(newInsn);
-        methodNode.instructions.remove(dupInsn);
-        methodNode.instructions.remove(loadIdInsn);
-        methodNode.instructions.remove(loadCancellableValueInsn);
-        itr.set(new InvokeDynamicInsnNode("constantCallbackInfoInstance", "()L" + ctorInsn.owner + ';',
-                new Handle(H_INVOKESTATIC,
-                        "net/daporkchop/ppatches/modules/mixin/optimizeCallbackInfoAllocation/OptimizeCallbackInfoAllocationTransformer",
-                        "bootstrapSimple",
-                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/String;)Ljava/lang/invoke/CallSite;", false),
-                new Handle(H_NEWINVOKESPECIAL, ctorInsn.owner, ctorInsn.name, ctorInsn.desc, false),
-                id));
-        return true;
-    }
-
     private static CallbackInfoCreation wrapCallbackInfoCreation(ClassNode classNode, MethodNode creatingMethod, TypeInsnNode newInsn) {
         boolean callbackInfoIsReturnable;
         switch (newInsn.desc) {
@@ -304,14 +296,15 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         currentInsn = currentInsn.getNext();
         Preconditions.checkState(currentInsn.getOpcode() == ICONST_0 || currentInsn.getOpcode() == ICONST_1, "expected %s or %s, got %s", Printer.OPCODES[ICONST_0], Printer.OPCODES[ICONST_1], Printer.OPCODES[currentInsn.getOpcode()]);
         creationInsns.add(currentInsn);
+        InsnNode loadCancellableInsn = (InsnNode) currentInsn;
         boolean cancellable = currentInsn.getOpcode() == ICONST_1;
 
         currentInsn = currentInsn.getNext();
 
-        boolean capturesReturnValue = false;
+        VarInsnNode captureReturnValueInsn = null;
         if (callbackInfoIsReturnable && currentInsn.getOpcode() == Type.getReturnType(creatingMethod.desc).getOpcode(ILOAD)) {
             //the return value is being captured into the CallbackInfoReturnable instance
-            capturesReturnValue = true;
+            captureReturnValueInsn = (VarInsnNode) currentInsn;
 
             creationInsns.add(currentInsn);
             currentInsn = currentInsn.getNext();
@@ -321,7 +314,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         MethodInsnNode ctorInsn = (MethodInsnNode) currentInsn;
         String expectedCtorOwner = callbackInfoInternalName(callbackInfoIsReturnable);
         String expectedCtorName = "<init>";
-        String expectedCtorDesc = "(Ljava/lang/String;Z" + (capturesReturnValue ? Type.getReturnType(creatingMethod.desc).getDescriptor() : "") + ")V";
+        String expectedCtorDesc = "(Ljava/lang/String;Z" + (captureReturnValueInsn != null
+                ? (BytecodeHelper.isPrimitive(Type.getReturnType(creatingMethod.desc)) ? Type.getReturnType(creatingMethod.desc).getDescriptor() : "Ljava/lang/Object;") : "") + ")V";
         Preconditions.checkState(expectedCtorOwner.equals(ctorInsn.owner) && expectedCtorName.equals(ctorInsn.name) && expectedCtorDesc.equals(ctorInsn.desc),
                 "expected call to L%s;%s%s, found L%s;%s%s", expectedCtorOwner, expectedCtorName, expectedCtorDesc, ctorInsn.owner, ctorInsn.name, ctorInsn.desc);
         creationInsns.add(currentInsn);
@@ -333,7 +327,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             storeToLvtInsn = (VarInsnNode) currentInsn;
         }
 
-        return new CallbackInfoCreation(creatingMethod, newInsn, creationInsns, Optional.ofNullable(storeToLvtInsn), id, cancellable, callbackInfoIsReturnable, capturesReturnValue);
+        return new CallbackInfoCreation(creatingMethod, newInsn, creationInsns, loadCancellableInsn, Optional.ofNullable(captureReturnValueInsn), ctorInsn, Optional.ofNullable(storeToLvtInsn), id, cancellable, callbackInfoIsReturnable);
     }
 
     private static CallbackInvocation wrapCallbackInvocation(ClassNode classNode, MethodNode callingMethod, MethodInsnNode callInsn, List<CallbackInfoCreation> callbackInfoCreations, Int2ObjectMap<CallbackInfoCreation> currentCallbackCreationsByLvt) {
@@ -476,9 +470,10 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         CallbackMethod result = new CallbackMethod(callbackMethod, callbackInfoLvtIndex, callbackInfoIsReturnable);
 
         Frame<SourceValue>[] sources = BytecodeHelper.analyzeSources(classNode.name, callbackMethod);
-        //Frame<UsageValue>[] usages = BytecodeHelper.analyzeUsages(classNode.name, callbackMethod);
 
         BitSet stackOperandsWhichReferenceCallbackInfo = new BitSet();
+
+        INSTRUCTIONS:
         for (ListIterator<AbstractInsnNode> itr = callbackMethod.instructions.iterator(); itr.hasNext(); ) {
             AbstractInsnNode insn = itr.next();
             if (!BytecodeHelper.isNormalCodeInstruction(insn)) {
@@ -495,14 +490,13 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             for (int i = 0; i < consumedStackOperands; i++) {
                 Set<AbstractInsnNode> sourceInsns = BytecodeHelper.getStackValueFromTop(sourceFrame, i).insns;
                 if (couldReferenceCallbackInfo(sourceInsns, callbackInfoLvtIndex)) {
-                    if (!alwaysReferencesCallbackInfo(sourceInsns, callbackInfoLvtIndex)) {
+                    if (sourceInsns.size() != 1) {
                         //the instruction doesn't always refer to our CallbackInfo instance, which results in some extra complicated logic that can't be easily optimized away
                         PPatchesMod.LOGGER.warn("mixin injector callback method L{};{}{} uses the given CallbackInfo argument conditionally! (instruction {} @{})",
                                 classNode.name, callbackMethod.name, callbackMethod.desc, Printer.OPCODES[insn.getOpcode()], insnIndex);
                         result.usesCallbackInfoInstanceInUnknownWay = true;
-                        continue;
+                        continue INSTRUCTIONS;
                     }
-
                     stackOperandsWhichReferenceCallbackInfo.set(consumedStackOperands - 1 - i);
                 }
             }
@@ -516,36 +510,47 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 //this is a virtual method call, and the object instance could refer to the CallbackInfo instance! we'll check for all of the commonly used CallbackInfo methods
                 MethodInsnNode methodInsn = (MethodInsnNode) insn;
 
+                InfoUsage usage = new InfoUsage(result, (VarInsnNode) BytecodeHelper.getStackValueFromTop(sourceFrame, consumedStackOperands - 1).insns.iterator().next(), methodInsn);
+
                 if (result.callbackInfoInternalName().equals(methodInsn.owner)) {
                     switch (methodInsn.name) {
                         case "getId":
                             assert "()Ljava/lang/String;".equals(methodInsn.desc) : methodInsn.desc;
-                            result.callsGetId = true;
+                            result.callsGetId.add(usage);
                             continue;
                         case "isCancellable":
                             assert "()Z".equals(methodInsn.desc) : methodInsn.desc;
-                            result.callsIsCancellable = true;
+                            result.callsIsCancellable.add(usage);
                             continue;
                         case "isCancelled":
                             assert "()Z".equals(methodInsn.desc) : methodInsn.desc;
-                            result.callsIsCancelled = true;
+                            result.callsIsCancelled.add(usage);
                             continue;
                         case "cancel":
                             assert "()V".equals(methodInsn.desc) : methodInsn.desc;
-                            result.callsCancel = true;
+                            result.callsCancel.add(usage);
                             continue;
                     }
 
                     if (result.callbackInfoIsReturnable) {
                         switch (methodInsn.name) {
                             case "getReturnValue":
-                                assert "()Ljava/lang/Object;".equals(methodInsn.desc) : methodInsn.desc;
-                                result.callsGetReturnValue = true;
+                            case "getReturnValueB":
+                            case "getReturnValueC":
+                            case "getReturnValueD":
+                            case "getReturnValueF":
+                            case "getReturnValueI":
+                            case "getReturnValueJ":
+                            case "getReturnValueS":
+                            case "getReturnValueZ":
+                                assert methodInsn.desc.startsWith("()") : methodInsn.desc;
+                                result.callsGetReturnValue.add(usage);
                                 continue;
                             case "setReturnValue":
                                 assert "(Ljava/lang/Object;)V".equals(methodInsn.desc) : methodInsn.desc;
                                 //calling setReturnValue(Object) implicitly cancels the CallbackInfo as well
-                                result.callsSetReturnValue = result.callsCancel = true;
+                                result.callsCancel.add(usage);
+                                result.callsSetReturnValue.add(usage);
                                 continue;
                         }
                     }
@@ -563,24 +568,11 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
     private static boolean couldReferenceCallbackInfo(Collection<AbstractInsnNode> sourceInsns, int callbackInfoLvtIndex) {
         for (AbstractInsnNode sourceInsn : sourceInsns) {
-            if (referencesCallbackInfo(sourceInsn, callbackInfoLvtIndex)) {
+            if (sourceInsn.getOpcode() == ALOAD && ((VarInsnNode) sourceInsn).var == callbackInfoLvtIndex) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static boolean alwaysReferencesCallbackInfo(Collection<AbstractInsnNode> sourceInsns, int callbackInfoLvtIndex) {
-        for (AbstractInsnNode sourceInsn : sourceInsns) {
-            if (!referencesCallbackInfo(sourceInsn, callbackInfoLvtIndex)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean referencesCallbackInfo(AbstractInsnNode sourceInsn, int callbackInfoLvtIndex) {
-        return sourceInsn.getOpcode() == ALOAD && ((VarInsnNode) sourceInsn).var == callbackInfoLvtIndex;
     }
 
     private static void offsetLvtIndicesGreaterThan(MethodNode methodNode, int threshold, int offset) {
@@ -603,11 +595,52 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         }
     }
 
+    private static void insertMethodArgumentAfterLvtIndex(MethodNode methodNode, int newArgumentLvtIndex, String newArgumentName, Type newArgumentType) {
+        Type[] argumentTypes = Type.getArgumentTypes(methodNode.desc);
+        for (int i = 0, currentLvtIndex = BytecodeHelper.isStatic(methodNode) ? 0 : 1; i <= argumentTypes.length; i++) {
+            if (currentLvtIndex != newArgumentLvtIndex) {
+                if (i < argumentTypes.length) {
+                    currentLvtIndex += argumentTypes[i].getSize();
+                }
+                continue;
+            }
+
+            //we found an existing argument to insert the new argument before!
+
+            //shift all local variable indices up by the number of LVT entries the new argument will occupy
+            offsetLvtIndicesGreaterThan(methodNode, newArgumentLvtIndex - 1, newArgumentType.getSize());
+
+            //add the new argument type to the method descriptor
+            Type[] modifiedArgumentTypes = Arrays.copyOf(argumentTypes, argumentTypes.length + 1);
+            modifiedArgumentTypes[i] = newArgumentType;
+            System.arraycopy(argumentTypes, i, modifiedArgumentTypes, i + 1, argumentTypes.length - i);
+            methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc), modifiedArgumentTypes);
+
+            //add a new local variable entry
+            if (methodNode.localVariables == null) {
+                methodNode.localVariables = new ArrayList<>();
+            }
+            methodNode.localVariables.add(new LocalVariableNode(newArgumentName, newArgumentType.getDescriptor(), null,
+                    (LabelNode) methodNode.instructions.getFirst(), (LabelNode) methodNode.instructions.getLast(), newArgumentLvtIndex));
+            return;
+        }
+
+        throw new IllegalStateException("couldn't find any arguments at LVT index " + newArgumentLvtIndex + " in method " + methodNode.name + methodNode.desc);
+    }
+
     private static void removeCallbackInfoArgument(ClassNode classNode, List<CallbackInfoCreation> callbackInfoCreations, List<CallbackInvocation> callbackInvocations, CallbackMethod callbackMethodMeta, MethodNode callbackMethod) {
         PPatchesMod.LOGGER.info("completely removing CallbackInfo argument from L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
 
         String modifiedCallbackDesc = callbackMethod.desc.replace(callbackInfoTypeDesc(callbackMethodMeta.callbackInfoIsReturnable), "");
         callbackMethod.desc = modifiedCallbackDesc;
+
+        //remove local variable entry
+        for (Iterator<LocalVariableNode> itr = callbackMethod.localVariables.iterator(); itr.hasNext(); ) {
+            if (itr.next().index == callbackMethodMeta.callbackInfoLvtIndex) {
+                itr.remove();
+                break;
+            }
+        }
 
         //removing CallbackInfo from the method signature means that all other LVT entries need to be shifted down by one
         offsetLvtIndicesGreaterThan(callbackMethod, callbackMethodMeta.callbackInfoLvtIndex, -1);
@@ -616,9 +649,18 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             //this will delete all the corresponding instructions if this was the last invocation to reference the CallbackInfo instance
             invocation.callbackInfoCreation.removeInvocation(invocation);
 
+            //if the CallbackInfo was cancellable, there are some instructions afterwards to check if it was cancelled - remove them!
+            if (invocation.callbackInfoCreation.cancellable) {
+                for (AbstractInsnNode insn : invocation.checkCancelledInsns) {
+                    invocation.callingMethod.instructions.remove(insn);
+                }
+                invocation.checkCancelledInsns.clear();
+            }
+
             if (invocation.loadCallbackInfoFromLvtInsn.isPresent()) { //the CallbackInfo instance is loaded onto the call stack by loading it from a local variable
                 //simply delete the corresponding ALOAD instruction
                 invocation.callingMethod.instructions.remove(invocation.loadCallbackInfoFromLvtInsn.get());
+                invocation.loadCallbackInfoFromLvtInsn = Optional.empty();
             } else {
                 //if the CallbackInfo only ever existed on the stack, this should have been the only thing that used it and so it should already be entirely removed
                 Preconditions.checkState(invocation.callbackInfoCreation.consumedByInvocations.isEmpty());
@@ -629,9 +671,35 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         }
     }
 
+    private static AbstractInsnNode removeCapturedReturnValueFromCallbackInfoConstructor(CallbackInvocation invocation, Type invocationReturnType) {
+        CallbackInfoCreation creation = invocation.callbackInfoCreation;
+
+        AbstractInsnNode loadReturnValueArgumentInsn;
+        if (creation.captureReturnValueInsn.isPresent()) { //a return value is captured when the CallbackInfo is created
+            //it's safe to modify the CallbackInfo creation, since CallbackInfoReturnables created with a return value are only used once
+
+            loadReturnValueArgumentInsn = creation.captureReturnValueInsn.get();
+
+            //don't pass the captured return value to the CallbackInfoReturnable constructor
+            creation.captureReturnValueInsn = Optional.empty();
+            creation.creationInsns.remove(loadReturnValueArgumentInsn);
+            invocation.callingMethod.instructions.remove(loadReturnValueArgumentInsn);
+
+            Type originalCtorDesc = Type.getMethodType(creation.invokeCtorInsn.desc);
+            Type[] originalCtorArgs = originalCtorDesc.getArgumentTypes();
+            creation.invokeCtorInsn.desc = Type.getMethodDescriptor(originalCtorDesc.getReturnType(), Arrays.copyOf(originalCtorArgs, originalCtorArgs.length - 1));
+        } else { //the CallbackInfo is created without a return value
+            //the primitive variants of getReturnValue always return 0 if getReturnValue() would return null
+            loadReturnValueArgumentInsn = BytecodeHelper.loadConstantDefaultValueInsn(invocationReturnType);
+        }
+        return loadReturnValueArgumentInsn;
+    }
+
     private static boolean doFinalTransform(ClassNode classNode, List<CallbackInfoCreation> callbackInfoCreations, List<CallbackInvocation> callbackInvocations, Map<MethodNode, CallbackMethod> callbackMethods) {
         //TODO: what if a callbackinfo is used elsewhere? we don't want to delete too aggressively
         callbackInfoCreations.removeIf(creation -> creation.consumedByInvocations.isEmpty());
+
+        //TODO: assert that no creation instance is used for more than one callback method
 
         boolean anyChanged = false;
         for (CallbackMethod callbackMethodMeta : callbackMethods.values()) {
@@ -643,23 +711,160 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 removeCallbackInfoArgument(classNode, callbackInfoCreations, callbackInvocations, callbackMethodMeta, callbackMethod);
                 anyChanged = true;
                 continue;
-            } else if (callbackMethodMeta.usesCallbackInfoInstanceInUnknownWay | callbackMethodMeta.forwardsCallbackInfoInstance | callbackMethodMeta.replacesCallbackInfoInstance) {
+            } else if (callbackMethodMeta.usesCallbackInfoInstanceInUnknownWay) {
                 //transforming the code to work around this would be too much hassle, so for now we'll leave it as-is
                 continue;
             }
 
-            if (callbackMethodMeta.callsCancel) {
-                if (callbackMethodMeta.callsSetReturnValue) {
+            if (callbackMethodMeta.callsGetId.isEmpty()) {
+                //change the callback ID to an empty string if possible, which will allow the instance count optimization using INVOKEDYNAMIC (see the end of this method) to
+                //  have fewer global instances lying around which differ only in their ID
+                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                    PPatchesMod.LOGGER.info("changing id from \"{}\" to empty string in {} L{};{}{}", invocation.callbackInfoCreation.id,
+                            callbackInfoInternalName(callbackMethodMeta.callbackInfoIsReturnable), classNode.name, callbackMethod.name, callbackMethod.desc);
+
+                    invocation.callbackInfoCreation.changeId("");
+                    anyChanged = true;
                 }
-                //TODO
+            } else if (callbackMethodMeta.usedByInvocations.stream().map(invocation -> invocation.callbackInfoCreation.id).distinct().count() == 1L) {
+                //getId is called at least once, and the given CallbackInfo instances all have the same id
+
+                String id = callbackMethodMeta.usedByInvocations.get(0).callbackInfoCreation.id;
+                PPatchesMod.LOGGER.info("replacing getId() invocations in L{};{}{} with constant id \"{}\"", classNode.name, callbackMethod.name, callbackMethod.desc, id);
+
+                for (InfoUsage usage : callbackMethodMeta.callsGetId) {
+                    callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
+                    callbackMethod.instructions.set(usage.useCallbackInfoInsn, new LdcInsnNode(id));
+                }
+                callbackMethodMeta.callsGetId.clear();
+                anyChanged = true;
+            }
+
+            Type invocationReturnType = null;
+            for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                Type currentInvocationReturnType = Type.getReturnType(invocation.callingMethod.desc);
+                if (invocationReturnType == null) {
+                    invocationReturnType = currentInvocationReturnType;
+                } else if (!invocationReturnType.equals(currentInvocationReturnType)) {
+                    PPatchesMod.LOGGER.warn("mixin injector callback L{};{}{} is called from methods with incompatible return types {} and {}",
+                            classNode.name, callbackMethod.name, callbackMethod.desc, invocationReturnType, currentInvocationReturnType);
+                    continue;
+                }
+            }
+            if (invocationReturnType == null) {
+                throw new IllegalStateException("callback method has no invocations?!?");
+            }
+
+            if (callbackMethodMeta.callsCancel.isEmpty()) {
+                //if cancel() is never called, we can remove the instructions to check if the callback was cancelled
+                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                    if (!invocation.checkCancelledInsns.isEmpty()) {
+                        PPatchesMod.LOGGER.info("removing cancellation check from L{};{}{} for mixin injection L{};{}{}",
+                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc);
+                        for (AbstractInsnNode insn : invocation.checkCancelledInsns) {
+                            invocation.callingMethod.instructions.remove(insn);
+                        }
+                        invocation.checkCancelledInsns.clear();
+                        anyChanged = true;
+                    }
+                }
+            }
+
+            if (!callbackMethodMeta.callsIsCancellable.isEmpty()
+                    && callbackMethodMeta.usedByInvocations.stream().map(invocation -> invocation.callbackInfoCreation.cancellable).distinct().count() == 1L) {
+                //isCancellable is called at least once, and the given CallbackInfo instances are always either all cancellable or all not cancellable
+
+                PPatchesMod.LOGGER.info("replacing isCancellable() checks in L{};{}{} with constants", classNode.name, callbackMethod.name, callbackMethod.desc);
+
+                int opcode = callbackMethodMeta.usedByInvocations.get(0).callbackInfoCreation.cancellable ? ICONST_1 : ICONST_0;
+                for (InfoUsage usage : callbackMethodMeta.callsIsCancellable) {
+                    callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
+                    callbackMethod.instructions.set(usage.useCallbackInfoInsn, new InsnNode(opcode));
+                }
+                callbackMethodMeta.callsIsCancellable.clear();
+                anyChanged = true;
+            }
+
+            if (callbackMethodMeta.callsCancel.isEmpty() && callbackMethodMeta.callsIsCancellable.isEmpty()) {
+                //if neither cancel() nor isCancellable() are ever called, we can make any CallbackInfo instances passed to this method uncancellable to allow them to be pooled by the
+                //  INVOKEDYNAMIC pass (see the end of this method)
+                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                    if (invocation.callbackInfoCreation.cancellable) {
+                        PPatchesMod.LOGGER.info("making {} L{};{}{} for mixin injection L{};{}{} uncancellable", callbackInfoInternalName(callbackMethodMeta.callbackInfoIsReturnable),
+                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc);
+                        invocation.callbackInfoCreation.setCancellable(false);
+                        anyChanged = true;
+                    }
+                }
+            }
+
+            if (!callbackMethodMeta.callsGetReturnValue.isEmpty()) {
+                PPatchesMod.LOGGER.info("adding separate return value argument to L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
+
+                //add a new argument to the callback method which the return value will be passed in, and then redirect calls to getReturnValue()
+                int returnValueLvtIndex = callbackMethodMeta.callbackInfoLvtIndex + 1;
+                insertMethodArgumentAfterLvtIndex(callbackMethod, returnValueLvtIndex, "$ppatches_CallbackInfo_returnValue", invocationReturnType);
+
+                //modify all invocation points to pass a return value argument
+                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                    //don't pass the captured return value to the CallbackInfoReturnable constructor
+                    AbstractInsnNode loadReturnValueArgumentInsn = removeCapturedReturnValueFromCallbackInfoConstructor(invocation, invocationReturnType);
+
+                    //load the return value as an argument to the callback method
+                    invocation.callingMethod.instructions.insert(invocation.finalCallbackInfoLoadForInvokeInsn(), loadReturnValueArgumentInsn);
+
+                    //update the signature at the invocation point
+                    invocation.invokeCallbackMethodInsn.desc = callbackMethod.desc;
+                }
+
+                //redirect all references to getReturnValue() to the newly added local variable
+                for (InfoUsage usage : callbackMethodMeta.callsGetReturnValue) {
+                    AbstractInsnNode loadReturnValueArgumentInsn = new VarInsnNode(invocationReturnType.getOpcode(ILOAD), returnValueLvtIndex);
+
+                    if ("()Ljava/lang/Object;".equals(usage.useCallbackInfoInsn.desc)) {
+                        String returnedInternalName;
+                        if (BytecodeHelper.isPrimitive(invocationReturnType)) { //box the loaded value
+                            callbackMethod.instructions.insert(usage.useCallbackInfoInsn, BytecodeHelper.generateBoxingConversion(invocationReturnType));
+                            returnedInternalName = BytecodeHelper.boxedInternalName(invocationReturnType);
+                        } else {
+                            returnedInternalName = invocationReturnType.getInternalName();
+                        }
+
+                        //remove cast instruction if possible
+                        if (usage.useCallbackInfoInsn.getNext().getOpcode() == CHECKCAST && ((TypeInsnNode) usage.useCallbackInfoInsn.getNext()).desc.equals(returnedInternalName)) {
+                            callbackMethod.instructions.remove(usage.useCallbackInfoInsn.getNext());
+                        }
+                    }
+
+                    callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
+                    callbackMethod.instructions.set(usage.useCallbackInfoInsn, loadReturnValueArgumentInsn);
+                }
+                callbackMethodMeta.callsGetReturnValue.clear();
+
+                anyChanged = true;
+            } else { //getReturnValue*() is never called, so we can try to avoid capturing the return value
+                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                    if (invocation.callbackInfoCreation.captureReturnValueInsn.isPresent()) { //a return value is being captured, we don't want to do that
+                        PPatchesMod.LOGGER.info("not capturing return value from L{};{}{} for mixin injection L{};{}{}",
+                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc);
+
+                        removeCapturedReturnValueFromCallbackInfoConstructor(invocation, invocationReturnType);
+                        anyChanged = true;
+                    }
+                }
+            }
+
+            if (!callbackMethodMeta.usesCallbackInfoInstanceAtAll()) { //check again if we can remove the CallbackInfo instance (references to it may have been removed by other stages)
+                removeCallbackInfoArgument(classNode, callbackInfoCreations, callbackInvocations, callbackMethodMeta, callbackMethod);
+                anyChanged = true;
                 continue;
             }
         }
 
         for (CallbackInfoCreation creation : callbackInfoCreations) {
             if (!creation.consumedByInvocations.isEmpty() //the CallbackInfo is still being used by at least one callback method (hasn't been optimized away entirely)
-                    && !creation.cancellable && !creation.capturesReturnValue) { //the CallbackInfo's state is immutable
-                PPatchesMod.LOGGER.info("replacing new {} in L{};{}{} with id {} with INVOKEDYNAMIC", callbackInfoInternalName(creation.callbackInfoIsReturnable),
+                    && !creation.cancellable && !creation.captureReturnValueInsn.isPresent()) { //the CallbackInfo's state is immutable
+                PPatchesMod.LOGGER.info("replacing new {} in L{};{}{} with id \"{}\" with INVOKEDYNAMIC", callbackInfoInternalName(creation.callbackInfoIsReturnable),
                         classNode.name, creation.creatingMethod.name, creation.creatingMethod.desc, creation.id);
 
                 //replace the new CallbackInstance construction with an invokedynamic to a single static instance
@@ -667,7 +872,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                         new InvokeDynamicInsnNode("constantCallbackInfoInstance", "()" + callbackInfoTypeDesc(creation.callbackInfoIsReturnable),
                         new Handle(H_INVOKESTATIC,
                                 "net/daporkchop/ppatches/modules/mixin/optimizeCallbackInfoAllocation/OptimizeCallbackInfoAllocationTransformer",
-                                "bootstrapSimple",
+                                "bootstrapSimpleConstantCallbackInfo",
                                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/String;)Ljava/lang/invoke/CallSite;", false),
                         new Handle(H_NEWINVOKESPECIAL, callbackInfoInternalName(creation.callbackInfoIsReturnable), "<init>", "(Ljava/lang/String;Z)V", false),
                         creation.id));

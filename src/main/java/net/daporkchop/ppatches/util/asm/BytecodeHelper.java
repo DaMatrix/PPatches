@@ -108,6 +108,50 @@ public class BytecodeHelper {
         }
     }
 
+    public static InsnNode loadConstantDefaultValueInsn(Type type) {
+        switch (type.getSort()) {
+            case Type.BOOLEAN:
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+            case Type.INT:
+                return new InsnNode(ICONST_0);
+            case Type.LONG:
+                return new InsnNode(LCONST_0);
+            case Type.FLOAT:
+                return new InsnNode(FCONST_0);
+            case Type.DOUBLE:
+                return new InsnNode(DCONST_0);
+            case Type.OBJECT:
+            case Type.ARRAY:
+                return new InsnNode(ACONST_NULL);
+            default:
+                throw new IllegalArgumentException(type.toString());
+        }
+    }
+
+    private static final String[] BOXED_INTERNAL_TYPE_NAMES_BY_SORT = {
+            "java/lang/Void",
+            "java/lang/Boolean",
+            "java/lang/Character",
+            "java/lang/Byte",
+            "java/lang/Short",
+            "java/lang/Integer",
+            "java/lang/Float",
+            "java/lang/Long",
+            "java/lang/Double",
+    };
+
+    public static String boxedInternalName(Type primitiveType) {
+        assert isPrimitive(primitiveType) : "not a primitive type: " + primitiveType;
+        return BOXED_INTERNAL_TYPE_NAMES_BY_SORT[primitiveType.getSort()];
+    }
+
+    public static MethodInsnNode generateBoxingConversion(Type primitiveType) {
+        String internalName = boxedInternalName(primitiveType);
+        return new MethodInsnNode(INVOKESTATIC, internalName, "valueOf", '(' + primitiveType.getDescriptor() + ')' + internalName, false);
+    }
+
     public static List<MethodNode> findMethod(ClassNode classNode, String name) {
         List<MethodNode> out = null;
         for (MethodNode methodNode : classNode.methods) {
