@@ -255,6 +255,17 @@ public class BytecodeHelper {
         return OptionalInt.empty();
     }
 
+    public static Optional<LocalVariableNode> findLocalVariable(MethodNode methodNode, String name, String desc) {
+        if (methodNode.localVariables != null) {
+            for (LocalVariableNode localVariableNode : methodNode.localVariables) {
+                if (name.equals(localVariableNode.name) && desc.equals(localVariableNode.desc)) {
+                    return Optional.of(localVariableNode);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     @SneakyThrows(AnalyzerException.class)
     public static Frame<SourceValue>[] analyzeSources(String ownerName, MethodNode methodNode) {
         return new Analyzer<>(new SourceInterpreter()).analyze(ownerName, methodNode);
