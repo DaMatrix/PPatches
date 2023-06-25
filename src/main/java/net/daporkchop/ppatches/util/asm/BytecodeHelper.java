@@ -510,4 +510,67 @@ public class BytecodeHelper {
 
         return consumedStackOperands;
     }
+
+    public static LabelNode findMethodStartLabel(MethodNode methodNode) {
+        return (LabelNode) methodNode.instructions.getFirst();
+    }
+
+    public static LabelNode findMethodEndLabel(MethodNode methodNode) {
+        return (LabelNode) methodNode.instructions.getLast();
+    }
+
+    public static void addFirst(InsnList list, AbstractInsnNode... insns) {
+        for (int i = insns.length - 1; i >= 0; i--) {
+            list.insert(insns[i]);
+        }
+    }
+
+    public static void addFirst(InsnList list, List<AbstractInsnNode> insns) {
+        for (int i = insns.size() - 1; i >= 0; i--) {
+            list.insert(insns.get(i));
+        }
+    }
+
+    public static void addLast(InsnList list, AbstractInsnNode... insns) {
+        for (AbstractInsnNode insn : insns) {
+            list.add(insn);
+        }
+    }
+
+    public static void addLast(InsnList list, List<AbstractInsnNode> insns) {
+        for (AbstractInsnNode insn : insns) {
+            list.add(insn);
+        }
+    }
+
+    public static void insertBefore(AbstractInsnNode location, InsnList list, AbstractInsnNode... insns) {
+        for (AbstractInsnNode insn : insns) {
+            list.insertBefore(location, insn);
+        }
+    }
+
+    public static void insertBefore(AbstractInsnNode location, InsnList list, List<AbstractInsnNode> insns) {
+        for (AbstractInsnNode insn : insns) {
+            list.insertBefore(location, insn);
+        }
+    }
+
+    public static void insertAfter(AbstractInsnNode location, InsnList list, AbstractInsnNode... insns) {
+        for (int i = insns.length - 1; i >= 0; i--) {
+            list.insert(location, insns[i]);
+        }
+    }
+
+    public static void insertAfter(AbstractInsnNode location, InsnList list, List<AbstractInsnNode> insns) {
+        for (int i = insns.size() - 1; i >= 0; i--) {
+            list.insert(location, insns.get(i));
+        }
+    }
+
+    public static void removeAllAndClear(InsnList list, Collection<AbstractInsnNode> insns) {
+        for (AbstractInsnNode insn : insns) {
+            list.remove(insn);
+        }
+        insns.clear();
+    }
 }

@@ -4,9 +4,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
-import it.unimi.dsi.fastutil.objects.Reference2ObjectArrayMap;
 import lombok.AllArgsConstructor;
-import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
@@ -101,12 +99,11 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             if (!this.consumedByInvocations.remove(invocation)) {
                 throw new IllegalStateException();
             } else if (this.consumedByInvocations.isEmpty()) {
-                for (AbstractInsnNode insn : this.creationInsns) {
-                    this.creatingMethod.instructions.remove(insn);
-                }
+                BytecodeHelper.removeAllAndClear(this.creatingMethod.instructions, this.creationInsns);
 
                 if (this.storeToLvtInsn.isPresent()) {
                     this.creatingMethod.instructions.remove(this.storeToLvtInsn.get());
+                    //TODO: i should replace all the optionals with an empty optional
 
                     //remove the corresponding local variable
                     for (Iterator<LocalVariableNode> itr = this.creatingMethod.localVariables.iterator(); itr.hasNext(); ) {
@@ -580,6 +577,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             return;
         }
 
+        //TODO: compute maxLocals properly?
+
         for (AbstractInsnNode currentInsn = methodNode.instructions.getFirst(); currentInsn != null; currentInsn = currentInsn.getNext()) {
             if (currentInsn instanceof VarInsnNode && ((VarInsnNode) currentInsn).var > threshold) {
                 ((VarInsnNode) currentInsn).var += offset;
@@ -651,10 +650,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
             //if the CallbackInfo was cancellable, there are some instructions afterwards to check if it was cancelled - remove them!
             if (invocation.callbackInfoCreation.cancellable) {
-                for (AbstractInsnNode insn : invocation.checkCancelledInsns) {
-                    invocation.callingMethod.instructions.remove(insn);
-                }
-                invocation.checkCancelledInsns.clear();
+                BytecodeHelper.removeAllAndClear(invocation.callingMethod.instructions, invocation.checkCancelledInsns);
             }
 
             if (invocation.loadCallbackInfoFromLvtInsn.isPresent()) { //the CallbackInfo instance is loaded onto the call stack by loading it from a local variable
@@ -700,6 +696,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         callbackInfoCreations.removeIf(creation -> creation.consumedByInvocations.isEmpty());
 
         //TODO: assert that no creation instance is used for more than one callback method
+
+        //TODO: assert that each callback is either always called as cancellable or not
 
         boolean anyChanged = false;
         for (CallbackMethod callbackMethodMeta : callbackMethods.values()) {
@@ -761,13 +759,59 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                     if (!invocation.checkCancelledInsns.isEmpty()) {
                         PPatchesMod.LOGGER.info("removing cancellation check from L{};{}{} for mixin injection L{};{}{}",
                                 classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc);
-                        for (AbstractInsnNode insn : invocation.checkCancelledInsns) {
-                            invocation.callingMethod.instructions.remove(insn);
-                        }
-                        invocation.checkCancelledInsns.clear();
+                        BytecodeHelper.removeAllAndClear(invocation.callingMethod.instructions, invocation.checkCancelledInsns);
                         anyChanged = true;
                     }
                 }
+            } else if (invocationReturnType == Type.VOID_TYPE) {
+                //cancel is called at least once, so because the invocation return type is a void we'll modify the callback to return a boolean
+
+                //add a boolean field 'isCancelled', initially set to false
+                int isCancelledLvtIndex = Type.getArgumentsAndReturnSizes(callbackMethod.desc) >> 2;
+                offsetLvtIndicesGreaterThan(callbackMethod, isCancelledLvtIndex - 1, 1);
+                LabelNode startLabel = new LabelNode();
+                LabelNode endLabel = new LabelNode();
+                BytecodeHelper.addFirst(callbackMethod.instructions, startLabel, new InsnNode(ICONST_0), new VarInsnNode(ISTORE, isCancelledLvtIndex));
+                callbackMethod.instructions.add(endLabel);
+                callbackMethod.localVariables.add(new LocalVariableNode("$ppatches_isCancelled", "Z", null, startLabel, endLabel, isCancelledLvtIndex));
+
+                //replace all calls to cancel() with setting the local cancelled variable to true
+                assert callbackMethodMeta.callsSetReturnValue.isEmpty() : "void callback method calls setReturnValue()?!?";
+                for (InfoUsage usage : callbackMethodMeta.callsCancel) {
+                    callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
+                    callbackMethod.instructions.insert(usage.useCallbackInfoInsn, new VarInsnNode(ISTORE, isCancelledLvtIndex));
+                    callbackMethod.instructions.set(usage.useCallbackInfoInsn, new InsnNode(ICONST_1));
+                }
+                callbackMethodMeta.callsCancel.clear();
+
+                //replace all RETURN instructions with an IRETURN returning whether or not the callback was cancelled
+                for (ListIterator<AbstractInsnNode> itr = callbackMethod.instructions.iterator(); itr.hasNext(); ) {
+                    if (itr.next().getOpcode() == RETURN) {
+                        itr.set(new VarInsnNode(ILOAD, isCancelledLvtIndex));
+                        itr.add(new InsnNode(IRETURN));
+                    }
+                }
+
+                //change the callback method's return type to boolean
+                callbackMethod.desc = Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getArgumentTypes(callbackMethod.desc));
+
+                //fix up the invocations (make them use the correct method descriptor and use the callback method's return value to check if it was cancelled)
+                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                    assert invocation.callbackInfoCreation.cancellable;
+
+                    invocation.invokeCallbackMethodInsn.desc = callbackMethod.desc;
+
+                    //delete the original cancellation code and replace with a new one
+                    BytecodeHelper.removeAllAndClear(invocation.callingMethod.instructions, invocation.checkCancelledInsns);
+
+                    LabelNode notCancelled = new LabelNode();
+                    invocation.checkCancelledInsns.add(new JumpInsnNode(IFEQ, notCancelled));
+                    invocation.checkCancelledInsns.add(new InsnNode(RETURN));
+                    invocation.checkCancelledInsns.add(notCancelled);
+                    BytecodeHelper.insertAfter(invocation.invokeCallbackMethodInsn, invocation.callingMethod.instructions, invocation.checkCancelledInsns);
+                }
+
+                anyChanged = true;
             }
 
             if (!callbackMethodMeta.callsIsCancellable.isEmpty()
@@ -818,6 +862,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 }
 
                 //redirect all references to getReturnValue() to the newly added local variable
+                //TODO: this doesn't provide strictly the same behavior if the return value isn't captured and is primitive
                 for (InfoUsage usage : callbackMethodMeta.callsGetReturnValue) {
                     AbstractInsnNode loadReturnValueArgumentInsn = new VarInsnNode(invocationReturnType.getOpcode(ILOAD), returnValueLvtIndex);
 
