@@ -29,6 +29,10 @@ public class BytecodeHelper {
         return type.getSort() == Type.ARRAY || type.getSort() == Type.OBJECT;
     }
 
+    public static boolean isVoid(Type type) {
+        return type == Type.VOID_TYPE;
+    }
+
     public static boolean isStatic(MethodNode methodNode) {
         return (methodNode.access & ACC_STATIC) != 0;
     }
@@ -149,7 +153,7 @@ public class BytecodeHelper {
 
     public static MethodInsnNode generateBoxingConversion(Type primitiveType) {
         String internalName = boxedInternalName(primitiveType);
-        return new MethodInsnNode(INVOKESTATIC, internalName, "valueOf", '(' + primitiveType.getDescriptor() + ')' + internalName, false);
+        return new MethodInsnNode(INVOKESTATIC, internalName, "valueOf", '(' + primitiveType.getDescriptor() + ")L" + internalName + ';', false);
     }
 
     public static List<MethodNode> findMethod(ClassNode classNode, String name) {
@@ -583,5 +587,48 @@ public class BytecodeHelper {
             list.remove(insn);
         }
         insns.clear();
+    }
+
+    public static int findUnusedLvtSlot(MethodNode methodNode, Type type) {
+        BitSet usedEntries = new BitSet();
+
+        //mark all method arguments as used
+        usedEntries.set(0, (Type.getArgumentsAndReturnSizes(methodNode.desc) >> 2) + (isStatic(methodNode) ? 0 : 1));
+
+        //scan instructions for references to the local variable table
+        for (ListIterator<AbstractInsnNode> itr = methodNode.instructions.iterator(); itr.hasNext(); ) {
+            AbstractInsnNode insn = itr.next();
+            if (insn instanceof VarInsnNode) {
+                int var = ((VarInsnNode) insn).var;
+                switch (insn.getOpcode()) {
+                    default:
+                        usedEntries.set(var);
+                        break;
+                    case LLOAD:
+                    case LSTORE:
+                    case DLOAD:
+                    case DSTORE:
+                        usedEntries.set(var, var + 2);
+                        break;
+                }
+            } else if (insn instanceof IincInsnNode) {
+                usedEntries.set(((IincInsnNode) insn).var);
+            }
+        }
+
+        //scan the local variable entries
+        if (methodNode.localVariables != null) {
+            for (LocalVariableNode localVariable : methodNode.localVariables) {
+                usedEntries.set(localVariable.index, localVariable.index + Type.getType(localVariable.desc).getSize());
+            }
+        }
+
+        int i = usedEntries.nextClearBit(0);
+        if (type.getSize() == 2) {
+            while (usedEntries.get(i + 1)) { //we need two empty bits in a row
+                i = usedEntries.nextClearBit(i + 2);
+            }
+        }
+        return i;
     }
 }
