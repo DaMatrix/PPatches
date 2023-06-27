@@ -25,6 +25,8 @@ import java.lang.invoke.*;
 import java.lang.reflect.Array;
 import java.lang.reflect.Modifier;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -188,6 +190,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         public final CallbackMethod callback;
         public final VarInsnNode loadCallbackInfoInsn;
         public final MethodInsnNode useCallbackInfoInsn;
+        public boolean removed = false;
     }
 
     @Override
@@ -644,6 +647,377 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         throw new IllegalStateException("couldn't find any arguments at LVT index " + newArgumentLvtIndex + " in method " + methodNode.name + methodNode.desc);
     }
 
+    /*
+     * Design for getReturnValue() bypassing: (note that this is coupled with cancel()&setReturnValue() bypassing below)
+     *
+     * Reference types are simple: getReturnValue() initially returns either the captured return value or null (if the injection point didn't capture a
+     * return value). The primitive getReturnValue*() variants can be implemented exactly like the original version.
+     *
+     * However, for primitive types we need a way to distinguish between 'returnValue is unset' (i.e. no return value was captured, or the callback isn't
+     * cancelled) and 'returnValue is explicitly set to null' (which would mean that the primitive getReturnValue*() variants would return 0, and would
+     * still result in the original invocation being cancelled once propagated outwards). In both of these cases, getReturnValue() must return null.
+     *
+     * We resolve this by storing the information out-of-band. byte, short and char and int can be promoted to the logically next largest type,
+     *   and the additional bits used to indicate whether or not the value is present. For now, boolean, long, float and double will use boxed types,
+     *   with a null value indicating 'not captured'/'not cancelled'.
+     */
+
+    private static Type optionalReturnValueType(Type invocationReturnType) {
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+                return Type.INT_TYPE;
+            case Type.INT:
+                return Type.LONG_TYPE;
+            case Type.BOOLEAN:
+            case Type.LONG:
+            case Type.FLOAT:
+            case Type.DOUBLE:
+                return Type.getObjectType(BytecodeHelper.boxedInternalName(invocationReturnType));
+            case Type.ARRAY:
+            case Type.OBJECT:
+                return invocationReturnType;
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+    }
+
+    private static InsnList convertToOptionalReturnValueType(Type invocationReturnType) {
+        InsnList seq = new InsnList();
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+            case Type.SHORT:
+                seq.add(new MethodInsnNode(INVOKESTATIC, BytecodeHelper.boxedInternalName(invocationReturnType), "toUnsignedInt", Type.getMethodDescriptor(Type.INT_TYPE, invocationReturnType), false));
+                break;
+            case Type.CHAR:
+                //no-op, it's already an unsigned int
+                break;
+            case Type.INT:
+                seq.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Integer", "toUnsignedLong", "(I)J", false));
+                break;
+            case Type.BOOLEAN:
+            case Type.LONG:
+            case Type.FLOAT:
+            case Type.DOUBLE:
+                seq.add(BytecodeHelper.generateBoxingConversion(invocationReturnType));
+                break;
+            case Type.ARRAY:
+            case Type.OBJECT:
+                //no-op
+                break;
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+        return seq;
+    }
+
+    private static AbstractInsnNode loadUnsetOptionalReturnValueType(Type invocationReturnType) {
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+                return new LdcInsnNode(Integer.MIN_VALUE);
+            case Type.INT:
+                return new LdcInsnNode(Long.MIN_VALUE);
+            case Type.BOOLEAN:
+            case Type.LONG:
+            case Type.FLOAT:
+            case Type.DOUBLE:
+                return new InsnNode(ACONST_NULL);
+            case Type.ARRAY:
+            case Type.OBJECT:
+                return makeDummyObjectReturnValueInsn(invocationReturnType);
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+    }
+
+    private static InsnList ifOptionalReturnValuePresent(Type invocationReturnType, LabelNode dst, boolean jumpIfPresent) {
+        InsnList seq = new InsnList();
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+                seq.add(new JumpInsnNode(jumpIfPresent ? IFGE : IFLT, dst));
+                break;
+            case Type.INT:
+                seq.add(new InsnNode(LCONST_0));
+                seq.add(new InsnNode(LCMP));
+                seq.add(new JumpInsnNode(jumpIfPresent ? IFGE : IFLT, dst));
+                break;
+            case Type.BOOLEAN:
+            case Type.LONG:
+            case Type.FLOAT:
+            case Type.DOUBLE:
+                seq.add(new JumpInsnNode(jumpIfPresent ? IFNONNULL : IFNULL, dst));
+                break;
+            case Type.ARRAY:
+            case Type.OBJECT:
+                seq.add(makeDummyObjectReturnValueInsn(invocationReturnType));
+                seq.add(new JumpInsnNode(jumpIfPresent ? IF_ACMPNE : IF_ACMPEQ, dst));
+                break;
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+        return seq;
+    }
+
+    private static InsnList extractValueOptionalReturnValue(Type invocationReturnType) {
+        InsnList seq = new InsnList();
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+                seq.add(new InsnNode(I2B));
+                break;
+            case Type.SHORT:
+                seq.add(new InsnNode(I2S));
+                break;
+            case Type.CHAR:
+                seq.add(new InsnNode(I2C));
+                break;
+            case Type.INT:
+                seq.add(new InsnNode(L2I));
+                break;
+            case Type.BOOLEAN:
+            case Type.LONG:
+            case Type.FLOAT:
+            case Type.DOUBLE:
+                seq.add(BytecodeHelper.generateUnboxingConversion(invocationReturnType));
+                break;
+            case Type.ARRAY:
+            case Type.OBJECT:
+                //no-op
+                break;
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+        return seq;
+    }
+
+    private static InsnList extractValueOrDefaultOptionalReturnValue(Type invocationReturnType) {
+        InsnList seq = new InsnList();
+
+        LabelNode notPresentLbl = new LabelNode();
+        LabelNode tailLbl = new LabelNode();
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+            case Type.INT:
+                //because the 'unset' value is Integer/Long.MIN_VALUE, the least significant bits are all zero so a simple cast to the smaller 'real' type will leave us with all zeros. this
+                //  makes computing '(isUnset(optionalValue) ? 0 : extractValue(optionalValue))' practically free!
+                return extractValueOptionalReturnValue(invocationReturnType);
+            case Type.BOOLEAN:
+            case Type.LONG:
+            case Type.FLOAT:
+            case Type.DOUBLE:
+                seq.add(dupOptionalReturnValue(invocationReturnType));
+                seq.add(ifOptionalReturnValuePresent(invocationReturnType, notPresentLbl, false));
+                seq.add(BytecodeHelper.generateUnboxingConversion(invocationReturnType));
+                seq.add(new JumpInsnNode(GOTO, tailLbl));
+                seq.add(notPresentLbl);
+                seq.add(popOptionalReturnValue(invocationReturnType));
+                seq.add(BytecodeHelper.loadConstantDefaultValueInsn(invocationReturnType));
+                seq.add(tailLbl);
+                break;
+            case Type.ARRAY:
+            case Type.OBJECT:
+                seq.add(dupOptionalReturnValue(invocationReturnType));
+                seq.add(ifOptionalReturnValuePresent(invocationReturnType, tailLbl, true));
+                seq.add(popOptionalReturnValue(invocationReturnType));
+                seq.add(new InsnNode(ACONST_NULL));
+                seq.add(tailLbl);
+                break;
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+        return seq;
+    }
+
+    private static InsnList extractBoxedValueOrNullOptionalReturnValue(Type invocationReturnType) {
+        InsnList seq = new InsnList();
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+            case Type.INT: {
+                LabelNode notPresentLbl = new LabelNode();
+                LabelNode tailLbl = new LabelNode();
+                seq.add(dupOptionalReturnValue(invocationReturnType));
+                seq.add(ifOptionalReturnValuePresent(invocationReturnType, notPresentLbl, false));
+                seq.add(extractValueOptionalReturnValue(invocationReturnType));
+                seq.add(BytecodeHelper.generateBoxingConversion(invocationReturnType));
+                seq.add(new JumpInsnNode(GOTO, tailLbl));
+                seq.add(notPresentLbl);
+                seq.add(popOptionalReturnValue(invocationReturnType));
+                seq.add(new InsnNode(ACONST_NULL));
+                seq.add(tailLbl);
+                break;
+            }
+            case Type.BOOLEAN:
+            case Type.LONG:
+            case Type.FLOAT:
+            case Type.DOUBLE:
+                //no-op
+                break;
+            case Type.ARRAY:
+            case Type.OBJECT:
+                //functionally equivalent code
+                return extractValueOrDefaultOptionalReturnValue(invocationReturnType);
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+        return seq;
+    }
+
+    private static AbstractInsnNode dupOptionalReturnValue(Type invocationReturnType) {
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+            case Type.BOOLEAN:
+            case Type.LONG: //these three are stored as boxed values, so they only take up one LVT slot
+            case Type.FLOAT:
+            case Type.DOUBLE:
+            case Type.ARRAY:
+            case Type.OBJECT:
+                return new InsnNode(DUP);
+            case Type.INT:
+                return new InsnNode(DUP2);
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+    }
+
+    private static AbstractInsnNode popOptionalReturnValue(Type invocationReturnType) {
+        switch (invocationReturnType.getSort()) {
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+            case Type.BOOLEAN:
+            case Type.LONG: //these three are stored as boxed values, so they only take up one LVT slot
+            case Type.FLOAT:
+            case Type.DOUBLE:
+            case Type.ARRAY:
+            case Type.OBJECT:
+                return new InsnNode(POP);
+            case Type.INT:
+                return new InsnNode(POP2);
+            default:
+                throw new IllegalArgumentException(invocationReturnType.toString());
+        }
+    }
+
+    private static void bypassCallbackInfoForGetReturnValue(ClassNode classNode, CallbackMethod callbackMethodMeta, MethodNode callbackMethod, Type invocationReturnType) {
+        PPatchesMod.LOGGER.info("adding separate return value argument to L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
+
+        boolean returnValueIsCaptured = false;
+        boolean returnValueIsAlwaysCaptured = false; //TODO: this isn't implemented properly
+        for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+            if (invocation.callbackInfoCreation.captureReturnValueInsn.isPresent()) {
+                returnValueIsCaptured = true;
+            } else {
+                returnValueIsAlwaysCaptured = false;
+            }
+        }
+
+        Type capturedReturnValueArgumentType = null;
+        Integer capturedReturnValueLvtIndex = null;
+        if (returnValueIsCaptured) {
+            capturedReturnValueArgumentType = returnValueIsAlwaysCaptured ? invocationReturnType : optionalReturnValueType(invocationReturnType);
+
+            //add a new argument to the callback method which the return value will be passed in, and then redirect calls to getReturnValue()
+            capturedReturnValueLvtIndex = callbackMethodMeta.callbackInfoLvtIndex + 1;
+            insertMethodArgumentAtLvtIndex(callbackMethod, capturedReturnValueLvtIndex, "$ppatches_captured_returnValue", capturedReturnValueArgumentType);
+
+            //modify all invocation points to pass a return value argument
+            for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                //update the signature at the invocation point
+                invocation.invokeCallbackMethodInsn.desc = callbackMethod.desc;
+
+                if (invocation.callbackInfoCreation.captureReturnValueInsn.isPresent()) {
+                    //don't pass the captured return value to the CallbackInfoReturnable constructor
+                    AbstractInsnNode loadReturnValueArgumentInsn = removeCapturedReturnValueFromCallbackInfoConstructor(invocation, invocationReturnType);
+
+                    //load the return value as an argument to the callback method
+                    invocation.callingMethod.instructions.insert(invocation.finalCallbackInfoLoadForInvokeInsn(), loadReturnValueArgumentInsn);
+
+                    if (!returnValueIsAlwaysCaptured) {
+                        //if there isn't always a captured return value, we should convert the captured return value to an optional value
+                        invocation.callingMethod.instructions.insert(loadReturnValueArgumentInsn, convertToOptionalReturnValueType(invocationReturnType));
+                    }
+                } else {
+                    //load a value onto the stack indicating that the value is absent
+                    assert !returnValueIsAlwaysCaptured;
+                    invocation.callingMethod.instructions.insert(invocation.finalCallbackInfoLoadForInvokeInsn(), loadUnsetOptionalReturnValueType(invocationReturnType));
+                }
+            }
+        }
+
+        //redirect all references to getReturnValue() to the newly added local variable
+        //TODO: this needs to continue to work correctly when the return value is changed by setReturnValue()
+        //TODO: for now, this always boxes primitive values and then unboxes them again, i'd like to avoid doing that if possible (JIT can almost certainly optimize it away, though)
+        for (InfoUsage usage : callbackMethodMeta.callsGetReturnValue) {
+            Type usageReturnType = Type.getReturnType(usage.useCallbackInfoInsn.desc);
+
+            callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
+
+            if (returnValueIsCaptured) {
+                InsnList seq = new InsnList();
+                seq.add(new VarInsnNode(capturedReturnValueArgumentType.getOpcode(ILOAD), capturedReturnValueLvtIndex));
+                if (returnValueIsAlwaysCaptured) {
+                    assert capturedReturnValueArgumentType.equals(invocationReturnType);
+
+                    //the loaded value is already of the invocation return type
+                    if (BytecodeHelper.isReference(usageReturnType)) { //the current usage is a call to getReturnValue(), not a primitive version
+                        Type loadedReferenceType = invocationReturnType;
+                        if (BytecodeHelper.isPrimitive(invocationReturnType)) { //we need to box the captured return value
+                            seq.add(BytecodeHelper.generateBoxingConversion(invocationReturnType));
+                            loadedReferenceType = Type.getObjectType(BytecodeHelper.boxedInternalName(invocationReturnType));
+                        }
+
+                        if (BytecodeHelper.isCHECKCAST(usage.useCallbackInfoInsn.getNext(), loadedReferenceType)) { //eliminate redundant cast
+                            callbackMethod.instructions.remove(usage.useCallbackInfoInsn.getNext());
+                        }
+                    } else { //the current usage is a call to a primitive getReturnValue*()
+                        throw new UnsupportedOperationException(); //not implemented
+                    }
+                } else {
+                    if (BytecodeHelper.isReference(usageReturnType)) { //the current usage is a call to getReturnValue(), not a primitive version
+                        //we need to return either the actual value or null, depending on whether or not the captured return value is present
+                        seq.add(extractBoxedValueOrNullOptionalReturnValue(invocationReturnType));
+
+                        if (BytecodeHelper.isCHECKCAST(usage.useCallbackInfoInsn.getNext(), BytecodeHelper.isReference(invocationReturnType) ? invocationReturnType.getInternalName() : BytecodeHelper.boxedInternalName(invocationReturnType))) { //eliminate redundant cast
+                            callbackMethod.instructions.remove(usage.useCallbackInfoInsn.getNext());
+                        }
+                    } else { //the current usage is a call to a primitive getReturnValue*()
+                        //the original code in CallbackInfoReturnable is implemented as if by:
+                        //  'return this.returnValue == null ? <default_value> : ((BoxedPrimitive) this.returnValue).unboxedValue();'
+
+                        if (usageReturnType.equals(invocationReturnType)) { //the primitive return type of the given method is the same as the invocation return type (good)
+                            seq.add(extractValueOrDefaultOptionalReturnValue(invocationReturnType));
+                        } else { //the primitive return type of the usage's getReturnValue*() method differs from the invocation return type (bad)
+                            //this must return the usage's return type's zero value if the captured return value is unset, or throw ClassCastException otherwise
+                            //TODO: no longer 100% true once we make this properly respect setReturnValue()
+                            LabelNode presentLbl = new LabelNode();
+                            seq.add(ifOptionalReturnValuePresent(invocationReturnType, presentLbl, true));
+                            seq.add(makeNewException(Type.getType(ClassCastException.class),
+                                    Type.getObjectType(BytecodeHelper.boxedInternalName(invocationReturnType)), " cannot be cast to ", Type.getObjectType(BytecodeHelper.boxedInternalName(usageReturnType))));
+                            seq.add(new InsnNode(ATHROW));
+                            seq.add(presentLbl);
+                            seq.add(BytecodeHelper.loadConstantDefaultValueInsn(usageReturnType));
+                        }
+                    }
+                }
+
+                BytecodeHelper.replaceAndClear(usage.useCallbackInfoInsn, callbackMethod.instructions, seq);
+            } else {
+                callbackMethod.instructions.set(usage.useCallbackInfoInsn, BytecodeHelper.loadConstantDefaultValueInsn(usageReturnType));
+            }
+        }
+        callbackMethodMeta.callsGetReturnValue.clear();
+    }
+
     private static void bypassCallbackInfoForCancel(ClassNode classNode, CallbackMethod callbackMethodMeta, MethodNode callbackMethod, Type invocationReturnType) {
         //cancel is called at least once, so because the invocation return type is a void we'll modify the callback to return a boolean
         PPatchesMod.LOGGER.info("bypassing CallbackInfo when cancelling for mixin injection L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
@@ -728,8 +1102,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
             if (BytecodeHelper.isVoid(invocationReturnType)) {
                 //'$ppatches_isCancelled = true;'
-                callbackMethod.instructions.insertBefore(usage.useCallbackInfoInsn, new InsnNode(ICONST_1));
-                callbackMethod.instructions.set(usage.useCallbackInfoInsn, new VarInsnNode(ISTORE, returnValueLvtIndex));
+                BytecodeHelper.replace(usage.useCallbackInfoInsn, callbackMethod.instructions, new InsnNode(ICONST_1), new VarInsnNode(ISTORE, returnValueLvtIndex));
             } else if (BytecodeHelper.isReference(invocationReturnType)) {
                 //'if ($ppatches_returnValue == <dummy>) $ppatches_returnValue = null;'
                 //  this check ensures correct behavior when setReturnValue(Object) is called before cancel(), because calling cancel() doesn't actually set the return value to null, but rather
@@ -751,8 +1124,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 seq.add(new VarInsnNode(ASTORE, returnValueLvtIndex));
                 seq.add(skipLbl);
 
-                callbackMethod.instructions.insert(usage.useCallbackInfoInsn, seq);
-                callbackMethod.instructions.remove(usage.useCallbackInfoInsn);
+                BytecodeHelper.replaceAndClear(usage.useCallbackInfoInsn, callbackMethod.instructions, seq);
             } else {
                 throw new UnsupportedOperationException("bypassing CallbackInfo#cancel() for primitive?!? " + invocationReturnType);
             }
@@ -940,49 +1312,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             }
 
             if (!callbackMethodMeta.callsGetReturnValue.isEmpty()) {
-                PPatchesMod.LOGGER.info("adding separate return value argument to L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
-
-                //add a new argument to the callback method which the return value will be passed in, and then redirect calls to getReturnValue()
-                int returnValueLvtIndex = callbackMethodMeta.callbackInfoLvtIndex + 1;
-                insertMethodArgumentAtLvtIndex(callbackMethod, returnValueLvtIndex, "$ppatches_captured_returnValue", invocationReturnType);
-
-                //modify all invocation points to pass a return value argument
-                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
-                    //don't pass the captured return value to the CallbackInfoReturnable constructor
-                    AbstractInsnNode loadReturnValueArgumentInsn = removeCapturedReturnValueFromCallbackInfoConstructor(invocation, invocationReturnType);
-
-                    //load the return value as an argument to the callback method
-                    invocation.callingMethod.instructions.insert(invocation.finalCallbackInfoLoadForInvokeInsn(), loadReturnValueArgumentInsn);
-
-                    //update the signature at the invocation point
-                    invocation.invokeCallbackMethodInsn.desc = callbackMethod.desc;
-                }
-
-                //redirect all references to getReturnValue() to the newly added local variable
-                //TODO: this doesn't provide strictly the same behavior if the return value isn't captured and is primitive
-                for (InfoUsage usage : callbackMethodMeta.callsGetReturnValue) {
-                    AbstractInsnNode loadReturnValueArgumentInsn = new VarInsnNode(invocationReturnType.getOpcode(ILOAD), returnValueLvtIndex);
-
-                    if ("()Ljava/lang/Object;".equals(usage.useCallbackInfoInsn.desc)) {
-                        String returnedInternalName;
-                        if (BytecodeHelper.isPrimitive(invocationReturnType)) { //box the loaded value
-                            callbackMethod.instructions.insert(usage.useCallbackInfoInsn, BytecodeHelper.generateBoxingConversion(invocationReturnType));
-                            returnedInternalName = BytecodeHelper.boxedInternalName(invocationReturnType);
-                        } else {
-                            returnedInternalName = invocationReturnType.getInternalName();
-                        }
-
-                        //remove cast instruction if possible
-                        if (usage.useCallbackInfoInsn.getNext().getOpcode() == CHECKCAST && ((TypeInsnNode) usage.useCallbackInfoInsn.getNext()).desc.equals(returnedInternalName)) {
-                            callbackMethod.instructions.remove(usage.useCallbackInfoInsn.getNext());
-                        }
-                    }
-
-                    callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
-                    callbackMethod.instructions.set(usage.useCallbackInfoInsn, loadReturnValueArgumentInsn);
-                }
-                callbackMethodMeta.callsGetReturnValue.clear();
-
+                bypassCallbackInfoForGetReturnValue(classNode, callbackMethodMeta, callbackMethod, invocationReturnType);
                 anyChanged = true;
             } else { //getReturnValue*() is never called, so we can try to avoid capturing the return value
                 for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
@@ -1006,10 +1336,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                         anyChanged = true;
                     }
                 }
-            } else if (BytecodeHelper.isVoid(invocationReturnType) || BytecodeHelper.isReference(invocationReturnType)) {
-                //cancel is called at least once, so because the invocation return type is a void we'll modify the callback to return a boolean
-                PPatchesMod.LOGGER.info("bypassing CallbackInfo when cancelling for mixin injection L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
-
+            } else if (!BytecodeHelper.isPrimitive(invocationReturnType)) {
                 bypassCallbackInfoForCancel(classNode, callbackMethodMeta, callbackMethod, invocationReturnType);
                 anyChanged = true;
             }
@@ -1057,7 +1384,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
                 //replace the new CallbackInstance construction with an invokedynamic to a single static instance
                 creation.creatingMethod.instructions.insertBefore(creation.creationInsns.get(0),
-                        new InvokeDynamicInsnNode("ppatches_mixin_optimizeCallbackInfoAllocation_constantCallbackInfoInstance", "()" + callbackInfoTypeDesc(creation.callbackInfoIsReturnable),
+                        new InvokeDynamicInsnNode("$ppatches_constantCallbackInfoInstance", "()" + callbackInfoTypeDesc(creation.callbackInfoIsReturnable),
                         new Handle(H_INVOKESTATIC,
                                 "net/daporkchop/ppatches/modules/mixin/optimizeCallbackInfoAllocation/OptimizeCallbackInfoAllocationTransformer",
                                 "bootstrapSimpleConstantCallbackInfo",
@@ -1092,7 +1419,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
     private static InvokeDynamicInsnNode makeDummyObjectReturnValueInsn(Type type) {
         Preconditions.checkArgument(BytecodeHelper.isReference(type), "not a reference type: %s", type);
-        return new InvokeDynamicInsnNode("ppatches_mixin_optimizeCallbackInfoAllocation_getCancellableDummyValue", Type.getMethodDescriptor(type),
+        return new InvokeDynamicInsnNode("$ppatches_dummyValue", Type.getMethodDescriptor(type),
                 new Handle(H_INVOKESTATIC,
                         "net/daporkchop/ppatches/modules/mixin/optimizeCallbackInfoAllocation/OptimizeCallbackInfoAllocationTransformer",
                         "bootstrapDummyObjectReturnValue",
@@ -1134,5 +1461,22 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 interfaceOrSuperclass.isInterface() ? new String[]{ superInternalName } : null);
         writer.visitEnd();
         return UnsafeWrapper.defineAnonymousClass(interfaceOrSuperclass, writer.toByteArray(), null);
+    }
+
+    private static InvokeDynamicInsnNode makeNewException(Type exceptionType, Object... optionalStaticMethodComponents) {
+        return new InvokeDynamicInsnNode("newException", Type.getMethodDescriptor(exceptionType),
+                new Handle(H_INVOKESTATIC,
+                        "net/daporkchop/ppatches/modules/mixin/optimizeCallbackInfoAllocation/OptimizeCallbackInfoAllocationTransformer",
+                        "bootstrapNewException",
+                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;", false),
+                Stream.concat(Stream.of(new Handle(H_NEWINVOKESPECIAL, exceptionType.getInternalName(), "<init>", optionalStaticMethodComponents.length == 0 ? "()V" : "(Ljava/lang/String;)V", false)), Stream.of(optionalStaticMethodComponents)).toArray());
+    }
+
+    public static CallSite bootstrapNewException(MethodHandles.Lookup lookup, String name, MethodType type, MethodHandle ctor, Object... optionalStaticMessageComponents) {
+        if (optionalStaticMessageComponents.length != 0) {
+            String msg = Stream.of(optionalStaticMessageComponents).map(Object::toString).collect(Collectors.joining());
+            ctor = ctor.bindTo(msg);
+        }
+        return new ConstantCallSite(ctor);
     }
 }

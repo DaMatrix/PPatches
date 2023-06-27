@@ -41,6 +41,22 @@ public class BytecodeHelper {
         return !(insn instanceof LabelNode || insn instanceof FrameNode || insn instanceof LineNumberNode);
     }
 
+    //
+    // <instruction equality checks>
+    //
+
+    public static boolean isCHECKCAST(AbstractInsnNode insn, String internalName) {
+        return insn.getOpcode() == CHECKCAST && internalName.equals(((TypeInsnNode) insn).desc);
+    }
+
+    public static boolean isCHECKCAST(AbstractInsnNode insn, Type type) {
+        return isCHECKCAST(insn, type.getInternalName());
+    }
+
+    //
+    // </instruction equality checks>
+    //
+
     public static boolean isConstant(AbstractInsnNode insn) {
         if (insn instanceof LdcInsnNode) {
             return true;
@@ -154,6 +170,10 @@ public class BytecodeHelper {
     public static MethodInsnNode generateBoxingConversion(Type primitiveType) {
         String internalName = boxedInternalName(primitiveType);
         return new MethodInsnNode(INVOKESTATIC, internalName, "valueOf", '(' + primitiveType.getDescriptor() + ")L" + internalName + ';', false);
+    }
+
+    public static MethodInsnNode generateUnboxingConversion(Type primitiveType) {
+        return new MethodInsnNode(INVOKEVIRTUAL, boxedInternalName(primitiveType), primitiveType.getClassName() + "Value", "()" + primitiveType, false);
     }
 
     public static List<MethodNode> findMethod(ClassNode classNode, String name) {
@@ -580,6 +600,22 @@ public class BytecodeHelper {
         for (int i = insns.size() - 1; i >= 0; i--) {
             list.insert(location, insns.get(i));
         }
+    }
+
+    public static void replace(AbstractInsnNode location, InsnList list, AbstractInsnNode... insns) {
+        if (insns.length == 0) {
+            list.remove(location);
+        } else {
+            for (int i = insns.length - 1; i > 0; i--) {
+                list.insert(location, insns[i]);
+            }
+            list.set(location, insns[0]);
+        }
+    }
+
+    public static void replaceAndClear(AbstractInsnNode location, InsnList list, InsnList insns) {
+        list.insert(location, insns);
+        list.remove(location);
     }
 
     public static void removeAllAndClear(InsnList list, Collection<AbstractInsnNode> insns) {
