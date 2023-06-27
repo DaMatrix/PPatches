@@ -190,7 +190,6 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         public final CallbackMethod callback;
         public final VarInsnNode loadCallbackInfoInsn;
         public final MethodInsnNode useCallbackInfoInsn;
-        public boolean removed = false;
     }
 
     @Override
@@ -552,15 +551,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                     if (result.callbackInfoIsReturnable) {
                         switch (methodInsn.name) {
                             case "getReturnValue":
-                            case "getReturnValueB":
-                            case "getReturnValueC":
-                            case "getReturnValueD":
-                            case "getReturnValueF":
-                            case "getReturnValueI":
-                            case "getReturnValueJ":
-                            case "getReturnValueS":
-                            case "getReturnValueZ":
-                                assert methodInsn.desc.startsWith("()") : methodInsn.desc;
+                                assert "()Ljava/lang/Object;".equals(methodInsn.desc) : methodInsn.desc;
                                 result.callsGetReturnValue.add(usage);
                                 continue;
                             case "setReturnValue":
@@ -712,7 +703,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         return seq;
     }
 
-    private static AbstractInsnNode loadUnsetOptionalReturnValueType(Type invocationReturnType) {
+    private static AbstractInsnNode loadUnsetOptionalReturnValue(Type invocationReturnType) {
         switch (invocationReturnType.getSort()) {
             case Type.BYTE:
             case Type.SHORT:
@@ -908,11 +899,12 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         }
     }
 
-    private static void bypassCallbackInfoForGetReturnValue(ClassNode classNode, CallbackMethod callbackMethodMeta, MethodNode callbackMethod, Type invocationReturnType) {
-        PPatchesMod.LOGGER.info("adding separate return value argument to L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
+    private static void bypassCallbackInfoForCancelAndReturnValue(ClassNode classNode, CallbackMethod callbackMethodMeta, MethodNode callbackMethod, Type invocationReturnType) {
+        //cancel is called at least once, so because the invocation return type is a void we'll modify the callback to return a boolean
+        PPatchesMod.LOGGER.info("bypassing CallbackInfo when cancelling for mixin injection L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
 
         boolean returnValueIsCaptured = false;
-        boolean returnValueIsAlwaysCaptured = false; //TODO: this isn't implemented properly
+        boolean returnValueIsAlwaysCaptured = false; //TODO: implement and enable this
         for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
             if (invocation.callbackInfoCreation.captureReturnValueInsn.isPresent()) {
                 returnValueIsCaptured = true;
@@ -921,9 +913,18 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             }
         }
 
+        //if a return value is captured by at least one of the callback's invokers, we'll add a new argument to the callback method
+        //  which contains the captured return value.
+        //if the return value is always captured, it'll simply be a value, otherwise it'll be an 'optional return value' as defined
+        //  by the helper methods above.
         Type capturedReturnValueArgumentType = null;
         Integer capturedReturnValueLvtIndex = null;
         if (returnValueIsCaptured) {
+            //this optimization should have been done by the time this function is called
+            Preconditions.checkState(!callbackMethodMeta.callsGetReturnValue.isEmpty(), "invocation return value is captured, but not used?");
+
+            PPatchesMod.LOGGER.info("moving captured return value for L{};{}{} from CallbackInfo constructor to new callback method parameter", classNode.name, callbackMethod.name, callbackMethod.desc);
+
             capturedReturnValueArgumentType = returnValueIsAlwaysCaptured ? invocationReturnType : optionalReturnValueType(invocationReturnType);
 
             //add a new argument to the callback method which the return value will be passed in, and then redirect calls to getReturnValue()
@@ -949,141 +950,107 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 } else {
                     //load a value onto the stack indicating that the value is absent
                     assert !returnValueIsAlwaysCaptured;
-                    invocation.callingMethod.instructions.insert(invocation.finalCallbackInfoLoadForInvokeInsn(), loadUnsetOptionalReturnValueType(invocationReturnType));
+                    invocation.callingMethod.instructions.insert(invocation.finalCallbackInfoLoadForInvokeInsn(), loadUnsetOptionalReturnValue(invocationReturnType));
                 }
             }
         }
-
-        //redirect all references to getReturnValue() to the newly added local variable
-        //TODO: this needs to continue to work correctly when the return value is changed by setReturnValue()
-        //TODO: for now, this always boxes primitive values and then unboxes them again, i'd like to avoid doing that if possible (JIT can almost certainly optimize it away, though)
-        for (InfoUsage usage : callbackMethodMeta.callsGetReturnValue) {
-            Type usageReturnType = Type.getReturnType(usage.useCallbackInfoInsn.desc);
-
-            callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
-
-            if (returnValueIsCaptured) {
-                InsnList seq = new InsnList();
-                seq.add(new VarInsnNode(capturedReturnValueArgumentType.getOpcode(ILOAD), capturedReturnValueLvtIndex));
-                if (returnValueIsAlwaysCaptured) {
-                    assert capturedReturnValueArgumentType.equals(invocationReturnType);
-
-                    //the loaded value is already of the invocation return type
-                    if (BytecodeHelper.isReference(usageReturnType)) { //the current usage is a call to getReturnValue(), not a primitive version
-                        Type loadedReferenceType = invocationReturnType;
-                        if (BytecodeHelper.isPrimitive(invocationReturnType)) { //we need to box the captured return value
-                            seq.add(BytecodeHelper.generateBoxingConversion(invocationReturnType));
-                            loadedReferenceType = Type.getObjectType(BytecodeHelper.boxedInternalName(invocationReturnType));
-                        }
-
-                        if (BytecodeHelper.isCHECKCAST(usage.useCallbackInfoInsn.getNext(), loadedReferenceType)) { //eliminate redundant cast
-                            callbackMethod.instructions.remove(usage.useCallbackInfoInsn.getNext());
-                        }
-                    } else { //the current usage is a call to a primitive getReturnValue*()
-                        throw new UnsupportedOperationException(); //not implemented
-                    }
-                } else {
-                    if (BytecodeHelper.isReference(usageReturnType)) { //the current usage is a call to getReturnValue(), not a primitive version
-                        //we need to return either the actual value or null, depending on whether or not the captured return value is present
-                        seq.add(extractBoxedValueOrNullOptionalReturnValue(invocationReturnType));
-
-                        if (BytecodeHelper.isCHECKCAST(usage.useCallbackInfoInsn.getNext(), BytecodeHelper.isReference(invocationReturnType) ? invocationReturnType.getInternalName() : BytecodeHelper.boxedInternalName(invocationReturnType))) { //eliminate redundant cast
-                            callbackMethod.instructions.remove(usage.useCallbackInfoInsn.getNext());
-                        }
-                    } else { //the current usage is a call to a primitive getReturnValue*()
-                        //the original code in CallbackInfoReturnable is implemented as if by:
-                        //  'return this.returnValue == null ? <default_value> : ((BoxedPrimitive) this.returnValue).unboxedValue();'
-
-                        if (usageReturnType.equals(invocationReturnType)) { //the primitive return type of the given method is the same as the invocation return type (good)
-                            seq.add(extractValueOrDefaultOptionalReturnValue(invocationReturnType));
-                        } else { //the primitive return type of the usage's getReturnValue*() method differs from the invocation return type (bad)
-                            //this must return the usage's return type's zero value if the captured return value is unset, or throw ClassCastException otherwise
-                            //TODO: no longer 100% true once we make this properly respect setReturnValue()
-                            LabelNode presentLbl = new LabelNode();
-                            seq.add(ifOptionalReturnValuePresent(invocationReturnType, presentLbl, true));
-                            seq.add(makeNewException(Type.getType(ClassCastException.class),
-                                    Type.getObjectType(BytecodeHelper.boxedInternalName(invocationReturnType)), " cannot be cast to ", Type.getObjectType(BytecodeHelper.boxedInternalName(usageReturnType))));
-                            seq.add(new InsnNode(ATHROW));
-                            seq.add(presentLbl);
-                            seq.add(BytecodeHelper.loadConstantDefaultValueInsn(usageReturnType));
-                        }
-                    }
-                }
-
-                BytecodeHelper.replaceAndClear(usage.useCallbackInfoInsn, callbackMethod.instructions, seq);
-            } else {
-                callbackMethod.instructions.set(usage.useCallbackInfoInsn, BytecodeHelper.loadConstantDefaultValueInsn(usageReturnType));
-            }
-        }
-        callbackMethodMeta.callsGetReturnValue.clear();
-    }
-
-    private static void bypassCallbackInfoForCancel(ClassNode classNode, CallbackMethod callbackMethodMeta, MethodNode callbackMethod, Type invocationReturnType) {
-        //cancel is called at least once, so because the invocation return type is a void we'll modify the callback to return a boolean
-        PPatchesMod.LOGGER.info("bypassing CallbackInfo when cancelling for mixin injection L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
 
         Type returnValueType;
         String returnValueVariableName;
         AbstractInsnNode loadDefaultReturnValueInsn;
-        if (BytecodeHelper.isVoid(invocationReturnType)) {
+        if (callbackMethodMeta.callsCancel.isEmpty()) {
+            returnValueType = null;
+            returnValueVariableName = null;
+            loadDefaultReturnValueInsn = null;
+        } else if (BytecodeHelper.isVoid(invocationReturnType)) {
             //we only have to return true/false to indicate whether or not cancel() was called
             returnValueType = Type.BOOLEAN_TYPE;
             returnValueVariableName = "$ppatches_isCancelled";
 
             //isCancelled defaults to false
             loadDefaultReturnValueInsn = new InsnNode(ICONST_0);
-        } else if (BytecodeHelper.isReference(invocationReturnType)) {
-            //if cancelled, the callback method will return the value it was cancelled with, otherwise it'll return a specific dummy value if it wasn't cancelled
-            returnValueType = invocationReturnType;
+        } else {
+            //if cancelled, the callback method will return an 'optional return value'
+            returnValueType = optionalReturnValueType(invocationReturnType);
             returnValueVariableName = "$ppatches_returnValue";
 
-            //return value defaults to the dummy value, indicating that it isn't cancelled
-            loadDefaultReturnValueInsn = makeDummyObjectReturnValueInsn(invocationReturnType);
-        } else {
-            throw new UnsupportedOperationException("bypassing CallbackInfo for primitive?!? " + invocationReturnType);
+            //return value defaults to the unset return value, indicating that it isn't cancelled
+            loadDefaultReturnValueInsn = loadUnsetOptionalReturnValue(invocationReturnType);
         }
 
         //add a local variable to store the current cancellation state (and return value)
-        int returnValueLvtIndex = Type.getArgumentsAndReturnSizes(callbackMethod.desc) >> 2;
-        offsetLvtIndicesGreaterThan(callbackMethod, returnValueLvtIndex - 1, returnValueType.getSize());
-        {
+        Integer returnValueLvtIndex = null;
+        if (returnValueType != null) {
+            returnValueLvtIndex = Type.getArgumentsAndReturnSizes(callbackMethod.desc) >> 2;
+            offsetLvtIndicesGreaterThan(callbackMethod, returnValueLvtIndex - 1, returnValueType.getSize());
             LabelNode newStartLabel = new LabelNode();
             BytecodeHelper.addFirst(callbackMethod.instructions, loadDefaultReturnValueInsn, newStartLabel, new VarInsnNode(returnValueType.getOpcode(ISTORE), returnValueLvtIndex));
             callbackMethod.localVariables.add(new LocalVariableNode(returnValueVariableName, returnValueType.getDescriptor(), null,
                     newStartLabel, BytecodeHelper.findMethodEndLabel(callbackMethod), returnValueLvtIndex));
+            loadDefaultReturnValueInsn = null;
         }
 
-        LocalVariableNode capturedReturnValueVariable = BytecodeHelper.findLocalVariable(callbackMethod, "$ppatches_captured_returnValue", invocationReturnType.getDescriptor()).orElse(null);
-        if (capturedReturnValueVariable != null) {
-            if (BytecodeHelper.isReference(invocationReturnType)) {
-                //the return value was captured! we should redirect all references to the captured return value to use the effective return value if it's set
-                for (ListIterator<AbstractInsnNode> itr = callbackMethod.instructions.iterator(); itr.hasNext(); ) {
-                    AbstractInsnNode insn = itr.next();
-                    if (insn.getOpcode() == ALOAD && ((VarInsnNode) insn).var == capturedReturnValueVariable.index) { //would be accessing the captured return value
-                        LabelNode useCapturedLbl = new LabelNode();
-                        LabelNode tailLbl = new LabelNode();
+        //redirect all references to getReturnValue() to the newly added local variable
+        //  this must run before redirecting setReturnValue() or cancel()
+        //TODO: for now, this always boxes primitive values and then unboxes them again, i'd like to avoid doing that if possible (JIT can almost certainly optimize it away, though)
+        for (InfoUsage usage : callbackMethodMeta.callsGetReturnValue) {
+            assert !BytecodeHelper.isVoid(invocationReturnType) : invocationReturnType;
+            assert "java/lang/Object".equals(Type.getReturnType(usage.useCallbackInfoInsn.desc).getInternalName()) : usage.useCallbackInfoInsn.name;
 
-                        //the reference to '$ppatches_captured_returnValue' will be replaced with '$ppatches_returnValue != <dummy> ? $ppatches_returnValue : $ppatches_captured_returnValue'
-                        itr.set(new VarInsnNode(ALOAD, returnValueLvtIndex));
-                        itr.add(makeDummyObjectReturnValueInsn(invocationReturnType));
-                        itr.add(new JumpInsnNode(IF_ACMPEQ, useCapturedLbl)); //the return value hasn't been set, use the captured return value
-                        itr.add(new VarInsnNode(ALOAD, returnValueLvtIndex));
-                        itr.add(new JumpInsnNode(GOTO, tailLbl));
-                        itr.add(useCapturedLbl);
-                        itr.add(new VarInsnNode(ALOAD, capturedReturnValueVariable.index));
-                        itr.add(tailLbl);
-                    }
-                }
-            } else {
-                throw new UnsupportedOperationException("captured return value in callback from invoker with return type " + invocationReturnType);
+            //if getReturnValue() is called, we know the invoking method's return type can't be void, so we don't have to deal with the '$ppatches_isCancelled' local variable
+            InsnList seq = new InsnList();
+
+            LabelNode tailLbl = new LabelNode(); //jump target at the end of the getReturnValue() replacement sequence (by here, the value on top of the stack must be an object)
+            boolean loadNullAtTailLabel = false;
+
+            if (!callbackMethodMeta.callsSetReturnValue.isEmpty()) { //setReturnValue() is called at least once, we need to take '$ppatches_returnValue' into account
+                LabelNode notCancelledLbl = new LabelNode(); //jump target if the callback hasn't been cancelled
+                seq.add(new VarInsnNode(returnValueType.getOpcode(ILOAD), returnValueLvtIndex));
+                seq.add(ifOptionalReturnValuePresent(invocationReturnType, notCancelledLbl, false)); //jump to notCancelledLbl if '$ppatches_returnValue' is present (i.e. the callback has been cancelled)
+                seq.add(new VarInsnNode(returnValueType.getOpcode(ILOAD), returnValueLvtIndex)); //we'll use the value from '$ppatches_returnValue', which we now know is present
+                seq.add(extractValueOptionalReturnValue(invocationReturnType));
+                seq.add(new JumpInsnNode(GOTO, tailLbl));
+                seq.add(notCancelledLbl);
+                loadNullAtTailLabel = true;
             }
+
+            if (returnValueIsCaptured) { //a return value is captured, we should try to use it
+                if (returnValueIsAlwaysCaptured) { //the captured return value isn't an 'optional return value', we can simply load it and move on
+                    seq.add(new VarInsnNode(capturedReturnValueArgumentType.getOpcode(ILOAD), capturedReturnValueLvtIndex));
+                } else { //the captured return value is an optional return value
+                    LabelNode capturedReturnValueUnsetLbl = new LabelNode(); //jump target if the invocation didn't capture a return value
+                    seq.add(new VarInsnNode(capturedReturnValueArgumentType.getOpcode(ILOAD), capturedReturnValueLvtIndex));
+                    seq.add(ifOptionalReturnValuePresent(invocationReturnType, capturedReturnValueUnsetLbl, false));
+                    seq.add(new VarInsnNode(capturedReturnValueArgumentType.getOpcode(ILOAD), capturedReturnValueLvtIndex));
+                    seq.add(extractValueOptionalReturnValue(invocationReturnType));
+                    seq.add(new JumpInsnNode(GOTO, tailLbl));
+                    seq.add(capturedReturnValueUnsetLbl);
+                    loadNullAtTailLabel = true;
+                }
+            }
+
+            if (loadNullAtTailLabel) { //a branch was necessary, we should load null and append the tail label
+                seq.add(new InsnNode(ACONST_NULL));
+                seq.add(tailLbl);
+            }
+
+            if (BytecodeHelper.isCHECKCAST(usage.useCallbackInfoInsn.getNext(), invocationReturnType)) { //eliminate redundant cast
+                callbackMethod.instructions.remove(usage.useCallbackInfoInsn.getNext());
+            }
+
+            callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
+            BytecodeHelper.replaceAndClear(usage.useCallbackInfoInsn, callbackMethod.instructions, seq);
         }
+        callbackMethodMeta.callsGetReturnValue.clear();
+
+        //TODO: everything below this needs to be cleaned up to work correctly with primitive values
 
         if (!callbackMethodMeta.callsSetReturnValue.isEmpty()) {
             //replace all calls to setReturnValue() with setting the local return value variable to the given return value
             for (InfoUsage usage : callbackMethodMeta.callsSetReturnValue) {
                 callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
 
+                //TODO: for primitive return types, setReturnValue could be called with null and would still have to cause the original method to be cancelled...
                 if (BytecodeHelper.isReference(invocationReturnType)) {
                     callbackMethod.instructions.set(usage.useCallbackInfoInsn, new VarInsnNode(ASTORE, returnValueLvtIndex));
                 } else {
@@ -1116,8 +1083,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 seq.add(new VarInsnNode(ALOAD, returnValueLvtIndex));
                 seq.add(makeDummyObjectReturnValueInsn(invocationReturnType));
                 seq.add(new JumpInsnNode(IF_ACMPNE, skipLbl));
-                if (capturedReturnValueVariable != null) {
-                    seq.add(new VarInsnNode(ALOAD, capturedReturnValueVariable.index));
+                if (returnValueIsCaptured) {
+                    seq.add(new VarInsnNode(capturedReturnValueArgumentType.getOpcode(ILOAD), capturedReturnValueLvtIndex));
                 } else {
                     seq.add(new InsnNode(ACONST_NULL));
                 }
@@ -1311,10 +1278,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 throw new IllegalStateException("callback method has no invocations?!?");
             }
 
-            if (!callbackMethodMeta.callsGetReturnValue.isEmpty()) {
-                bypassCallbackInfoForGetReturnValue(classNode, callbackMethodMeta, callbackMethod, invocationReturnType);
-                anyChanged = true;
-            } else { //getReturnValue*() is never called, so we can try to avoid capturing the return value
+            if (callbackMethodMeta.callsGetReturnValue.isEmpty()) { //getReturnValue*() is never called, so we can try to avoid capturing the return value
                 for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
                     if (invocation.callbackInfoCreation.captureReturnValueInsn.isPresent()) { //a return value is being captured, we don't want to do that
                         PPatchesMod.LOGGER.info("not capturing return value from L{};{}{} for mixin injection L{};{}{}",
@@ -1336,8 +1300,10 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                         anyChanged = true;
                     }
                 }
-            } else if (!BytecodeHelper.isPrimitive(invocationReturnType)) {
-                bypassCallbackInfoForCancel(classNode, callbackMethodMeta, callbackMethod, invocationReturnType);
+            }
+
+            if (!BytecodeHelper.isPrimitive(invocationReturnType) && (!callbackMethodMeta.callsCancel.isEmpty() || !callbackMethodMeta.callsGetReturnValue.isEmpty())) {
+                bypassCallbackInfoForCancelAndReturnValue(classNode, callbackMethodMeta, callbackMethod, invocationReturnType);
                 anyChanged = true;
             }
 
