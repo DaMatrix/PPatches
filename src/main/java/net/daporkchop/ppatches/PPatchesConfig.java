@@ -188,6 +188,14 @@ public class PPatchesConfig {
     public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTessellatorDraw = new ModuleConfigOptimizeTessellatorDraw(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Patches Minecraft's TextureUtil class to avoid allocating a 4MiB buffer on the Java heap every time part of an OpenGL texture is updated, even if the part"
+            + " of the texture being updated is much smaller than that.",
+            "This will probably not have much effect by itself, however it can significantly improve startup times for some mods. (e.g. Ancient Warfare)",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTextureUtilHeapAllocations = new ModuleConfigOptimizeTessellatorDraw(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Minecraft's World class to cache its hash code, instead of using Java's default implementation.",
             "For some reason, the default Object#hashCode() implementation appears to be very slow in some circumstances, even though it just delegates to"
             + " System.identityHashCode(Object). This causes very bad performance anywhere a World is used as a key in a map (such as in"
