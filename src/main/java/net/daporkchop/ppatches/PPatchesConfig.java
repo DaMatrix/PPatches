@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
+import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ModuleConfigOptimizeItemRendererCacheModels;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraftforge.common.config.Config;
@@ -175,7 +176,7 @@ public class PPatchesConfig {
             "This should notably improve performance when rendering many items (generally during GUI rendering) by ~5% or more, and will definitely help reduce GC churn.",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigBase vanilla_optimizeItemRendererCacheModel = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigOptimizeItemRendererCacheModels vanilla_optimizeItemRendererCacheModel = new ModuleConfigOptimizeItemRendererCacheModels(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches Minecraft's Tessellator to use an alternative technique for sending draw commands to the GPU, which may be more efficient on some systems.",
@@ -193,7 +194,7 @@ public class PPatchesConfig {
             "This will probably not have much effect by itself, however it can significantly improve startup times for some mods. (e.g. Ancient Warfare)",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTextureUtilHeapAllocations = new ModuleConfigOptimizeTessellatorDraw(ModuleState.AUTO);
+    public static final ModuleConfigBase vanilla_optimizeTextureUtilHeapAllocations = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches Minecraft's World class to cache its hash code, instead of using Java's default implementation.",
@@ -283,6 +284,14 @@ public class PPatchesConfig {
                         property = configuration.get(category, name, (String) field.get(this));
                     } else if (type.isEnum()) {
                         property = configuration.get(category, name, ((Enum<?>) field.get(this)).name());
+                    } else if (type == boolean[].class) {
+                        property = configuration.get(category, name, (boolean[]) field.get(this));
+                    } else if (type == int[].class) {
+                        property = configuration.get(category, name, (int[]) field.get(this));
+                    } else if (type == double[].class) {
+                        property = configuration.get(category, name, (double[]) field.get(this));
+                    } else if (type == String[].class) {
+                        property = configuration.get(category, name, (String[]) field.get(this));
                     } else {
                         throw new IllegalStateException("don't know how to handle " + field);
                     }
@@ -306,6 +315,14 @@ public class PPatchesConfig {
                             names[i] = values[i].name();
                         }
                         property.setValidValues(names);
+                    } else if (type == boolean[].class) {
+                        property.setDefaultValues((boolean[]) field.get(this));
+                    } else if (type == int[].class) {
+                        property.setDefaultValues((int[]) field.get(this));
+                    } else if (type == double[].class) {
+                        property.setDefaultValues((double[]) field.get(this));
+                    } else if (type == String[].class) {
+                        property.setDefaultValues((String[]) field.get(this));
                     } else {
                         throw new IllegalStateException("don't know how to handle " + field);
                     }
@@ -362,6 +379,14 @@ public class PPatchesConfig {
                 } else if (type.isEnum()) {
                     //noinspection unchecked
                     field.set(this, Enum.valueOf((Class<Enum>) type, property.getString()));
+                } else if (type == boolean[].class) {
+                    field.set(this, property.getBooleanList());
+                } else if (type == int[].class) {
+                    field.set(this, property.getIntList());
+                } else if (type == double[].class) {
+                    field.set(this, property.getDoubleList());
+                } else if (type == String[].class) {
+                    field.set(this, property.getStringList().clone());
                 } else {
                     throw new IllegalStateException("don't know how to handle " + field);
                 }

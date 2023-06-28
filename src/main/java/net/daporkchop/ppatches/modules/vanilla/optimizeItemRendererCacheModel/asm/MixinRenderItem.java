@@ -1,7 +1,9 @@
 package net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.asm;
 
 import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
+import net.daporkchop.ppatches.PPatchesConfig;
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ItemDisplayListCacheKey;
+import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.util.IMixinItem_OptimizeItemRendererCacheModel;
 import net.daporkchop.ppatches.util.client.render.DrawableVertexBuffer;
 import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.RenderItem;
@@ -59,6 +61,11 @@ abstract class MixinRenderItem {
                     shift = At.Shift.AFTER),
             allow = 1, require = 0) //this injection point will fail if OptiFine is present
     private void ppatches_optimizeModelRendererDisplayLists_renderModel_saveLitItemToBuffer(IBakedModel model, int color, ItemStack stack, CallbackInfo ci) {
+        if (!PPatchesConfig.vanilla_optimizeItemRendererCacheModel.shouldOptimizeItem(stack.getItem())) {
+            //this item is excluded from caching, skip it
+            return;
+        }
+
         //check if the model could contain any custom lighting data; if so we can't cache it using the current system.
         //  this is okay performance-wise because only a small fraction of items will actually use emissive textures, so they'll only pass through this code once.
         List<BakedQuad> allquads = new ArrayList<>();
@@ -68,9 +75,10 @@ abstract class MixinRenderItem {
         allquads.addAll(model.getQuads(null, null, 0));
 
         for (BakedQuad q : allquads) {
-            if (q.getFormat() != DefaultVertexFormats.ITEM && q.getFormat().hasUvOffset(1)) { //the quad contains light data
-                return;
-            } else if (!q.shouldApplyDiffuseLighting()) {
+            if ((q.getFormat() != DefaultVertexFormats.ITEM && q.getFormat().hasUvOffset(1)) //the quad contains light data
+                || !q.shouldApplyDiffuseLighting()) {
+                //mark the item as excluded to avoid processing it again
+                ((IMixinItem_OptimizeItemRendererCacheModel) stack.getItem()).ppatches_optimizeItemRendererCacheModel_excluded(true);
                 return;
             }
         }
@@ -102,6 +110,11 @@ abstract class MixinRenderItem {
             locals = LocalCapture.CAPTURE_FAILHARD,
             allow = 1, require = 1)
     private void ppatches_optimizeModelRendererDisplayLists_renderModel_saveVanillaToBuffer(IBakedModel model, int color, ItemStack stack, CallbackInfo ci, Tessellator tessellator, BufferBuilder builder) {
+        if (!PPatchesConfig.vanilla_optimizeItemRendererCacheModel.shouldOptimizeItem(stack.getItem())) {
+            //this item is excluded from caching, skip it
+            return;
+        }
+
         this.vanillaItemVertexBufferCache.put(ItemDisplayListCacheKey.forPut(model, color, stack), DrawableVertexBuffer.fromUnfinishedBuffer(builder));
 
         while (this.vanillaItemVertexBufferCache.size() > 4096) {
