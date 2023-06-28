@@ -222,7 +222,9 @@ public abstract class OptionalBytecodeType {
 
         @Override
         public InsnList extractValueAsNullableReference(boolean assertSet) {
-            return BytecodeHelper.makeInsnList();
+            return BytecodeHelper.isPrimitive(this.containedType)
+                    ? BytecodeHelper.makeInsnList(BytecodeHelper.generateBoxingConversion(this.containedType))
+                    : BytecodeHelper.makeInsnList();
         }
 
         @Override
@@ -232,7 +234,7 @@ public abstract class OptionalBytecodeType {
 
         @Override
         public InsnList extractValueAsNullableReference_NullIfUnset() {
-            return BytecodeHelper.makeInsnList();
+            return this.extractValueAsNullableReference(false);
         }
     }
 

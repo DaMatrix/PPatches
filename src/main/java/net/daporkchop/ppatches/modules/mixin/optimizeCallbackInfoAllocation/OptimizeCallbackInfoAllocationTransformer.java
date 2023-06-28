@@ -127,6 +127,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         public Optional<VarInsnNode> loadCallbackInfoFromLvtInsn;
         public final MethodInsnNode invokeCallbackMethodInsn;
         public final List<AbstractInsnNode> checkCancelledInsns;
+        
+        public final boolean unsupported;
 
         public AbstractInsnNode finalCallbackInfoLoadForInvokeInsn() {
             if (this.callbackInfoCreation.storeToLvtInsn.isPresent()) { //the callbackinfo is stored on the LVT, there's a corresponding ALOAD instruction somewhere before the actual callback invocation
@@ -374,7 +376,10 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 if (currentInsn.getOpcode() == ALOAD) { //the CallbackInfo instance is being loaded from a local variable
                     loadCallbackInfoFromLvtInsn = (VarInsnNode) currentInsn;
                     callbackInfoCreation = currentCallbackCreationsByLvt.get(loadCallbackInfoFromLvtInsn.var);
-                    Preconditions.checkState(callbackInfoCreation != null, "LVT index %s isn't a valid CallbackInfo value at L%s;%s%s", loadCallbackInfoFromLvtInsn.var, classNode.name, callingMethod.name, callingMethod.desc);
+                    if (callbackInfoCreation == null) {
+                        PPatchesMod.LOGGER.warn("LVT index {} isn't a valid CallbackInfo value at L{};{}{}", loadCallbackInfoFromLvtInsn.var, classNode.name, callingMethod.name, callingMethod.desc);
+                        return new CallbackInvocation(callingMethod, null, Optional.empty(), callInsn, Collections.emptyList(), true);
+                    }
                     break;
                 } else if (currentInsn.getOpcode() == INVOKESPECIAL) { //we'll assume it's a constructor
                     MethodInsnNode ctorInsn = (MethodInsnNode) currentInsn;
@@ -437,7 +442,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             }
         }
 
-        CallbackInvocation invocation = new CallbackInvocation(callingMethod, callbackInfoCreation, Optional.ofNullable(loadCallbackInfoFromLvtInsn), callInsn, checkCancelledInsns);
+        CallbackInvocation invocation = new CallbackInvocation(callingMethod, callbackInfoCreation, Optional.ofNullable(loadCallbackInfoFromLvtInsn), callInsn, checkCancelledInsns, false);
         callbackInfoCreation.consumedByInvocations.add(invocation);
         return invocation;
     }
@@ -637,7 +642,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         PPatchesMod.LOGGER.info("bypassing CallbackInfo when cancelling for mixin injection L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
 
         boolean returnValueIsCaptured = false;
-        boolean returnValueIsAlwaysCaptured = false; //TODO: implement and enable this
+        boolean returnValueIsAlwaysCaptured = true;
         for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
             if (invocation.callbackInfoCreation.captureReturnValueInsn.isPresent()) {
                 returnValueIsCaptured = true;
@@ -660,7 +665,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
             capturedReturnValueArgumentType = returnValueIsAlwaysCaptured
                     ? OptionalBytecodeType.alwaysPresent(invocationReturnType)
-                    : OptionalBytecodeType.emulateReference_NullIsUnset(invocationReturnType); //TODO: if the captured return value is a reference type, we can consider it to always be 'set'
+                    : OptionalBytecodeType.emulateReference_NullIsUnset(invocationReturnType);
 
             //add a new argument to the callback method which the return value will be passed in, and then redirect calls to getReturnValue()
             capturedReturnValueLvtIndex = callbackMethodMeta.callbackInfoLvtIndex + 1;
@@ -727,7 +732,6 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
         //redirect all references to getReturnValue() to the newly added local variable
         //  this must run before redirecting setReturnValue() or cancel()
-        //TODO: for now, this always boxes primitive values and then unboxes them again, i'd like to avoid doing that if possible (JIT can almost certainly optimize it away, though)
         for (InfoUsage usage : callbackMethodMeta.callsGetReturnValue) {
             assert !BytecodeHelper.isVoid(invocationReturnType) : invocationReturnType;
             assert "java/lang/Object".equals(Type.getReturnType(usage.useCallbackInfoInsn.desc).getInternalName()) : usage.useCallbackInfoInsn.name;
@@ -783,8 +787,6 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         }
         callbackMethodMeta.callsGetReturnValue.clear();
 
-        //TODO: everything below this needs to be cleaned up to work correctly with primitive values
-
         if (!callbackMethodMeta.callsSetReturnValue.isEmpty()) {
             //replace all calls to setReturnValue() with setting the local return value variable to the given return value
             for (InfoUsage usage : callbackMethodMeta.callsSetReturnValue) {
@@ -835,22 +837,22 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         }
         callbackMethodMeta.callsCancel.clear();
 
-        //replace all RETURN instructions
-        for (ListIterator<AbstractInsnNode> itr = callbackMethod.instructions.iterator(); itr.hasNext(); ) {
-            if (itr.next().getOpcode() == RETURN) {
-                if (BytecodeHelper.isVoid(invocationReturnType)) {
-                    //'return $ppatches_isCancelled;'
-                    itr.set(new VarInsnNode(ILOAD, returnValueLvtIndex));
-                    itr.add(new InsnNode(IRETURN));
-                } else {
-                    //'return $ppatches_returnValue;'
-                    itr.set(new VarInsnNode(returnValueType.optionalType().getOpcode(ILOAD), returnValueLvtIndex));
-                    itr.add(new InsnNode(returnValueType.optionalType().getOpcode(IRETURN)));
+        if (returnValueType != null) {
+            //replace all RETURN instructions
+            for (ListIterator<AbstractInsnNode> itr = callbackMethod.instructions.iterator(); itr.hasNext(); ) {
+                if (itr.next().getOpcode() == RETURN) {
+                    if (BytecodeHelper.isVoid(invocationReturnType)) {
+                        //'return $ppatches_isCancelled;'
+                        itr.set(new VarInsnNode(ILOAD, returnValueLvtIndex));
+                        itr.add(new InsnNode(IRETURN));
+                    } else {
+                        //'return $ppatches_returnValue;'
+                        itr.set(new VarInsnNode(returnValueType.optionalType().getOpcode(ILOAD), returnValueLvtIndex));
+                        itr.add(new InsnNode(returnValueType.optionalType().getOpcode(IRETURN)));
+                    }
                 }
             }
-        }
 
-        if (returnValueType != null) {
             //change the callback method's return type to the correct type
             callbackMethod.desc = Type.getMethodDescriptor(returnValueType.optionalType(), Type.getArgumentTypes(callbackMethod.desc));
 
@@ -884,7 +886,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         }
     }
 
-    private static void removeCallbackInfoArgument(ClassNode classNode, List<CallbackInfoCreation> callbackInfoCreations, List<CallbackInvocation> callbackInvocations, CallbackMethod callbackMethodMeta, MethodNode callbackMethod) {
+    private static void removeCallbackInfoArgument(ClassNode classNode, CallbackMethod callbackMethodMeta, MethodNode callbackMethod) {
         PPatchesMod.LOGGER.info("completely removing CallbackInfo argument from L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
 
         String modifiedCallbackDesc = callbackMethod.desc.replace(callbackInfoTypeDesc(callbackMethodMeta.callbackInfoIsReturnable), "");
@@ -958,18 +960,55 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         //TODO: what if a callbackinfo is used elsewhere? we don't want to delete too aggressively
         callbackInfoCreations.removeIf(creation -> creation.consumedByInvocations.isEmpty());
 
-        //TODO: assert that no creation instance is used for more than one callback method
+        //assert that no creation instance is used for more than one callback method
+        for (CallbackInfoCreation creation : callbackInfoCreations) {
+            if (creation.consumedByInvocations.stream()
+                        .map(invocation -> invocation.invokeCallbackMethodInsn.name + invocation.invokeCallbackMethodInsn.desc)
+                        .distinct().count() != 1L) {
+                PPatchesMod.LOGGER.warn("{} created at L{};{}{} with id \"{}\" is passed to more than one callback method instance! this is very bad, the class won't be optimized.",
+                        callbackInfoInternalName(creation.callbackInfoIsReturnable), classNode.name, creation.creatingMethod.name, creation.creatingMethod.desc, creation.id);
+                return false;
+            }
+        }
 
-        //TODO: assert that each callback is either always called as cancellable or not
+        //assert that each callback is either always called as cancellable or not
+        for (CallbackMethod callbackMethodMeta : callbackMethods.values()) {
+            if (callbackMethodMeta.usedByInvocations.stream()
+                        .filter(invocation -> invocation.callbackInfoCreation != null) //can be null if the invocation is unsupported
+                        .map(invocation -> invocation.callbackInfoCreation.cancellable)
+                        .distinct().count() != 1L) {
+                PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} is inconsistently cancellable! this is very bad, the class won't be optimized.",
+                        classNode.name, callbackMethodMeta.callbackMethod.name, callbackMethodMeta.callbackMethod.desc);
+                return false;
+            }
+        }
 
         boolean anyChanged = false;
+        METHOD:
         for (CallbackMethod callbackMethodMeta : callbackMethods.values()) {
             Preconditions.checkState(!callbackMethodMeta.usedByInvocations.isEmpty());
 
             MethodNode callbackMethod = callbackMethodMeta.callbackMethod;
 
+            if ((callbackMethod.access & ACC_PRIVATE) == 0) {
+                PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} isn't private, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc);
+                continue;
+            }
+
+            //make sure we don't transform mixin callbacks which are called using INVOKEVIRTUAL: this indicates the method callback isn't private, and could therefore be overridden
+            //  (which would be immensely difficult to transform correctly)
+            for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                if (invocation.unsupported) {
+                    PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} is invoked in an unknown way, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc);
+                    continue METHOD;
+                } else if (invocation.invokeCallbackMethodInsn.getOpcode() == INVOKEVIRTUAL) {
+                    PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} is referenced by a virtual call, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc);
+                    continue METHOD;
+                }
+            }
+
             if (!callbackMethodMeta.usesCallbackInfoInstanceAtAll()) { //the CallbackInfo instance is never accessed at all, there's literally no reason to keep it around
-                removeCallbackInfoArgument(classNode, callbackInfoCreations, callbackInvocations, callbackMethodMeta, callbackMethod);
+                removeCallbackInfoArgument(classNode, callbackMethodMeta, callbackMethod);
                 anyChanged = true;
                 continue;
             } else if (callbackMethodMeta.usesCallbackInfoInstanceInUnknownWay) {
@@ -977,17 +1016,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 continue;
             }
 
-            if (callbackMethodMeta.callsGetId.isEmpty()) {
-                //change the callback ID to an empty string if possible, which will allow the instance count optimization using INVOKEDYNAMIC (see the end of this method) to
-                //  have fewer global instances lying around which differ only in their ID
-                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
-                    PPatchesMod.LOGGER.info("changing id from \"{}\" to empty string in {} L{};{}{}", invocation.callbackInfoCreation.id,
-                            callbackInfoInternalName(callbackMethodMeta.callbackInfoIsReturnable), classNode.name, callbackMethod.name, callbackMethod.desc);
-
-                    invocation.callbackInfoCreation.changeId("");
-                    anyChanged = true;
-                }
-            } else if (callbackMethodMeta.usedByInvocations.stream().map(invocation -> invocation.callbackInfoCreation.id).distinct().count() == 1L) {
+            if (!callbackMethodMeta.callsGetId.isEmpty()
+                && callbackMethodMeta.usedByInvocations.stream().map(invocation -> invocation.callbackInfoCreation.id).distinct().count() == 1L) {
                 //getId is called at least once, and the given CallbackInfo instances all have the same id
 
                 String id = callbackMethodMeta.usedByInvocations.get(0).callbackInfoCreation.id;
@@ -1074,9 +1104,21 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             }
 
             if (!callbackMethodMeta.usesCallbackInfoInstanceAtAll()) { //check again if we can remove the CallbackInfo instance (references to it may have been removed by other stages)
-                removeCallbackInfoArgument(classNode, callbackInfoCreations, callbackInvocations, callbackMethodMeta, callbackMethod);
+                removeCallbackInfoArgument(classNode, callbackMethodMeta, callbackMethod);
                 anyChanged = true;
                 continue;
+            }
+
+            if (callbackMethodMeta.callsGetId.isEmpty()) {
+                //change the callback ID to an empty string if possible, which will allow the instance count optimization using INVOKEDYNAMIC (see the end of this method) to
+                //  have fewer global instances lying around which differ only in their ID
+                for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                    PPatchesMod.LOGGER.info("changing id from \"{}\" to empty string in {} L{};{}{}", invocation.callbackInfoCreation.id,
+                            callbackInfoInternalName(callbackMethodMeta.callbackInfoIsReturnable), classNode.name, callbackMethod.name, callbackMethod.desc);
+
+                    invocation.callbackInfoCreation.changeId("");
+                    anyChanged = true;
+                }
             }
         }
 
