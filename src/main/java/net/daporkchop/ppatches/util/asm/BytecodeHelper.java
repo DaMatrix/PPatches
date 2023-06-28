@@ -150,6 +150,26 @@ public class BytecodeHelper {
         }
     }
 
+    public static AbstractInsnNode dup(Type type) {
+        switch (type.getSize()) {
+            case 1:
+                return new InsnNode(DUP);
+            case 2:
+                return new InsnNode(DUP2);
+        }
+        throw new IllegalStateException();
+    }
+
+    public static AbstractInsnNode pop(Type type) {
+        switch (type.getSize()) {
+            case 1:
+                return new InsnNode(POP);
+            case 2:
+                return new InsnNode(POP2);
+        }
+        throw new IllegalStateException();
+    }
+
     private static final String[] BOXED_INTERNAL_TYPE_NAMES_BY_SORT = {
             "java/lang/Void",
             "java/lang/Boolean",
@@ -174,6 +194,21 @@ public class BytecodeHelper {
 
     public static MethodInsnNode generateUnboxingConversion(Type primitiveType) {
         return new MethodInsnNode(INVOKEVIRTUAL, boxedInternalName(primitiveType), primitiveType.getClassName() + "Value", "()" + primitiveType, false);
+    }
+
+    public static InsnList generateNonNullAssertion(boolean preserveOnStack, Object... optionalStaticMethodComponents) {
+        InsnList seq = new InsnList();
+        LabelNode tailLbl = new LabelNode();
+        seq.add(InvokeDynamicUtils.makeLoadAssertionStateInsn());
+        seq.add(new JumpInsnNode(IFEQ, tailLbl));
+        if (preserveOnStack) {
+            seq.add(new InsnNode(DUP));
+        }
+        seq.add(new JumpInsnNode(IFNONNULL, tailLbl));
+        seq.add(InvokeDynamicUtils.makeNewException(NullPointerException.class, optionalStaticMethodComponents));
+        seq.add(new InsnNode(ATHROW));
+        seq.add(tailLbl);
+        return seq;
     }
 
     public static List<MethodNode> findMethod(ClassNode classNode, String name) {
@@ -552,6 +587,24 @@ public class BytecodeHelper {
 
     public static LabelNode findMethodEndLabel(MethodNode methodNode) {
         return (LabelNode) methodNode.instructions.getLast();
+    }
+
+    public static InsnList makeInsnList() {
+        return new InsnList();
+    }
+
+    public static InsnList makeInsnList(AbstractInsnNode insn) {
+        InsnList seq = new InsnList();
+        seq.add(insn);
+        return seq;
+    }
+
+    public static InsnList makeInsnList(AbstractInsnNode... insns) {
+        InsnList seq = new InsnList();
+        for (AbstractInsnNode insn : insns) {
+            seq.add(insn);
+        }
+        return seq;
     }
 
     public static void addFirst(InsnList list, AbstractInsnNode... insns) {
