@@ -326,6 +326,17 @@ public class BytecodeHelper {
         return Optional.empty();
     }
 
+    public static Optional<Object> findAnnotationValueByName(AnnotationNode annotationNode, String name) {
+        if (annotationNode.values != null) {
+            for (int i = 0; i < annotationNode.values.size(); i += 2) {
+                if (name.equals(annotationNode.values.get(i))) {
+                    return Optional.of(annotationNode.values.get(i + 1));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     @SneakyThrows(AnalyzerException.class)
     public static Frame<SourceValue>[] analyzeSources(String ownerName, MethodNode methodNode) {
         return new Analyzer<>(new SourceInterpreter()).analyze(ownerName, methodNode);

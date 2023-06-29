@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.ppatches.PPatchesConfig;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
@@ -178,6 +179,16 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                     || !this.callsCancel.isEmpty()
                     || !this.callsGetReturnValue.isEmpty() || !this.callsSetReturnValue.isEmpty()
                     || this.usesCallbackInfoInstanceInUnknownWay;
+        }
+
+        @SuppressWarnings("unchecked")
+        public Optional<String> getSourceMixinClassName() {
+            for (AnnotationNode annotationNode : this.callbackMethod.visibleAnnotations) {
+                if ("org/spongepowered/asm/mixin/transformer/meta/MixinMerged".equals(annotationNode.desc)) {
+                    return (Optional<String>) (Object) BytecodeHelper.findAnnotationValueByName(annotationNode, "mixin");
+                }
+            }
+            return Optional.empty();
         }
     }
 
@@ -910,8 +921,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                         .filter(invocation -> invocation.callbackInfoCreation != null) //can be null if the invocation is unsupported
                         .map(invocation -> invocation.callbackInfoCreation.cancellable)
                         .distinct().count() != 1L) {
-                PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} is inconsistently cancellable! this is very bad, the class won't be optimized.",
-                        classNode.name, callbackMethodMeta.callbackMethod.name, callbackMethodMeta.callbackMethod.desc);
+                PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} (added by {}) is inconsistently cancellable! this is very bad, the class won't be optimized.",
+                        classNode.name, callbackMethodMeta.callbackMethod.name, callbackMethodMeta.callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
                 return false;
             }
         }
@@ -923,8 +934,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
             MethodNode callbackMethod = callbackMethodMeta.callbackMethod;
 
-            if ((callbackMethod.access & ACC_PRIVATE) == 0) {
-                PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} isn't private, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc);
+            if (!PPatchesConfig.mixin_optimizeCallbackInfoAllocation.allowTransformingNonPrivateCallbacks && (callbackMethod.access & ACC_PRIVATE) == 0) {
+                PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} (added by {}) isn't private, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
                 continue;
             }
 
@@ -932,10 +943,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             //  (which would be immensely difficult to transform correctly)
             for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
                 if (invocation.unsupported) {
-                    PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} is invoked in an unknown way, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc);
-                    continue METHOD;
-                } else if (invocation.invokeCallbackMethodInsn.getOpcode() == INVOKEVIRTUAL) {
-                    PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} is referenced by a virtual call, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc);
+                    PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} (added by {}) is invoked in an unknown way, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
                     continue METHOD;
                 }
             }
@@ -954,7 +962,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 //getId is called at least once, and the given CallbackInfo instances all have the same id
 
                 String id = callbackMethodMeta.usedByInvocations.get(0).callbackInfoCreation.id;
-                PPatchesMod.LOGGER.info("replacing getId() invocations in L{};{}{} with constant id \"{}\"", classNode.name, callbackMethod.name, callbackMethod.desc, id);
+                PPatchesMod.LOGGER.info("replacing getId() invocations in L{};{}{} (added by {}) with constant id \"{}\"", classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"), id);
 
                 for (InfoUsage usage : callbackMethodMeta.callsGetId) {
                     callbackMethod.instructions.remove(usage.loadCallbackInfoInsn);
@@ -970,8 +978,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 if (invocationReturnType == null) {
                     invocationReturnType = currentInvocationReturnType;
                 } else if (!invocationReturnType.equals(currentInvocationReturnType)) {
-                    PPatchesMod.LOGGER.warn("mixin injector callback L{};{}{} is called from methods with incompatible return types {} and {}",
-                            classNode.name, callbackMethod.name, callbackMethod.desc, invocationReturnType, currentInvocationReturnType);
+                    PPatchesMod.LOGGER.warn("mixin injector callback L{};{}{} (added by {}) is called from methods with incompatible return types {} and {}",
+                            classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"), invocationReturnType, currentInvocationReturnType);
                     continue;
                 }
             }
@@ -982,8 +990,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             if (callbackMethodMeta.callsGetReturnValue.isEmpty()) { //getReturnValue*() is never called, so we can try to avoid capturing the return value
                 for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
                     if (invocation.callbackInfoCreation.captureReturnValueInsn.isPresent()) { //a return value is being captured, we don't want to do that
-                        PPatchesMod.LOGGER.info("not capturing return value from L{};{}{} for mixin injection L{};{}{}",
-                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc);
+                        PPatchesMod.LOGGER.info("not capturing return value from L{};{}{} for mixin injection L{};{}{} (added by {})",
+                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
 
                         removeCapturedReturnValueFromCallbackInfoConstructor(invocation, invocationReturnType);
                         anyChanged = true;
@@ -995,8 +1003,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 //if cancel() is never called, we can remove the instructions to check if the callback was cancelled
                 for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
                     if (!invocation.checkCancelledInsns.isEmpty()) {
-                        PPatchesMod.LOGGER.info("removing cancellation check from L{};{}{} for mixin injection L{};{}{}",
-                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc);
+                        PPatchesMod.LOGGER.info("removing cancellation check from L{};{}{} for mixin injection L{};{}{} (added by {})",
+                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
                         BytecodeHelper.removeAllAndClear(invocation.callingMethod.instructions, invocation.checkCancelledInsns);
                         anyChanged = true;
                     }
@@ -1012,7 +1020,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                     && callbackMethodMeta.usedByInvocations.stream().map(invocation -> invocation.callbackInfoCreation.cancellable).distinct().count() == 1L) {
                 //isCancellable is called at least once, and the given CallbackInfo instances are always either all cancellable or all not cancellable
 
-                PPatchesMod.LOGGER.info("replacing isCancellable() checks in L{};{}{} with constants", classNode.name, callbackMethod.name, callbackMethod.desc);
+                PPatchesMod.LOGGER.info("replacing isCancellable() checks in L{};{}{} (added by {}) with constants", classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
 
                 int opcode = callbackMethodMeta.usedByInvocations.get(0).callbackInfoCreation.cancellable ? ICONST_1 : ICONST_0;
                 for (InfoUsage usage : callbackMethodMeta.callsIsCancellable) {
@@ -1028,8 +1036,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 //  INVOKEDYNAMIC pass (see the end of this method)
                 for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
                     if (invocation.callbackInfoCreation.cancellable) {
-                        PPatchesMod.LOGGER.info("making {} L{};{}{} for mixin injection L{};{}{} uncancellable", callbackInfoInternalName(callbackMethodMeta.callbackInfoIsReturnable),
-                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc);
+                        PPatchesMod.LOGGER.info("making {} L{};{}{} for mixin injection L{};{}{} (added by {}) uncancellable", callbackInfoInternalName(callbackMethodMeta.callbackInfoIsReturnable),
+                                classNode.name, invocation.callingMethod.name, invocation.callingMethod.desc, classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
                         invocation.callbackInfoCreation.setCancellable(false);
                         anyChanged = true;
                     }
@@ -1046,8 +1054,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 //change the callback ID to an empty string if possible, which will allow the instance count optimization using INVOKEDYNAMIC (see the end of this method) to
                 //  have fewer global instances lying around which differ only in their ID
                 for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
-                    PPatchesMod.LOGGER.info("changing id from \"{}\" to empty string in {} L{};{}{}", invocation.callbackInfoCreation.id,
-                            callbackInfoInternalName(callbackMethodMeta.callbackInfoIsReturnable), classNode.name, callbackMethod.name, callbackMethod.desc);
+                    PPatchesMod.LOGGER.info("changing id from \"{}\" to empty string in {} L{};{}{} (added by {})", invocation.callbackInfoCreation.id,
+                            callbackInfoInternalName(callbackMethodMeta.callbackInfoIsReturnable), classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
 
                     invocation.callbackInfoCreation.changeId("");
                     anyChanged = true;

@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
+import net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.ModuleConfigOptimizeCallbackInfoAllocation;
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ModuleConfigOptimizeItemRendererCacheModels;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
 import net.minecraft.launchwrapper.Launch;
@@ -111,7 +112,7 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             hasMixins = false,
             transformerClass = "net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.OptimizeCallbackInfoAllocationTransformer")
-    public static final ModuleConfigBase mixin_optimizeCallbackInfoAllocation = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigOptimizeCallbackInfoAllocation mixin_optimizeCallbackInfoAllocation = new ModuleConfigOptimizeCallbackInfoAllocation(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches OpenBlocks to align the rotation angles of its fans to a multiple of 10° (the angle by which the fans are rotated when right-clicked).",
