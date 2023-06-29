@@ -683,7 +683,7 @@ public abstract class OptionalBytecodeType {
                 case Type.ARRAY:
                 case Type.OBJECT:
                     return BytecodeHelper.makeInsnList( //if the current value is the dummy instance, it's unset
-                            InvokeDynamicUtils.makeDummyObjectValueInsn(this.containedType),
+                            InvokeDynamicUtils.makeDummyObjectValueInsn(this.referenceType()),
                             new JumpInsnNode(jumpIfPresent ? IF_ACMPNE : IF_ACMPEQ, dst));
             }
             return super.branchOnPresence(dst, jumpIfPresent);

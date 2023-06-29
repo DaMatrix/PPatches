@@ -582,61 +582,6 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         return false;
     }
 
-    private static void offsetLvtIndicesGreaterThan(MethodNode methodNode, int threshold, int offset) {
-        if (offset == 0) {
-            return;
-        }
-
-        //TODO: compute maxLocals properly?
-
-        for (AbstractInsnNode currentInsn = methodNode.instructions.getFirst(); currentInsn != null; currentInsn = currentInsn.getNext()) {
-            if (currentInsn instanceof VarInsnNode && ((VarInsnNode) currentInsn).var > threshold) {
-                ((VarInsnNode) currentInsn).var += offset;
-            } else if (currentInsn instanceof IincInsnNode && ((IincInsnNode) currentInsn).var > threshold) {
-                ((IincInsnNode) currentInsn).var += offset;
-            }
-        }
-
-        for (LocalVariableNode variableNode : methodNode.localVariables) {
-            if (variableNode.index > threshold) {
-                variableNode.index += offset;
-            }
-        }
-    }
-
-    private static void insertMethodArgumentAtLvtIndex(MethodNode methodNode, int newArgumentLvtIndex, String newArgumentName, Type newArgumentType) {
-        Type[] argumentTypes = Type.getArgumentTypes(methodNode.desc);
-        for (int i = 0, currentLvtIndex = BytecodeHelper.isStatic(methodNode) ? 0 : 1; i <= argumentTypes.length; i++) {
-            if (currentLvtIndex != newArgumentLvtIndex) {
-                if (i < argumentTypes.length) {
-                    currentLvtIndex += argumentTypes[i].getSize();
-                }
-                continue;
-            }
-
-            //we found an existing argument to insert the new argument before!
-
-            //shift all local variable indices up by the number of LVT entries the new argument will occupy
-            offsetLvtIndicesGreaterThan(methodNode, newArgumentLvtIndex - 1, newArgumentType.getSize());
-
-            //add the new argument type to the method descriptor
-            Type[] modifiedArgumentTypes = Arrays.copyOf(argumentTypes, argumentTypes.length + 1);
-            modifiedArgumentTypes[i] = newArgumentType;
-            System.arraycopy(argumentTypes, i, modifiedArgumentTypes, i + 1, argumentTypes.length - i);
-            methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc), modifiedArgumentTypes);
-
-            //add a new local variable entry
-            if (methodNode.localVariables == null) {
-                methodNode.localVariables = new ArrayList<>();
-            }
-            methodNode.localVariables.add(new LocalVariableNode(newArgumentName, newArgumentType.getDescriptor(), null,
-                    (LabelNode) methodNode.instructions.getFirst(), (LabelNode) methodNode.instructions.getLast(), newArgumentLvtIndex));
-            return;
-        }
-
-        throw new IllegalStateException("couldn't find any arguments at LVT index " + newArgumentLvtIndex + " in method " + methodNode.name + methodNode.desc);
-    }
-
     private static void bypassCallbackInfoForCancelAndReturnValue(ClassNode classNode, CallbackMethod callbackMethodMeta, MethodNode callbackMethod, Type invocationReturnType) {
         //cancel is called at least once, so because the invocation return type is a void we'll modify the callback to return a boolean
         PPatchesMod.LOGGER.info("bypassing CallbackInfo when cancelling for mixin injection L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
@@ -669,7 +614,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
             //add a new argument to the callback method which the return value will be passed in, and then redirect calls to getReturnValue()
             capturedReturnValueLvtIndex = callbackMethodMeta.callbackInfoLvtIndex + 1;
-            insertMethodArgumentAtLvtIndex(callbackMethod, capturedReturnValueLvtIndex, "$ppatches_captured_returnValue", capturedReturnValueArgumentType.optionalType());
+            BytecodeHelper.insertMethodArgumentAtLvtIndex(callbackMethod, capturedReturnValueLvtIndex, "$ppatches_captured_returnValue", capturedReturnValueArgumentType.optionalType(), ACC_FINAL | ACC_SYNTHETIC);
 
             //modify all invocation points to pass a return value argument
             for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
@@ -722,10 +667,10 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         Integer returnValueLvtIndex = null;
         if (returnValueType != null) {
             returnValueLvtIndex = Type.getArgumentsAndReturnSizes(callbackMethod.desc) >> 2;
-            offsetLvtIndicesGreaterThan(callbackMethod, returnValueLvtIndex - 1, returnValueType.optionalType().getSize());
+            BytecodeHelper.offsetLvtIndicesGreaterThan(callbackMethod, returnValueLvtIndex - 1, returnValueType.optionalType().getSize());
             LabelNode newStartLabel = new LabelNode();
             BytecodeHelper.addFirst(callbackMethod.instructions, newStartLabel, loadDefaultReturnValueInsn, new VarInsnNode(returnValueType.optionalType().getOpcode(ISTORE), returnValueLvtIndex));
-            callbackMethod.localVariables.add(new LocalVariableNode(returnValueVariableName, returnValueType.optionalType().getDescriptor(), null,
+            BytecodeHelper.getLocalVariables(callbackMethod).add(new LocalVariableNode(returnValueVariableName, returnValueType.optionalType().getDescriptor(), null,
                     newStartLabel, BytecodeHelper.findMethodEndLabel(callbackMethod), returnValueLvtIndex));
             loadDefaultReturnValueInsn = null;
         }
@@ -889,19 +834,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
     private static void removeCallbackInfoArgument(ClassNode classNode, CallbackMethod callbackMethodMeta, MethodNode callbackMethod) {
         PPatchesMod.LOGGER.info("completely removing CallbackInfo argument from L{};{}{}", classNode.name, callbackMethod.name, callbackMethod.desc);
 
-        String modifiedCallbackDesc = callbackMethod.desc.replace(callbackInfoTypeDesc(callbackMethodMeta.callbackInfoIsReturnable), "");
-        callbackMethod.desc = modifiedCallbackDesc;
-
-        //remove local variable entry
-        for (Iterator<LocalVariableNode> itr = callbackMethod.localVariables.iterator(); itr.hasNext(); ) {
-            if (itr.next().index == callbackMethodMeta.callbackInfoLvtIndex) {
-                itr.remove();
-                break;
-            }
-        }
-
-        //removing CallbackInfo from the method signature means that all other LVT entries need to be shifted down by one
-        offsetLvtIndicesGreaterThan(callbackMethod, callbackMethodMeta.callbackInfoLvtIndex, -1);
+        BytecodeHelper.removeMethodArgumentByLvtIndex(callbackMethod, callbackMethodMeta.callbackInfoLvtIndex);
 
         for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
             //this will delete all the corresponding instructions if this was the last invocation to reference the CallbackInfo instance
@@ -922,7 +855,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             }
 
             //the callback method now has a new descriptor since the CallbackInfo has been removed
-            invocation.invokeCallbackMethodInsn.desc = modifiedCallbackDesc;
+            invocation.invokeCallbackMethodInsn.desc = callbackMethod.desc;
         }
     }
 

@@ -3,6 +3,7 @@ package net.daporkchop.ppatches.util.asm;
 import com.google.common.base.Preconditions;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
+import org.objectweb.asm.Attribute;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.*;
@@ -719,5 +720,237 @@ public class BytecodeHelper {
             }
         }
         return i;
+    }
+
+    public static List<ParameterNode> getParameters(MethodNode methodNode) {
+        if (methodNode.parameters == null) {
+            methodNode.parameters = new ArrayList<>();
+        }
+        return methodNode.parameters;
+    }
+
+    public static List<AnnotationNode> getVisibleAnnotations(MethodNode methodNode) {
+        if (methodNode.visibleAnnotations == null) {
+            methodNode.visibleAnnotations = new ArrayList<>();
+        }
+        return methodNode.visibleAnnotations;
+    }
+
+    public static List<AnnotationNode> getInvisibleAnnotations(MethodNode methodNode) {
+        if (methodNode.invisibleAnnotations == null) {
+            methodNode.invisibleAnnotations = new ArrayList<>();
+        }
+        return methodNode.invisibleAnnotations;
+    }
+
+    public static List<TypeAnnotationNode> getVisibleTypeAnnotations(MethodNode methodNode) {
+        if (methodNode.visibleTypeAnnotations == null) {
+            methodNode.visibleTypeAnnotations = new ArrayList<>();
+        }
+        return methodNode.visibleTypeAnnotations;
+    }
+
+    public static List<TypeAnnotationNode> getInvisibleTypeAnnotations(MethodNode methodNode) {
+        if (methodNode.invisibleTypeAnnotations == null) {
+            methodNode.invisibleTypeAnnotations = new ArrayList<>();
+        }
+        return methodNode.invisibleTypeAnnotations;
+    }
+
+    public static List<Attribute> getAttrs(MethodNode methodNode) {
+        if (methodNode.attrs == null) {
+            methodNode.attrs = new ArrayList<>();
+        }
+        return methodNode.attrs;
+    }
+
+    /*public static List<AnnotationNode>[] getVisibleParameterAnnotations(MethodNode methodNode) {
+        if (methodNode.visibleParameterAnnotations == null) {
+            //noinspection unchecked
+            methodNode.visibleParameterAnnotations = new List[0];
+        }
+        return methodNode.visibleParameterAnnotations;
+    }
+
+    public static List<AnnotationNode>[] getInvisibleParameterAnnotations(MethodNode methodNode) {
+        if (methodNode.invisibleParameterAnnotations == null) {
+            //noinspection unchecked
+            methodNode.invisibleParameterAnnotations = new List[0];
+        }
+        return methodNode.invisibleParameterAnnotations;
+    }*/
+
+    public static List<TryCatchBlockNode> getTryCatchBlocks(MethodNode methodNode) {
+        if (methodNode.tryCatchBlocks == null) {
+            methodNode.tryCatchBlocks = new ArrayList<>();
+        }
+        return methodNode.tryCatchBlocks;
+    }
+
+    public static List<LocalVariableNode> getLocalVariables(MethodNode methodNode) {
+        if (methodNode.localVariables == null) {
+            methodNode.localVariables = new ArrayList<>();
+        }
+        return methodNode.localVariables;
+    }
+
+    public static List<LocalVariableAnnotationNode> getVisibleLocalVariableAnnotations(MethodNode methodNode) {
+        if (methodNode.visibleLocalVariableAnnotations == null) {
+            methodNode.visibleLocalVariableAnnotations = new ArrayList<>();
+        }
+        return methodNode.visibleLocalVariableAnnotations;
+    }
+
+    public static List<LocalVariableAnnotationNode> getInvisibleLocalVariableAnnotations(MethodNode methodNode) {
+        if (methodNode.invisibleLocalVariableAnnotations == null) {
+            methodNode.invisibleLocalVariableAnnotations = new ArrayList<>();
+        }
+        return methodNode.invisibleLocalVariableAnnotations;
+    }
+
+    public static void offsetLvtIndicesGreaterThan(MethodNode methodNode, int threshold, int offset) {
+        if (offset == 0) {
+            return;
+        }
+
+        //TODO: compute maxLocals properly?
+
+        for (AbstractInsnNode currentInsn = methodNode.instructions.getFirst(); currentInsn != null; currentInsn = currentInsn.getNext()) {
+            if (currentInsn instanceof VarInsnNode && ((VarInsnNode) currentInsn).var > threshold) {
+                ((VarInsnNode) currentInsn).var += offset;
+            } else if (currentInsn instanceof IincInsnNode && ((IincInsnNode) currentInsn).var > threshold) {
+                ((IincInsnNode) currentInsn).var += offset;
+            }
+        }
+
+        //offset local variable indices if necessary
+        if (methodNode.localVariables != null) {
+            for (LocalVariableNode variableNode : methodNode.localVariables) {
+                if (variableNode.index > threshold) {
+                    variableNode.index += offset;
+                }
+            }
+        }
+
+        //offset local variable annotation indices if necessary
+        for (List<LocalVariableAnnotationNode> localVariableAnnotations : Arrays.asList(methodNode.visibleLocalVariableAnnotations, methodNode.invisibleLocalVariableAnnotations)) {
+            if (localVariableAnnotations != null) {
+                for (LocalVariableAnnotationNode variableAnnotationNode : localVariableAnnotations) {
+                    for (ListIterator<Integer> itr = variableAnnotationNode.index.listIterator(); itr.hasNext(); ) {
+                        int value = itr.next();
+                        if (value > threshold) {
+                            itr.set(value + offset);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public static void insertMethodArgumentAtLvtIndex(MethodNode methodNode, int newArgumentLvtIndex, String newArgumentName, Type newArgumentType, int newArgumentAccess) {
+        Type[] argumentTypes = Type.getArgumentTypes(methodNode.desc);
+        for (int parameter = 0, currentLvtIndex = isStatic(methodNode) ? 0 : 1; parameter <= argumentTypes.length; parameter++) {
+            if (currentLvtIndex != newArgumentLvtIndex) {
+                if (parameter < argumentTypes.length) {
+                    currentLvtIndex += argumentTypes[parameter].getSize();
+                }
+                continue;
+            }
+
+            //we found an existing argument to insert the new argument before!
+
+            //shift all local variable indices up by the number of LVT entries the new argument will occupy
+            offsetLvtIndicesGreaterThan(methodNode, newArgumentLvtIndex - 1, newArgumentType.getSize());
+
+            //add the new argument type to the method descriptor
+            Type[] modifiedArgumentTypes = Arrays.copyOf(argumentTypes, argumentTypes.length + 1);
+            modifiedArgumentTypes[parameter] = newArgumentType;
+            System.arraycopy(argumentTypes, parameter, modifiedArgumentTypes, parameter + 1, argumentTypes.length - parameter);
+            methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc), modifiedArgumentTypes);
+
+            //add a new local variable entry
+            getLocalVariables(methodNode).add(new LocalVariableNode(newArgumentName, newArgumentType.getDescriptor(), null,
+                    findMethodStartLabel(methodNode), findMethodEndLabel(methodNode), newArgumentLvtIndex));
+
+            //insert a new parameter entry
+            if (methodNode.parameters != null) {
+                methodNode.parameters.add(parameter, new ParameterNode(newArgumentName, newArgumentAccess));
+            }
+
+            //insert null element into visibleParameterAnnotations array
+            if (methodNode.visibleParameterAnnotations != null) {
+                List<AnnotationNode>[] resized = Arrays.copyOf(methodNode.visibleParameterAnnotations, methodNode.visibleParameterAnnotations.length + 1);
+                System.arraycopy(methodNode.visibleParameterAnnotations, parameter, resized, parameter + 1, methodNode.visibleParameterAnnotations.length - parameter);
+                resized[parameter] = null;
+                methodNode.visibleParameterAnnotations = resized;
+            }
+
+            //insert null element into visibleParameterAnnotations array
+            if (methodNode.invisibleParameterAnnotations != null) {
+                List<AnnotationNode>[] resized = Arrays.copyOf(methodNode.invisibleParameterAnnotations, methodNode.invisibleParameterAnnotations.length + 1);
+                System.arraycopy(methodNode.invisibleParameterAnnotations, parameter, resized, parameter + 1, methodNode.invisibleParameterAnnotations.length - parameter);
+                resized[parameter] = null;
+                methodNode.invisibleParameterAnnotations = resized;
+            }
+            return;
+        }
+
+        throw new IllegalStateException("couldn't find any arguments at LVT index " + newArgumentLvtIndex + " in method " + methodNode.name + methodNode.desc);
+    }
+
+    public static void removeMethodArgumentByLvtIndex(MethodNode methodNode, int oldArgumentLvtIndex) {
+        Type[] argumentTypes = Type.getArgumentTypes(methodNode.desc);
+        for (int parameter = 0, currentLvtIndex = isStatic(methodNode) ? 0 : 1; parameter <= argumentTypes.length; parameter++) {
+            if (currentLvtIndex != oldArgumentLvtIndex) {
+                if (parameter < argumentTypes.length) {
+                    currentLvtIndex += argumentTypes[parameter].getSize();
+                }
+                continue;
+            }
+
+            //we found an existing argument to insert the new argument before!
+
+            //remove the old argument type from the method descriptor
+            Type[] modifiedArgumentTypes = Arrays.copyOf(argumentTypes, argumentTypes.length - 1);
+            System.arraycopy(argumentTypes, parameter + 1, modifiedArgumentTypes, parameter, modifiedArgumentTypes.length - parameter);
+            methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc), modifiedArgumentTypes);
+
+            //remove the corresponding local variable entry
+            if (methodNode.localVariables != null) {
+                for (Iterator<LocalVariableNode> itr = methodNode.localVariables.iterator(); itr.hasNext(); ) {
+                    LocalVariableNode localVariable = itr.next();
+                    if (localVariable.index == oldArgumentLvtIndex) {
+                        Preconditions.checkState(argumentTypes[parameter].getDescriptor().equals(localVariable.desc),
+                                "local variable at %d has descriptor %s (expected %s)", oldArgumentLvtIndex, argumentTypes[parameter], localVariable.desc);
+                        itr.remove();
+                    }
+                }
+            }
+
+            //remove the corresponding parameter entry
+            if (methodNode.parameters != null) {
+                methodNode.parameters.remove(parameter);
+            }
+
+            //remove the corresponding element from the visibleParameterAnnotations array
+            if (methodNode.visibleParameterAnnotations != null) {
+                List<AnnotationNode>[] resized = Arrays.copyOf(methodNode.visibleParameterAnnotations, methodNode.visibleParameterAnnotations.length - 1);
+                System.arraycopy(methodNode.visibleParameterAnnotations, parameter + 1, resized, parameter, resized.length - parameter);
+                methodNode.visibleParameterAnnotations = resized;
+            }
+
+            //remove the corresponding element from the visibleParameterAnnotations array
+            if (methodNode.invisibleParameterAnnotations != null) {
+                List<AnnotationNode>[] resized = Arrays.copyOf(methodNode.invisibleParameterAnnotations, methodNode.invisibleParameterAnnotations.length - 1);
+                System.arraycopy(methodNode.invisibleParameterAnnotations, parameter + 1, resized, parameter, resized.length - parameter);
+                methodNode.invisibleParameterAnnotations = resized;
+            }
+
+            //shift all local variable indices up by the number of LVT entries the new argument will occupy
+            offsetLvtIndicesGreaterThan(methodNode, oldArgumentLvtIndex - 1, -argumentTypes[parameter].getSize());
+            return;
+        }
+
+        throw new IllegalStateException("couldn't find any arguments at LVT index " + oldArgumentLvtIndex + " in method " + methodNode.name + methodNode.desc);
     }
 }
