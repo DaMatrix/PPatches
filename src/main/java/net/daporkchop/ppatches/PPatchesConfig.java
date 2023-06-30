@@ -6,6 +6,7 @@ import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.ModuleConfigOptimizeCallbackInfoAllocation;
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ModuleConfigOptimizeItemRendererCacheModels;
+import net.daporkchop.ppatches.modules.vanilla.optimizeSearchTree.ModuleConfigOptimizeSearchTree;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraftforge.common.config.Config;
@@ -178,6 +179,14 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigOptimizeItemRendererCacheModels vanilla_optimizeItemRendererCacheModel = new ModuleConfigOptimizeItemRendererCacheModels(ModuleState.AUTO);
+
+    @Config.Comment({
+            "Patches Minecraft's SearchTree class to make initializing it faster.",
+            "This makes the SearchTree calculation run asynchronously, and avoids adding entries to the internal SuffixArray datastructure multiple times.",
+            "In large modpacks with many items and/or recipes, this can reduce client startup times by 10-20s (the effects are even more obvious if CraftTweaker is installed).",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigOptimizeSearchTree vanilla_optimizeSearchTree = new ModuleConfigOptimizeSearchTree(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches Minecraft's Tessellator to use an alternative technique for sending draw commands to the GPU, which may be more efficient on some systems.",
@@ -596,6 +605,10 @@ public class PPatchesConfig {
     }
 
     static {
+        if (PPatchesConfig.class.getClassLoader() != Launch.classLoader) {
+            throw new IllegalStateException("PPatchesConfig was loaded by " + PPatchesConfig.class.getClassLoader());
+        }
+
         CONFIGURATION = new Configuration(new File("config", "ppatches.cfg"), true);
         load(true);
     }
