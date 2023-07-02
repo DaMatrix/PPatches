@@ -25,6 +25,9 @@ import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Map;
 
+@IFMLLoadingPlugin.TransformerExclusions({
+        "net.daporkchop.ppatches.util.asm"
+})
 public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
     public static boolean isObfuscatedEnvironment;
 

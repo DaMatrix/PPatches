@@ -80,6 +80,12 @@ public class PPatchesConfig {
     @ModuleDescriptor(requiredClasses = "net.optifine.SmartAnimations")
     public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase(ModuleState.AUTO);
 
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            hasMixins = false,
+            transformerClass = "net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.OptimizeEventInstanceAllocationTransformer")
+    public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.AUTO);
+
     @Config.Comment({
             "Patches JourneyMap to prevent it from rendering a tooltip for every widget on the screen, regardless of whether or not the mouse is hovering over the widget"
             + " in question.",
