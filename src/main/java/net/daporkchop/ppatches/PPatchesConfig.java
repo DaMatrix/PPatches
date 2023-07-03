@@ -82,7 +82,6 @@ public class PPatchesConfig {
 
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
-            hasMixins = false,
             transformerClass = "net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.OptimizeEventInstanceAllocationTransformer")
     public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.AUTO);
 

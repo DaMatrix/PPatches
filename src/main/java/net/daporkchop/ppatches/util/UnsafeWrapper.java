@@ -17,6 +17,7 @@ import java.lang.reflect.Field;
 public class UnsafeWrapper {
     private static final MethodHandle ALLOCATE_INSTANCE;
     private static final MethodHandle DEFINE_ANONYMOUS_CLASS;
+    private static final MethodHandle FULL_FENCE;
 
     static {
         try {
@@ -27,6 +28,7 @@ public class UnsafeWrapper {
 
             ALLOCATE_INSTANCE = MethodHandles.publicLookup().findVirtual(unsafeClass, "allocateInstance", MethodType.methodType(Object.class, Class.class)).bindTo(unsafeInstance);
             DEFINE_ANONYMOUS_CLASS = MethodHandles.publicLookup().findVirtual(unsafeClass, "defineAnonymousClass", MethodType.methodType(Class.class, Class.class, byte[].class, Object[].class)).bindTo(unsafeInstance);
+            FULL_FENCE = MethodHandles.publicLookup().findVirtual(unsafeClass, "fullFence", MethodType.methodType(void.class)).bindTo(unsafeInstance);
         } catch (Exception e) {
             throw new AssertionError(e);
         }
@@ -41,5 +43,10 @@ public class UnsafeWrapper {
     @SneakyThrows
     public static Class<?> defineAnonymousClass(Class<?> hostClass, byte[] data, Object[] cpPatches) {
         return (Class<?>) DEFINE_ANONYMOUS_CLASS.invokeExact(hostClass, data, cpPatches);
+    }
+
+    @SneakyThrows
+    public static void fullFence() {
+        FULL_FENCE.invokeExact();
     }
 }
