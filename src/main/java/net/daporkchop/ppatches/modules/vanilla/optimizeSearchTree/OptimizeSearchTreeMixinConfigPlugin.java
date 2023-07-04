@@ -9,7 +9,7 @@ import net.daporkchop.ppatches.util.MixinConfigPluginAdapter;
 public class OptimizeSearchTreeMixinConfigPlugin extends MixinConfigPluginAdapter {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-        if (mixinClassName.endsWith("_AsyncGeneration")) {
+        if (mixinClassName.endsWith("_AsyncCalculation")) {
             return PPatchesConfig.vanilla_optimizeSearchTree.asynchronousSearchTreeRecalculation;
         }
         return super.shouldApplyMixin(targetClassName, mixinClassName);
