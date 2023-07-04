@@ -80,6 +80,11 @@ public class PPatchesConfig {
     @ModuleDescriptor(requiredClasses = "net.optifine.SmartAnimations")
     public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase(ModuleState.AUTO);
 
+    @Config.Comment({
+            "Patches all Forge events and event handlers, and most references to Forge event buses, to allow resetting event instances when possible instead of allocating a new"
+            + " instance every time one is fired.",
+            "This can dramatically improve performance and/or reduce GC churn in some situations.",
+    })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             transformerClass = "net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.OptimizeEventInstanceAllocationTransformer")
@@ -232,6 +237,13 @@ public class PPatchesConfig {
             hasMixins = false,
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeWorldIsRemoteOnDedicatedServer.OptimizeWorldIsRemoteOnDedicatedServerTransformer")
     public static final ModuleConfigBase vanilla_optimizeWorldIsRemoteOnDedicatedServer = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
+            "Patches Minecraft to use a Netty FastThreadLocalThread when creating the server thread.",
+            "This will slightly improve server thread performance.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase vanilla_useFastThreadLocalThread = new ModuleConfigBase(ModuleState.ENABLED);
 
     /**
      * @author DaPorkchop_
