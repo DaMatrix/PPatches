@@ -41,6 +41,20 @@ public class BytecodeHelper {
         return !(insn instanceof LabelNode || insn instanceof FrameNode || insn instanceof LineNumberNode);
     }
 
+    public static AbstractInsnNode previousNormalCodeInstruction(AbstractInsnNode insn) {
+        do {
+            insn = insn.getPrevious();
+        } while (insn != null && !isNormalCodeInstruction(insn));
+        return insn;
+    }
+
+    public static AbstractInsnNode nextNormalCodeInstruction(AbstractInsnNode insn) {
+        do {
+            insn = insn.getNext();
+        } while (insn != null && !isNormalCodeInstruction(insn));
+        return insn;
+    }
+
     //
     // <instruction equality checks>
     //
@@ -332,6 +346,17 @@ public class BytecodeHelper {
             for (LocalVariableNode localVariableNode : methodNode.localVariables) {
                 if (name.equals(localVariableNode.name) && desc.equals(localVariableNode.desc)) {
                     return Optional.of(localVariableNode);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static Optional<AnnotationNode> findAnnotationByDesc(List<AnnotationNode> annotations, String desc) {
+        if (annotations != null) {
+            for (AnnotationNode annotation : annotations) {
+                if (desc.equals(annotation.desc)) {
+                    return Optional.of(annotation);
                 }
             }
         }

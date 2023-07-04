@@ -1,11 +1,11 @@
 package net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation;
 
 import com.google.common.base.Preconditions;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
+import net.daporkchop.ppatches.util.MethodHandleUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
+import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
 import net.minecraftforge.fml.common.eventhandler.Event;
 import net.minecraftforge.fml.common.eventhandler.EventBus;
 import org.objectweb.asm.Handle;
@@ -14,12 +14,9 @@ import org.objectweb.asm.signature.SignatureWriter;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.Frame;
 import org.objectweb.asm.tree.analysis.SourceValue;
-import org.objectweb.asm.util.Printer;
-import scala.Byte;
 
 import java.lang.invoke.*;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -38,17 +35,17 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             //use the same logic as Forge's EventSubscriptionTransformer to determine if the class in question is an event
             if (classNode.superName != null && !transformedName.startsWith("net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.")
                 && !name.startsWith("net.minecraft.") && name.indexOf('.') >= 0
-                && ("net.minecraftforge.fml.common.eventhandler.Event".equals(transformedName) || Event.class.isAssignableFrom(this.getClass().getClassLoader().loadClass(classNode.superName.replace('.', '/'))))) {
+                && ("net.minecraftforge.fml.common.eventhandler.Event".equals(transformedName) || Event.class.isAssignableFrom(this.getClass().getClassLoader().loadClass(classNode.superName.replace('/', '.'))))) {
                 anyChanged |= examineAndTransformEventClass(classNode);
             }
         } catch (ClassNotFoundException e) {
             //Forge's EventSubscriptionTransformer silently ignores these exceptions, we'll do the same
         }
 
-        if (!anyChanged) {
-            //try to transform non-event classes to make the event optimizations more effective
-            anyChanged |= this.makeMethodsMoreOptimizable(classNode);
-        }
+        //try to transform non-event classes to make the event optimizations more effective
+        anyChanged |= this.makeMethodsMoreOptimizable(classNode);
+
+        anyChanged |= checkForUnsafeEventHandlers(classNode);
 
         List<MethodInsnNode> invokePostInsns = null;
         for (MethodNode methodNode : classNode.methods) {
@@ -97,6 +94,8 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             //the method returns an event instance, which is probably not necessary. we'll add a variant which returns nothing and a variant which returns the result of isCancelled,
             //  which other code can then be optimized to use.
 
+            PPatchesMod.LOGGER.info("Adding clones of method L{};{}{} which return void and Event#isCanceled()", classNode.name, method.name, method.desc);
+
             MethodNode returnVoidMethod = BytecodeHelper.cloneMethod(method);
             methodItr.add(returnVoidMethod);
             returnVoidMethod.name = "$ppatches_void_" + returnVoidMethod.name;
@@ -130,9 +129,10 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                     continue;
                 }
 
-                AbstractInsnNode nextInsn = callInsn.getNext();
+                AbstractInsnNode nextInsn = BytecodeHelper.nextNormalCodeInstruction(callInsn);
                 switch (nextInsn.getOpcode()) {
                     case POP: //the returned event instance is immediately discarded
+                        PPatchesMod.LOGGER.info("Redirecting INVOKESTATIC L{};{}{} to clone $ppatches_void_{}", callInsn.owner, callInsn.name, callInsn.desc, callInsn.name);
                         callInsn.name = "$ppatches_void_" + callInsn.name;
                         callInsn.desc = Type.getMethodDescriptor(Type.VOID_TYPE, Type.getArgumentTypes(callInsn.desc));
                         methodNode.instructions.remove(nextInsn);
@@ -141,6 +141,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                     case INVOKEVIRTUAL:
                         MethodInsnNode nextCallInsn = (MethodInsnNode) nextInsn;
                         if ("isCanceled".equals(nextCallInsn.name) && "()Z".equals(nextCallInsn.desc)) {
+                            PPatchesMod.LOGGER.info("Redirecting INVOKESTATIC L{};{}{} to clone $ppatches_isCanceled_{}", callInsn.owner, callInsn.name, callInsn.desc, callInsn.name);
                             callInsn.name = "$ppatches_isCanceled_" + callInsn.name;
                             callInsn.desc = Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getArgumentTypes(callInsn.desc));
                             methodNode.instructions.remove(nextInsn);
@@ -151,34 +152,63 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             }
         }
 
-        //special case: ForgeEventFactory.gatherCapabilities() overloads are called a lot, because they're posted to the event bus in a separate method. we'll copy
-        //  that separate method's code into the bodies of each of the public methods
-        if (false && "net/minecraftforge/event/ForgeEventFactory".equals(classNode.name)) {
-            MethodNode privateGatherCapabilities = BytecodeHelper.findMethodOrThrow(classNode, "gatherCapabilities", "(Lnet/minecraftforge/event/AttachCapabilitiesEvent;Lnet/minecraftforge/common/capabilities/ICapabilityProvider;)Lnet/minecraftforge/common/capabilities/CapabilityDispatcher;");
-            Preconditions.checkState((privateGatherCapabilities.access & (ACC_PRIVATE | ACC_STATIC)) == (ACC_PRIVATE | ACC_STATIC), privateGatherCapabilities);
+        return anyChanged;
+    }
 
-            for (MethodNode gatherCapabilities : BytecodeHelper.findMethod(classNode, "gatherCapabilities")) {
-                if ((gatherCapabilities.access & (ACC_PUBLIC | ACC_STATIC)) != (ACC_PUBLIC | ACC_STATIC)) {
+    private static boolean checkForUnsafeEventHandlers(ClassNode classNode) {
+        boolean anyChanged = false;
+
+        for (MethodNode methodNode : classNode.methods) {
+            if (!BytecodeHelper.findAnnotationByDesc(methodNode.visibleAnnotations, "Lnet/minecraftforge/fml/common/eventhandler/SubscribeEvent;").isPresent()) {
+                continue;
+            }
+
+            Frame<SourceValue>[] sourceFrames = BytecodeHelper.analyzeSources(classNode.name, methodNode);
+            int eventInstanceLvtIndex = BytecodeHelper.isStatic(methodNode) ? 0 : 1;
+
+            List<AbstractInsnNode> insertMarkUnsafeBeforeInsns = new ArrayList<>();
+
+            //check if the event instance is used in some way which would prevent us from optimizing it
+            INSTRUCTION:
+            for (ListIterator<AbstractInsnNode> itr = methodNode.instructions.iterator(); itr.hasNext(); ) {
+                AbstractInsnNode consumingInsn = itr.next();
+                if (!BytecodeHelper.isNormalCodeInstruction(consumingInsn)) {
                     continue;
                 }
 
-                gatherCapabilities.maxLocals = Math.max(gatherCapabilities.maxLocals, 2);
+                int insnIndex = methodNode.instructions.indexOf(consumingInsn);
+                Frame<SourceValue> sourceFrame = sourceFrames[insnIndex];
 
-                for (ListIterator<AbstractInsnNode> itr = gatherCapabilities.instructions.iterator(); itr.hasNext(); ) {
-                    AbstractInsnNode insn = itr.next();
-                    if (insn.getOpcode() == INVOKESPECIAL && "net/minecraftforge/event/AttachCapabilitiesEvent".equals(((MethodInsnNode) insn).owner) && "<init>".equals(((MethodInsnNode) insn).name)) {
-                        itr.add(new VarInsnNode(ASTORE, 0));
-                    } else if (insn.getOpcode() == INVOKESTATIC && classNode.name.equals(((MethodInsnNode) insn).owner) && privateGatherCapabilities.name.equals(((MethodInsnNode) insn).name) && privateGatherCapabilities.desc.equals(((MethodInsnNode) insn).desc)) {
-                        itr.remove();
-                        itr.add(new VarInsnNode(ASTORE, 1));
-                        for (AbstractInsnNode copyInsn : BytecodeHelper.cloneMethod(privateGatherCapabilities).instructions.toArray()) {
-                            if (copyInsn.getOpcode() != ARETURN) {
-                                itr.add(copyInsn);
-                            }
+                int consumedStackOperands = BytecodeHelper.getConsumedStackOperandCount(consumingInsn, sourceFrame);
+                for (int i = 0; i < consumedStackOperands; i++) {
+                    Set<AbstractInsnNode> sourceInsns = BytecodeHelper.getStackValueFromTop(sourceFrame, i).insns;
+                    if (sourceInsns.stream().anyMatch(sourceInsn -> sourceInsn.getOpcode() == ALOAD && ((VarInsnNode) sourceInsn).var == eventInstanceLvtIndex)) {
+                        switch (consumingInsn.getOpcode()) {
+                            default:
+                                insertMarkUnsafeBeforeInsns.add(consumingInsn);
+                                continue INSTRUCTION;
+                            case INVOKEVIRTUAL:
+                            case INVOKESPECIAL:
+                                if (i != consumedStackOperands - 1) {
+                                    insertMarkUnsafeBeforeInsns.add(consumingInsn);
+                                    continue INSTRUCTION;
+                                }
+                                break;
+                            case GETFIELD:
+                            case IFNULL:
+                            case IFNONNULL:
+                            case IF_ACMPEQ:
+                            case IF_ACMPNE:
+                                break;
                         }
                     }
                 }
+            }
 
+            //TODO: don't re-use instances if they've been used unsafely
+            for (AbstractInsnNode insn : insertMarkUnsafeBeforeInsns) {
+                methodNode.instructions.insertBefore(insn, new VarInsnNode(ALOAD, eventInstanceLvtIndex));
+                methodNode.instructions.insertBefore(insn, new MethodInsnNode(INVOKEVIRTUAL, Type.getArgumentTypes(methodNode.desc)[0].getInternalName(), "$ppatches_markUnsafe", "()V", false));
                 anyChanged = true;
             }
         }
@@ -214,8 +244,6 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                 continue;
             }
 
-            Type[] ctorArgumentTypes = Type.getArgumentTypes(ctor.desc);
-
             //duplicate the constructor and turn it into a static method which will reset the object instance
             MethodNode resetMethod = BytecodeHelper.cloneMethod(ctor);
             methodItr.add(resetMethod);
@@ -245,6 +273,19 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                         }
                     }
                 }
+
+                InsnList seq = new InsnList();
+                LabelNode tailLbl = new LabelNode();
+                seq.add(new LabelNode());
+                seq.add(InvokeDynamicUtils.makeLoadAssertionStateInsn());
+                seq.add(new JumpInsnNode(IFEQ, tailLbl));
+                seq.add(new VarInsnNode(ALOAD, 0));
+                seq.add(new FieldInsnNode(GETFIELD, classNode.name, "$ppatches_usedUnsafely", "Z"));
+                seq.add(new JumpInsnNode(IFEQ, tailLbl));
+                seq.add(InvokeDynamicUtils.makeNewException(AssertionError.class, "trying to reset event instance which was used unsafely!"));
+                seq.add(new InsnNode(ATHROW));
+                seq.add(tailLbl);
+                resetMethod.instructions.insert(seq);
             }
 
             //redirect other constructor delegation to the static reset method
@@ -262,7 +303,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             //at the start of the method, initialize all the fields to their default values (if they haven't been initialized already)
             InsnList seq = new InsnList();
 
-            if (true && "net/minecraftforge/fml/common/eventhandler/Event".equals(classNode.name)) {
+            if (false && "net/minecraftforge/fml/common/eventhandler/Event".equals(classNode.name)) {
                 seq.add(new FieldInsnNode(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;"));
                 seq.add(new LdcInsnNode("constructing event instance: "));
                 seq.add(new VarInsnNode(ALOAD, 0));
@@ -293,6 +334,9 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                     continue;
                 }
 
+                //make the field not be final
+                field.access &= ~ACC_FINAL;
+
                 if (seq.size() == 0) {
                     seq.add(new LabelNode());
                 }
@@ -302,13 +346,42 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                 seq.add(new FieldInsnNode(PUTFIELD, classNode.name, field.name, field.desc)); //TODO: we'll need to have it overwrite final fields as well
             }
             resetMethod.instructions.insert(seq);
-
-            //add a new method which will create/reset an event instance with the given constructor arguments, fire it to the given event bus, release the allocated instance and return
-            //  the event bus result
-            /*MethodNode fireMethod = new MethodNode(ACC_PUBLIC | ACC_STATIC, "$ppatches_fire", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, ctorArgumentTypes), null, null);
-            methodItr.add(fireMethod);
-            int cacheLvtIndex =*/
         }
+
+        if ("net/minecraftforge/fml/common/eventhandler/Event".equals(classNode.name)) {
+            (classNode.interfaces == null ? classNode.interfaces = new ArrayList<>() : classNode.interfaces).add(Type.getInternalName(Cloneable.class));
+        }
+
+        {
+            MethodNode cloneMethod = new MethodNode(ACC_PUBLIC, "$ppatches_clone", Type.getMethodDescriptor(Type.getObjectType(classNode.name)), null, null);
+            classNode.methods.add(cloneMethod);
+            cloneMethod.instructions.add(new VarInsnNode(ALOAD, 0));
+            cloneMethod.instructions.add(new MethodInsnNode(INVOKESPECIAL, classNode.superName, "clone", "()Ljava/lang/Object;", false));
+            cloneMethod.instructions.add(new TypeInsnNode(CHECKCAST, classNode.name));
+            cloneMethod.instructions.add(new InsnNode(ARETURN));
+        }
+
+        if ("net/minecraftforge/fml/common/eventhandler/Event".equals(classNode.name)) {
+            classNode.fields.add(new FieldNode(ACC_PUBLIC, "$ppatches_usedUnsafely", "Z", null, null));
+
+            MethodNode markUnsafeMethod = new MethodNode(ACC_PUBLIC | ACC_FINAL, "$ppatches_markUnsafe", "()V", null, null);
+            classNode.methods.add(markUnsafeMethod);
+            markUnsafeMethod.instructions.add(new VarInsnNode(ALOAD, 0));
+            markUnsafeMethod.instructions.add(new InsnNode(ICONST_1));
+            markUnsafeMethod.instructions.add(new FieldInsnNode(PUTFIELD, classNode.name, "$ppatches_usedUnsafely", "Z"));
+
+            if (false) {
+                markUnsafeMethod.instructions.add(new FieldInsnNode(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;"));
+                markUnsafeMethod.instructions.add(new VarInsnNode(ALOAD, 0));
+                markUnsafeMethod.instructions.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/Object", "toString", "()Ljava/lang/String;", false));
+                markUnsafeMethod.instructions.add(new LdcInsnNode(" was used unsafely!"));
+                markUnsafeMethod.instructions.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/String", "concat", "(Ljava/lang/String;)Ljava/lang/String;", false));
+                markUnsafeMethod.instructions.add(new MethodInsnNode(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false));
+            }
+
+            markUnsafeMethod.instructions.add(new InsnNode(RETURN));
+        }
+
         return true;
     }
 
@@ -341,10 +414,10 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             //we'll redirect the entire thing into a single invokedynamic instruction which consumes the event constructor arguments and returns the return value of
             //  calling EventBus#post(Event) with an instance of the event class configured as if it were initialized using the given constructor.
 
-            AbstractInsnNode dupInsn = newEventInsn.getNext();
+            AbstractInsnNode dupInsn = BytecodeHelper.nextNormalCodeInstruction(newEventInsn);
             Preconditions.checkState(dupInsn.getOpcode() == DUP);
 
-            MethodInsnNode invokeCtorInsn = (MethodInsnNode) invokePostInsn.getPrevious();
+            MethodInsnNode invokeCtorInsn = (MethodInsnNode) BytecodeHelper.previousNormalCodeInstruction(invokePostInsn);
             Preconditions.checkState(invokeCtorInsn.getOpcode() == INVOKESPECIAL && newEventInsn.desc.equals(invokeCtorInsn.owner) && "<init>".equals(invokeCtorInsn.name));
 
             methodNode.instructions.remove(newEventInsn);
@@ -416,9 +489,11 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                                     return false;
                                 }
                                 break;
+                            case GETFIELD:
                             case IFNULL:
                             case IFNONNULL:
                             case IF_ACMPEQ:
+                            case IF_ACMPNE:
                                 break;
                         }
                     }
@@ -428,13 +503,12 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             TypeInsnNode newEventInsn = (TypeInsnNode) eventInstanceCreationSource;
             Type eventType = Type.getObjectType(newEventInsn.desc);
 
-            AbstractInsnNode dupInsn = newEventInsn.getNext();
+            AbstractInsnNode dupInsn = BytecodeHelper.nextNormalCodeInstruction(newEventInsn);
             Preconditions.checkState(dupInsn.getOpcode() == DUP);
 
-            MethodInsnNode invokeCtorInsn = (MethodInsnNode) eventInstanceVariableSource.getPrevious();
+            MethodInsnNode invokeCtorInsn = (MethodInsnNode) BytecodeHelper.previousNormalCodeInstruction(eventInstanceVariableSource);
             Preconditions.checkState(invokeCtorInsn.getOpcode() == INVOKESPECIAL && newEventInsn.desc.equals(invokeCtorInsn.owner) && "<init>".equals(invokeCtorInsn.name));
 
-            AbstractInsnNode enterScopeInsn = newEventInsn.getPrevious();
             List<AbstractInsnNode> exitScopeInsns = new ArrayList<>();
 
             LocalVariableNode eventLocalVariable = null;
@@ -604,7 +678,9 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
      * Gets a {@link CallSite} equivalent to the following code:
      * <pre>
      * static void releaseToCache(ArrayDeque&lt;EventClass&gt; cache, EventClass eventInstance) {
-     *     return cache.push(eventInstance);
+     *     if (!eventInstance.$ppatches_usedUnsafely) {
+     *         cache.push(eventInstance);
+     *     }
      * }
      * </pre>
      */
@@ -612,7 +688,10 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
         assert eventCacheClass(eventClass) == ArrayDeque.class : eventCacheClass(eventClass); //make sure this crashes if i change the cache type
         Preconditions.checkArgument(MethodType.methodType(void.class, eventCacheClass(eventClass), eventClass).equals(type), type);
 
-        return new ConstantCallSite(lookup.findVirtual(ArrayDeque.class, "push", MethodType.methodType(void.class, Object.class)).asType(type));
+        return new ConstantCallSite(MethodHandles.guardWithTest(
+                MethodHandles.dropArguments(lookup.findGetter(eventClass, "$ppatches_usedUnsafely", boolean.class), 0, eventCacheClass(eventClass)),
+                MethodHandles.dropArguments(MethodHandleUtils.identity(void.class), 0, type.parameterArray()),
+                lookup.findVirtual(ArrayDeque.class, "push", MethodType.methodType(void.class, Object.class)).asType(type)));
     }
 
     /**
@@ -627,11 +706,11 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
      * }
      * </pre>
      *
-     * @param busGetter  a {@link MethodHandle} which accepts no arguments and returns an {@link EventBus} instance for the event to be posted
-     *                   to (see {@link #bootstrapPostToConstantBus(MethodHandles.Lookup, String, MethodType, MethodHandle)})
+     * @param busGetter a {@link MethodHandle} which accepts no arguments and returns an {@link EventBus} instance for the event to be posted
+     *                  to (see {@link #bootstrapPostToConstantBus(MethodHandles.Lookup, String, MethodType, MethodHandle)})
      */
     public static CallSite bootstrapSimpleInitAndPostToConstantBus(MethodHandles.Lookup lookup, String name, MethodType type,
-                                                      MethodHandle busGetter, Class<? extends Event> eventClass) throws Throwable {
+                                                                   MethodHandle busGetter, Class<? extends Event> eventClass) throws Throwable {
         Class<?> cacheClass = eventCacheClass(eventClass);
 
         MethodHandle getCache = bootstrapGetEventCache(lookup, name, MethodType.methodType(cacheClass), eventClass).dynamicInvoker();
