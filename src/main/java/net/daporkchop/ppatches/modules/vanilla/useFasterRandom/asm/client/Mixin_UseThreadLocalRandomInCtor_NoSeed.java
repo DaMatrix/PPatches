@@ -10,20 +10,17 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * @author DaPorkchop_
  */
-@Mixin(
-        value = {
-                net.minecraft.client.audio.MusicTicker.class,
-                net.minecraft.client.audio.SoundEventAccessor.class,
-                net.minecraft.client.gui.GuiCustomizeWorldScreen.class,
-                net.minecraft.client.gui.GuiEnchantment.class,
-                net.minecraft.client.network.NetHandlerPlayClient.class,
-                net.minecraft.client.particle.Particle.class,
-                net.minecraft.client.particle.ParticleManager.class,
-                net.minecraft.client.renderer.entity.RenderEnderman.class,
-        },
-        targets = {
-                "net.minecraft.client.gui.spectator.categories.TeleportToTeam$TeamSelectionObject"
-        })
+@Mixin(value = {
+        net.minecraft.client.audio.MusicTicker.class,
+        net.minecraft.client.audio.SoundEventAccessor.class,
+        net.minecraft.client.gui.GuiCustomizeWorldScreen.class,
+        net.minecraft.client.gui.GuiEnchantment.class,
+        net.minecraft.client.gui.spectator.categories.TeleportToTeam.TeamSelectionObject.class,
+        net.minecraft.client.network.NetHandlerPlayClient.class,
+        net.minecraft.client.particle.Particle.class,
+        net.minecraft.client.particle.ParticleManager.class,
+        net.minecraft.client.renderer.entity.RenderEnderman.class,
+})
 abstract class Mixin_UseThreadLocalRandomInCtor_NoSeed {
     @Redirect(method = "<init>*",
             at = @At(value = "NEW",
