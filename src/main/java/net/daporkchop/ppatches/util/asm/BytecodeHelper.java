@@ -293,6 +293,19 @@ public class BytecodeHelper {
         return result.get();
     }
 
+    public static Optional<FieldNode> findField(ClassNode classNode, String name, String desc) {
+        Optional<FieldNode> result = Optional.empty();
+        for (FieldNode fieldNode : classNode.fields) {
+            if (name.equals(fieldNode.name) && desc.equals(fieldNode.desc)) {
+                if (result.isPresent()) {
+                    throw new IllegalStateException("already found a field named " + name + " with desc " + desc);
+                }
+                result = Optional.of(fieldNode);
+            }
+        }
+        return result;
+    }
+
     public static MethodNode getOrCreateClinit(ClassNode classNode) {
         for (MethodNode methodNode : classNode.methods) {
             if ("<clinit>".equals(methodNode.name)) {

@@ -1,0 +1,26 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.vanilla.useFasterRandom.asm",
+  "refmap": "mixins.ppatches.refmap.json",
+  "plugin": "net.daporkchop.ppatches.modules.vanilla.useFasterRandom.UseFasterRandomMixinConfigPlugin",
+  "client": [
+    "client.multiplayer.MixinWorldClient",
+
+    "client.Mixin_UseFasterJavaRandomInCtor_NoSeed",
+    "client.Mixin_UseThreadLocalRandomInCtor_NoSeed",
+    "client.Mixin_UseThreadLocalRandomInStaticInitializer_NoSeed"
+  ],
+  "mixins": [
+    "block.MixinBlock_getDrops",
+    "block.MixinBlock_getExpDrop",
+    "world.MixinWorld",
+    "world.chunk.MixinChunk",
+    "world.gen.MixinChunkGenerator",
+    "world.gen.structure.MixinMapGenStronghold",
+
+    "common.Mixin_UseFasterJavaRandomInCtor_NoSeed",
+    "common.Mixin_UseThreadLocalRandomInCtor_NoSeed",
+    "common.Mixin_UseThreadLocalRandomInStaticInitializer_NoSeed"
+  ]
+}

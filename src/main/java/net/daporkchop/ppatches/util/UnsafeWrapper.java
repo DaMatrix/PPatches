@@ -2,6 +2,7 @@ package net.daporkchop.ppatches.util;
 
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
+import sun.misc.Unsafe;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -15,38 +16,43 @@ import java.lang.reflect.Field;
  */
 @UtilityClass
 public class UnsafeWrapper {
-    private static final MethodHandle ALLOCATE_INSTANCE;
-    private static final MethodHandle DEFINE_ANONYMOUS_CLASS;
-    private static final MethodHandle FULL_FENCE;
+    private static final Unsafe UNSAFE;
 
     static {
         try {
             Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
             Field unsafeField = unsafeClass.getDeclaredField("theUnsafe");
             unsafeField.setAccessible(true);
-            Object unsafeInstance = unsafeField.get(null);
-
-            ALLOCATE_INSTANCE = MethodHandles.publicLookup().findVirtual(unsafeClass, "allocateInstance", MethodType.methodType(Object.class, Class.class)).bindTo(unsafeInstance);
-            DEFINE_ANONYMOUS_CLASS = MethodHandles.publicLookup().findVirtual(unsafeClass, "defineAnonymousClass", MethodType.methodType(Class.class, Class.class, byte[].class, Object[].class)).bindTo(unsafeInstance);
-            FULL_FENCE = MethodHandles.publicLookup().findVirtual(unsafeClass, "fullFence", MethodType.methodType(void.class)).bindTo(unsafeInstance);
+            UNSAFE = (Unsafe) unsafeField.get(null);
         } catch (Exception e) {
             throw new AssertionError(e);
         }
     }
 
-    @SneakyThrows
+    @SneakyThrows(InstantiationException.class)
     @SuppressWarnings("unchecked")
     public static <T> T allocateInstance(Class<T> clazz) {
-        return (T) ALLOCATE_INSTANCE.invokeExact(clazz);
+        return (T) UNSAFE.allocateInstance(clazz);
     }
 
-    @SneakyThrows
     public static Class<?> defineAnonymousClass(Class<?> hostClass, byte[] data, Object[] cpPatches) {
-        return (Class<?>) DEFINE_ANONYMOUS_CLASS.invokeExact(hostClass, data, cpPatches);
+        return UNSAFE.defineAnonymousClass(hostClass, data, cpPatches);
     }
 
-    @SneakyThrows
     public static void fullFence() {
-        FULL_FENCE.invokeExact();
+        UNSAFE.fullFence();
+    }
+
+    @SneakyThrows(NoSuchFieldException.class)
+    public static long objectFieldOffset(Class<?> clazz, String name) {
+        return UNSAFE.objectFieldOffset(clazz.getDeclaredField(name));
+    }
+
+    public static long objectFieldOffset(Field f) {
+        return UNSAFE.objectFieldOffset(f);
+    }
+
+    public static void putBoolean(Object o, long offset, boolean value) {
+        UNSAFE.putBoolean(o, offset, value);
     }
 }

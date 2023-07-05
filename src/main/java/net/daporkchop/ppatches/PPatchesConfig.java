@@ -16,7 +16,6 @@ import net.minecraftforge.common.config.Property;
 import net.minecraftforge.fml.client.event.ConfigChangedEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
-import org.apache.logging.log4j.Level;
 
 import java.io.File;
 import java.lang.annotation.ElementType;
@@ -26,15 +25,7 @@ import java.lang.annotation.Target;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 /**
  * @author DaPorkchop_
@@ -237,6 +228,16 @@ public class PPatchesConfig {
             hasMixins = false,
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeWorldIsRemoteOnDedicatedServer.OptimizeWorldIsRemoteOnDedicatedServerTransformer")
     public static final ModuleConfigBase vanilla_optimizeWorldIsRemoteOnDedicatedServer = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
+            "Patches Minecraft to replace the most frequently used instances of java.util.Random and Math.random() with ThreadLocalRandom or a functionally equivalent"
+            + " version of java.util.Random which isn't thread-safe.",
+            "This will slightly improve server thread performance, especially when generating terrain.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            transformerClass = "net.daporkchop.ppatches.modules.vanilla.useFasterRandom.UseFasterRandomTransformer")
+    public static final ModuleConfigBase vanilla_useFasterRandom = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches Minecraft to use a Netty FastThreadLocalThread when creating the server thread.",
@@ -602,7 +603,7 @@ public class PPatchesConfig {
     /**
      * @author DaPorkchop_
      */
-    @Target({ ElementType.FIELD })
+    @Target({ElementType.FIELD})
     @Retention(RetentionPolicy.RUNTIME)
     public @interface ModuleDescriptor {
         String[] requiredClasses() default {};
