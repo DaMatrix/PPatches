@@ -14,6 +14,7 @@
   "mixins": [
     "block.MixinBlock_getDrops",
     "block.MixinBlock_getExpDrop",
+    "fml.common.MixinGameRegistry",
     "world.MixinWorld",
     "world.chunk.MixinChunk",
     "world.gen.MixinChunkGenerator",
