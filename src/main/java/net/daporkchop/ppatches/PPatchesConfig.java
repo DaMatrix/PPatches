@@ -82,6 +82,16 @@ public class PPatchesConfig {
     public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches all Java code to move construction of exception objects out of the main method body and into a separate INVOKEDYNAMIC instruction.",
+            "This could theoretically improve performance in specific scenarios and on specific JVMs, but don't expect to see measurable improvements.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            hasMixins = false,
+            transformerClass = "net.daporkchop.ppatches.modules.java.separatedExceptionConstruction.SeparatedExceptionConstructionTransformer")
+    public static final ModuleConfigBase java_separatedExceptionConstruction = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches JourneyMap to prevent it from rendering a tooltip for every widget on the screen, regardless of whether or not the mouse is hovering over the widget"
             + " in question.",
             "This will have the most effect when using a mod which adds lots of widgets to JourneyMap, such as FTB Utilities' chunk claiming.",

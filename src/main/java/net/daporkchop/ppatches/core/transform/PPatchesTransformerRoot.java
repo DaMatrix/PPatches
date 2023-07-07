@@ -6,6 +6,7 @@ import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.minecraft.launchwrapper.IClassTransformer;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.service.ITransformer;
 import org.spongepowered.asm.transformers.MixinClassWriter;
@@ -115,6 +116,11 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         }
 
         if (anyChanged) {
+            if (classNode.version < Opcodes.V1_8) {
+                PPatchesMod.LOGGER.trace("upgrading {} bytecode version to 1.8 (" + Opcodes.V1_8 + ") from {}", transformedName, classNode.version);
+                classNode.version = Opcodes.V1_8;
+            }
+
             ClassWriter writer = new MixinClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
             classNode.accept(writer);
 
