@@ -444,7 +444,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                         new Handle(H_GETSTATIC, getEventBusInsn.owner, getEventBusInsn.name, getEventBusInsn.desc, false),
                         Type.getObjectType(newEventInsn.desc)));
             } else {
-                methodNode.instructions.set(invokePostInsn, new InvokeDynamicInsnNode("simpleInitAndPostToDynamicBus", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Stream.concat(Stream.of(Type.getType(EventBus.class)), Stream.of(Type.getArgumentTypes(invokeCtorInsn.desc))).toArray(Type[]::new)),
+                methodNode.instructions.set(invokePostInsn, new InvokeDynamicInsnNode("simpleInitAndPostToDynamicBus", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Stream.concat(Stream.of(Type.getObjectType("net/minecraftforge/fml/common/eventhandler/EventBus")), Stream.of(Type.getArgumentTypes(invokeCtorInsn.desc))).toArray(Type[]::new)),
                         new Handle(H_INVOKESTATIC,
                                 Type.getInternalName(OptimizeEventInstanceAllocationTransformer.class), "bootstrapSimpleInitAndPostToDynamicBus",
                                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;)Ljava/lang/invoke/CallSite;", false),
@@ -582,7 +582,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
                         new Handle(H_GETSTATIC, getEventBusInsn.owner, getEventBusInsn.name, getEventBusInsn.desc, false)));
             } else {
-                methodNode.instructions.set(invokePostInsn, new InvokeDynamicInsnNode("postToDynamicBus", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(EventBus.class), eventType),
+                methodNode.instructions.set(invokePostInsn, new InvokeDynamicInsnNode("postToDynamicBus", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getObjectType("net/minecraftforge/fml/common/eventhandler/EventBus"), eventType),
                         new Handle(H_INVOKESTATIC,
                                 Type.getInternalName(OptimizeEventInstanceAllocationTransformer.class), "bootstrapPostToDynamicBus",
                                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;", false)));
