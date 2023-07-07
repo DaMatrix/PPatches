@@ -28,6 +28,11 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTransformer {
     @Override
+    public int priority() {
+        return 1500; //we want this to run after OptimzeCallbackInfoTransformer
+    }
+
+    @Override
     public boolean transformClass(String name, String transformedName, ClassNode classNode) {
         boolean anyChanged = false;
 
@@ -548,10 +553,9 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
 
             //TODO: somehow figure out the smallest possible scope in which the event is accessed
             Type cacheType = eventCacheType(eventType);
-            int cacheLvtIndex = BytecodeHelper.findUnusedLvtSlot(methodNode, cacheType);
+            int cacheLvtIndex = BytecodeHelper.findUnusedLvtSlot(methodNode, cacheType, true);
             methodNode.localVariables.add(new LocalVariableNode("$ppatches_cache", cacheType.getDescriptor(), eventCacheTypeSignature(eventType),
                     eventLocalVariable.start, eventLocalVariable.end, cacheLvtIndex));
-            methodNode.maxLocals = Math.max(methodNode.maxLocals, cacheLvtIndex + 1);
 
             BytecodeHelper.replace(newEventInsn, methodNode.instructions,
                     new InvokeDynamicInsnNode("getEventCache", Type.getMethodDescriptor(cacheType),

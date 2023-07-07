@@ -666,19 +666,100 @@ public class BytecodeHelper {
 
     public static MethodNode cloneMethod(MethodNode srcMethod) {
         MethodNode copiedMethod = new MethodNode(ASM5, srcMethod.access, srcMethod.name, srcMethod.desc, srcMethod.signature, srcMethod.exceptions.toArray(new String[0]));
+        copiedMethod.maxStack = srcMethod.maxStack;
+        copiedMethod.maxLocals = srcMethod.maxLocals;
 
-        //first pass: map labels in the source method to new labels
-        Map<LabelNode, LabelNode> labelMappings = new IdentityHashMap<>();
-        for (AbstractInsnNode insn = srcMethod.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof LabelNode) {
-                labelMappings.put((LabelNode) insn, new LabelNode());
+        //run the source method through a visitor which will duplicate all mutable objects
+        Map<Label, Label> labelMappings = new IdentityHashMap<>();
+        srcMethod.accept(new MethodVisitor(ASM5, copiedMethod) {
+            @Override
+            public void visitFrame(int type, int nLocal, Object[] local, int nStack, Object[] stack) {
+                super.visitFrame(type, nLocal, local == null ? null : this.getLabels(local), nStack, stack == null ? null : this.getLabels(stack));
             }
-        }
 
-        //second pass: clone all instructions
-        for (AbstractInsnNode insn = srcMethod.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            copiedMethod.instructions.add(insn.clone(labelMappings));
-        }
+            private Handle duplicateHandle(Handle handle) {
+                return new Handle(handle.getTag(), handle.getOwner(), handle.getName(), handle.getDesc(), handle.isInterface());
+            }
+
+            @Override
+            public void visitInvokeDynamicInsn(String name, String desc, Handle bsm, Object... bsmArgs) {
+                bsmArgs = bsmArgs.clone();
+                for (int i = 0; i < bsmArgs.length; i++) {
+                    if (bsmArgs[i] instanceof Handle) {
+                        bsmArgs[i] = this.duplicateHandle((Handle) bsmArgs[i]);
+                    }
+                }
+                super.visitInvokeDynamicInsn(name, desc, this.duplicateHandle(bsm), bsmArgs);
+            }
+
+            @Override
+            public void visitJumpInsn(int opcode, Label label) {
+                super.visitJumpInsn(opcode, this.getLabel(label));
+            }
+
+            @Override
+            public void visitLabel(Label label) {
+                super.visitLabel(this.getLabel(label));
+            }
+
+            @Override
+            public void visitTableSwitchInsn(int min, int max, Label dflt, Label... labels) {
+                super.visitTableSwitchInsn(min, max, this.getLabel(dflt), this.getLabels(labels));
+            }
+
+            @Override
+            public void visitLookupSwitchInsn(Label dflt, int[] keys, Label[] labels) {
+                super.visitLookupSwitchInsn(this.getLabel(dflt), keys.clone(), this.getLabels(labels));
+            }
+
+            @Override
+            public void visitTryCatchBlock(Label start, Label end, Label handler, String type) {
+                super.visitTryCatchBlock(this.getLabel(start), this.getLabel(end), this.getLabel(handler), type);
+            }
+
+            @Override
+            public void visitLocalVariable(String name, String desc, String signature, Label start, Label end, int index) {
+                super.visitLocalVariable(name, desc, signature, this.getLabel(start), this.getLabel(end), index);
+            }
+
+            @Override
+            public AnnotationVisitor visitLocalVariableAnnotation(int typeRef, TypePath typePath, Label[] start, Label[] end, int[] index, String desc, boolean visible) {
+                return super.visitLocalVariableAnnotation(typeRef, typePath, this.getLabels(start), this.getLabels(end), index.clone(), desc, visible);
+            }
+
+            @Override
+            public void visitLineNumber(int line, Label start) {
+                super.visitLineNumber(line, this.getLabel(start));
+            }
+
+            private Label getLabel(Label l) {
+                Label mapped = labelMappings.get(l);
+                if (mapped == null) {
+                    labelMappings.put(l, mapped = new Label());
+                }
+                return mapped;
+            }
+
+            private Label[] getLabels(final Label[] l) {
+                Label[] nodes = new Label[l.length];
+                for (int i = 0; i < l.length; ++i) {
+                    nodes[i] = this.getLabel(l[i]);
+                }
+                return nodes;
+            }
+
+            private Object[] getLabels(final Object[] objs) {
+                Object[] nodes = new Object[objs.length];
+                for (int i = 0; i < objs.length; ++i) {
+                    Object o = objs[i];
+                    if (o instanceof Label) {
+                        o = this.getLabel((Label) o);
+                    }
+                    nodes[i] = o;
+                }
+                return nodes;
+            }
+        });
 
         return copiedMethod;
     }
@@ -780,7 +861,7 @@ public class BytecodeHelper {
         insns.clear();
     }
 
-    public static int findUnusedLvtSlot(MethodNode methodNode, Type type) {
+    public static int findUnusedLvtSlot(MethodNode methodNode, Type type, boolean markUsed) {
         BitSet usedEntries = new BitSet();
 
         //mark all method arguments as used
@@ -820,6 +901,11 @@ public class BytecodeHelper {
                 i = usedEntries.nextClearBit(i + 2);
             }
         }
+
+        if (markUsed) {
+            methodNode.maxLocals = Math.max(methodNode.maxLocals, i + type.getSize());
+        }
+
         return i;
     }
 

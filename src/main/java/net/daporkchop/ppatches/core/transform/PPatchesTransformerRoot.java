@@ -38,6 +38,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
         ITreeClassTransformer[] newTransformers = Arrays.copyOf(TRANSFORMERS, TRANSFORMERS.length + 1);
         newTransformers[TRANSFORMERS.length] = transformer;
+        Arrays.sort(newTransformers);
         TRANSFORMERS = newTransformers;
     }
 

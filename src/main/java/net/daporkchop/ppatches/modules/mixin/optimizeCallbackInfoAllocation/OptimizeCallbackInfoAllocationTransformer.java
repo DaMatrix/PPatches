@@ -400,12 +400,15 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                     //TODO: we should improve this using Analyzer
                     for (CallbackInfoCreation potentialCreationInstance : callbackInfoCreations) {
                         if (potentialCreationInstance.creatingMethod == callingMethod
-                                && potentialCreationInstance.creationInsns.get(potentialCreationInstance.creationInsns.size() - 1) == ctorInsn) {
+                            && potentialCreationInstance.creationInsns.get(potentialCreationInstance.creationInsns.size() - 1) == ctorInsn) {
                             callbackInfoCreation = potentialCreationInstance;
                         }
                     }
                     Preconditions.checkState(callbackInfoCreation != null, "can't find creation instance corresponding to CallbackInfo constructor at L%s;%s%s", classNode.name, callingMethod.name, callingMethod.desc);
                     break;
+                } else if (currentInsn.getOpcode() == ACONST_NULL) {
+                    PPatchesMod.LOGGER.trace("CallbackInfo at L{};{}{} is null, assuming the allocation was already optimized away by MixinBooter or similar", classNode.name, callingMethod.name, callingMethod.desc);
+                    return new CallbackInvocation(callingMethod, null, Optional.empty(), callInsn, Collections.emptyList(), true);
                 } else {
                     throw new IllegalStateException(Printer.OPCODES[currentInsn.getOpcode()]);
                 }
@@ -893,7 +896,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
             //mixin duplicates the original return value into a local variable before passing it to the CallbackInfo constructor.
             //  unfortunately it re-uses the same LVT entry as the CallbackInfo, so we'll make a new temporary local variable and use that instead
-            int newLvtIndex = BytecodeHelper.findUnusedLvtSlot(creation.creatingMethod, Type.getType(Object.class));
+            int newLvtIndex = BytecodeHelper.findUnusedLvtSlot(creation.creatingMethod, Type.getType(Object.class), true);
             creation.storeCapturedReturnValueToLvtInsn.get().var = newLvtIndex;
             ((VarInsnNode) loadReturnValueArgumentInsn).var = newLvtIndex;
         } else { //the CallbackInfo is created without a return value
