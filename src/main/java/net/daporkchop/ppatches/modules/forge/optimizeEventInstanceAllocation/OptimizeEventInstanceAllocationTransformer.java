@@ -178,6 +178,9 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
 
                 int insnIndex = methodNode.instructions.indexOf(consumingInsn);
                 Frame<SourceValue> sourceFrame = sourceFrames[insnIndex];
+                if (sourceFrame == null) { //unreachable instruction, ignore
+                    continue;
+                }
 
                 int consumedStackOperands = BytecodeHelper.getConsumedStackOperandCount(consumingInsn, sourceFrame);
                 for (int i = 0; i < consumedStackOperands; i++) {
@@ -389,6 +392,10 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
         Frame<SourceValue>[] sourceFrames = BytecodeHelper.analyzeSources(classNode.name, methodNode);
 
         Frame<SourceValue> invokePostSources = sourceFrames[methodNode.instructions.indexOf(invokePostInsn)];
+        if (invokePostSources == null) { //unreachable instruction, ignore
+            return false;
+        }
+
         Set<AbstractInsnNode> eventBusSources = BytecodeHelper.getStackValueFromTop(invokePostSources, 1).insns;
         Set<AbstractInsnNode> eventInstanceSources = BytecodeHelper.getStackValueFromTop(invokePostSources, 0).insns;
 
@@ -470,6 +477,9 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
 
                 int insnIndex = methodNode.instructions.indexOf(consumingInsn);
                 Frame<SourceValue> sourceFrame = sourceFrames[insnIndex];
+                if (sourceFrame == null) { //unreachable instruction, ignore
+                    continue;
+                }
 
                 int consumedStackOperands = BytecodeHelper.getConsumedStackOperandCount(consumingInsn, sourceFrame);
                 for (int i = 0; i < consumedStackOperands; i++) {

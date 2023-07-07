@@ -508,6 +508,9 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
             int insnIndex = callbackMethod.instructions.indexOf(insn);
             Frame<SourceValue> sourceFrame = sources[insnIndex];
+            if (sourceFrame == null) { //unreachable instruction, ignore
+                continue;
+            }
 
             int consumedStackOperands = BytecodeHelper.getConsumedStackOperandCount(insn, sourceFrame);
 
