@@ -234,6 +234,8 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
     }
 
     private static boolean examineAndTransformEventClass(ClassNode classNode) {
+        PPatchesMod.LOGGER.info("adding instance cache to event class {}", classNode.name);
+
         classNode.fields.add(new FieldNode(ACC_PUBLIC | ACC_STATIC | ACC_FINAL, "$ppatches_instanceCache", "Ljava/lang/ThreadLocal;", null, null));
 
         // $ppatches_instanceCache = ThreadLocal.withInitial(ArrayDeque::new)
@@ -251,6 +253,8 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             if (!"<init>".equals(ctor.name)) {
                 continue;
             }
+
+            PPatchesMod.LOGGER.info("cloning constructor {}{} in event class {}", ctor.name, ctor.desc, classNode.name);
 
             //duplicate the constructor and turn it into a static method which will reset the object instance
             MethodNode resetMethod = BytecodeHelper.cloneMethod(ctor);
@@ -361,6 +365,8 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
         }
 
         {
+            PPatchesMod.LOGGER.info("overriding clone method in event class {}", classNode.name);
+
             MethodNode cloneMethod = new MethodNode(ACC_PUBLIC, "$ppatches_clone", Type.getMethodDescriptor(Type.getObjectType(classNode.name)), null, null);
             classNode.methods.add(cloneMethod);
             cloneMethod.instructions.add(new VarInsnNode(ALOAD, 0));
@@ -370,6 +376,8 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
         }
 
         if ("net/minecraftforge/fml/common/eventhandler/Event".equals(classNode.name)) {
+            PPatchesMod.LOGGER.info("adding field $ppatches_usedUnsafely:Z to event class {}", classNode.name);
+
             classNode.fields.add(new FieldNode(ACC_PUBLIC, "$ppatches_usedUnsafely", "Z", null, null));
 
             MethodNode markUnsafeMethod = new MethodNode(ACC_PUBLIC | ACC_FINAL, "$ppatches_markUnsafe", "()V", null, null);
