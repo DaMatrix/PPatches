@@ -14,6 +14,7 @@ import org.objectweb.asm.signature.SignatureWriter;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.Frame;
 import org.objectweb.asm.tree.analysis.SourceValue;
+import org.spongepowered.asm.mixin.transformer.ClassInfo;
 
 import java.lang.invoke.*;
 import java.util.*;
@@ -32,6 +33,18 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
         return 1500; //we want this to run after OptimzeCallbackInfoTransformer
     }
 
+    private static boolean isEventClass(String transformedName) {
+        for (ClassInfo classInfo = ClassInfo.forName(transformedName); classInfo != null; classInfo = classInfo.getSuperClass()) {
+            switch (classInfo.getName()) {
+                case "java/lang/Object":
+                    return false;
+                case "net/minecraftforge/fml/common/eventhandler/Event":
+                    return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public boolean transformClass(String name, String transformedName, ClassNode classNode) {
         boolean anyChanged = false;
@@ -40,10 +53,10 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             //use the same logic as Forge's EventSubscriptionTransformer to determine if the class in question is an event
             if (classNode.superName != null && !transformedName.startsWith("net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.")
                 && !name.startsWith("net.minecraft.") && name.indexOf('.') >= 0
-                && ("net.minecraftforge.fml.common.eventhandler.Event".equals(transformedName) || Event.class.isAssignableFrom(this.getClass().getClassLoader().loadClass(classNode.superName.replace('/', '.'))))) {
+                && isEventClass(transformedName)) {
                 anyChanged |= examineAndTransformEventClass(classNode);
             }
-        } catch (ClassNotFoundException e) {
+        } catch (Throwable e) {
             //Forge's EventSubscriptionTransformer silently ignores these exceptions, we'll do the same
         }
 
