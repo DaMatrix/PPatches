@@ -153,7 +153,7 @@ reobf.jar {
 }
 
 jar {
-    archiveName "PPatches-v$minecraftVersion-$ppatchesVersion" + ".jar"
+    archiveName "[PPatches-v$minecraftVersion-$ppatchesVersion]" + ".jar"
 
     from {
         configurations.shade.collect {
@@ -168,7 +168,7 @@ jar {
 
     manifest {
         attributes(
-                "tweakClass": "org.spongepowered.asm.launch.MixinTweaker",
+                "TweakClass": "org.spongepowered.asm.launch.MixinTweaker",
                 "TweakOrder": 0,
                 "FMLCorePluginContainsFMLMod": "true",
                 "FMLCorePlugin": "net.daporkchop.ppatches.PPatchesLoadingPlugin",
