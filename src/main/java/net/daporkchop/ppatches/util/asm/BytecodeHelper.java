@@ -1,14 +1,19 @@
 package net.daporkchop.ppatches.util.asm;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.ppatches.util.asm.analysis.ResultUsageGraph;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
+import org.objectweb.asm.tree.analysis.Frame;
 import org.objectweb.asm.tree.analysis.*;
 import org.objectweb.asm.util.Printer;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -405,6 +410,67 @@ public class BytecodeHelper {
         return new Analyzer<>(new SourceInterpreter()).analyze(ownerName, methodNode);
     }
 
+    public static Set<AbstractInsnNode> analyzeUsages(String ownerName, MethodNode methodNode, Frame<SourceValue>[] sources, AbstractInsnNode sourceInsn) {
+        if (sources[methodNode.instructions.indexOf(sourceInsn)] == null) { //source instruction is unreachable
+            return null;
+        }
+
+        ImmutableSet.Builder<AbstractInsnNode> usages = ImmutableSet.builder();
+
+        for (AbstractInsnNode insn = methodNode.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            Frame<SourceValue> sourceFrame = sources[methodNode.instructions.indexOf(insn)];
+            if (sourceFrame == null //unreachable code
+                || !isNormalCodeInstruction(insn)) { //ignore labels, frames and line numbers
+                continue;
+            }
+
+            for (int i = getConsumedStackOperandCount(insn, sourceFrame) - 1; i >= 0; i--) {
+                if (getStackValueFromTop(sourceFrame, i).insns.contains(sourceInsn)) {
+                    usages.add(insn);
+                    break;
+                }
+            }
+        }
+
+        return usages.build();
+    }
+
+    public static ResultUsageGraph analyzeUsages(String ownerName, MethodNode methodNode, Frame<SourceValue>[] sources) {
+        return new ResultUsageGraph(methodNode, sources);
+
+        /*Map<SourceValue, UsageValue> sourceInstancesToUsageInstances = new IdentityHashMap<>(sources.length * 3);
+        Function<SourceValue, UsageValue> sourceInstanceToUsageInstanceMapper = sourceValue -> {
+            return null; //TODO
+        };
+
+        @SuppressWarnings("unchecked")
+        Frame<UsageValue>[] usages = (Frame<UsageValue>[]) new Frame[sources.length];
+
+        Type methodReturnType = Type.getReturnType(methodNode.desc);
+        UsageValue newReturnValue = methodReturnType == Type.VOID_TYPE ? null : new UsageValue(methodReturnType.getSize());
+
+        for (int i = 0; i < sources.length; i++) {
+            Frame<SourceValue> sourceFrame = sources[i];
+            if (sourceFrame == null) { //unreachable code
+                continue;
+            }
+
+            Frame<UsageValue> usageFrame = new Frame<>(sourceFrame.getLocals(), sourceFrame.getMaxStackSize());
+            usageFrame.setReturn(newReturnValue);
+
+            for (int localIndex = 0; localIndex < sourceFrame.getLocals(); localIndex++) {
+                if (sourceFrame.getLocal(localIndex) != null) {
+                    usageFrame.setLocal(localIndex, sourceInstancesToUsageInstances.computeIfAbsent(sourceFrame.getLocal(localIndex), sourceInstanceToUsageInstanceMapper));
+                }
+            }
+            for (int stackIndex = 0; stackIndex < sourceFrame.getStackSize(); stackIndex++) {
+                if (sourceFrame.getStack(stackIndex) != null) {
+                    usageFrame.push(sourceInstancesToUsageInstances.computeIfAbsent(sourceFrame.getStack(stackIndex), sourceInstanceToUsageInstanceMapper));
+                }
+            }
+        }*/
+    }
+
     public static <V extends Value> V getStackValueFromTop(Frame<V> frame, int indexFromTop) {
         int stackSize = frame.getStackSize();
         Preconditions.checkElementIndex(indexFromTop, stackSize, "indexFromTop");
@@ -662,6 +728,144 @@ public class BytecodeHelper {
         }
 
         return consumedStackOperands;
+    }
+
+    public static String toString(AbstractInsnNode insn) {
+        int opcode = insn.getOpcode();
+        switch (insn.getType()) {
+            case AbstractInsnNode.INSN:
+                return Printer.OPCODES[opcode];
+            case AbstractInsnNode.INT_INSN:
+                return Printer.OPCODES[opcode] + ' ' + ((IntInsnNode) insn).operand;
+            case AbstractInsnNode.VAR_INSN:
+                return Printer.OPCODES[opcode] + ' ' + ((VarInsnNode) insn).var;
+            case AbstractInsnNode.TYPE_INSN:
+                return Printer.OPCODES[opcode] + ' ' + ((TypeInsnNode) insn).desc;
+            case AbstractInsnNode.FIELD_INSN: {
+                FieldInsnNode fieldInsn = (FieldInsnNode) insn;
+                return Printer.OPCODES[opcode] + ' ' + fieldInsn.owner + '.' + fieldInsn.name + " : " + fieldInsn.desc;
+            }
+            case AbstractInsnNode.METHOD_INSN: {
+                MethodInsnNode methodInsn = (MethodInsnNode) insn;
+                return Printer.OPCODES[opcode] + ' ' + methodInsn.owner + '.' + methodInsn.name + methodInsn.desc;
+            }
+            case AbstractInsnNode.INVOKE_DYNAMIC_INSN: {
+                InvokeDynamicInsnNode invokeDynamicInsn = (InvokeDynamicInsnNode) insn;
+                StringBuilder builder = new StringBuilder();
+                builder.append(Printer.OPCODES[opcode]).append(' ').append(invokeDynamicInsn.name).append(invokeDynamicInsn.desc).append(" [\n");
+                append(builder, invokeDynamicInsn.bsm);
+                if (invokeDynamicInsn.bsmArgs.length != 0) {
+                    builder.append("    // arguments:\n");
+                    for (Object arg : invokeDynamicInsn.bsmArgs) {
+                        if (arg instanceof Handle) {
+                            append(builder, (Handle) arg);
+                        } else if (arg instanceof String) {
+                            builder.append("    \n").append(arg).append('\"');
+                        } else {
+                            builder.append("    ").append(arg);
+                        }
+                        builder.append(",\n");
+                    }
+                    assert builder.charAt(builder.length() - 2) == ',' : builder.charAt(builder.length() - 2);
+                    builder.setCharAt(builder.length() - 2, '\n');
+                    builder.setCharAt(builder.length() - 1, ']');
+                } else {
+                    builder.append(']');
+                }
+                return builder.toString();
+            }
+            case AbstractInsnNode.JUMP_INSN:
+                return Printer.OPCODES[opcode] + ' ' + ((JumpInsnNode) insn).label.getLabel();
+            case AbstractInsnNode.LABEL:
+                return "LABEL " + ((LabelNode) insn).getLabel();
+            case AbstractInsnNode.LDC_INSN: {
+                Object cst = ((LdcInsnNode) insn).cst;
+                return cst instanceof String
+                        ? Printer.OPCODES[opcode] + " \"" + cst + '\"'
+                        : Printer.OPCODES[opcode] + ' ' + cst;
+            }
+            case AbstractInsnNode.IINC_INSN: {
+                IincInsnNode iincInsn = (IincInsnNode) insn;
+                return Printer.OPCODES[opcode] + ' ' + iincInsn.var + ' ' + iincInsn.incr;
+            }
+            case AbstractInsnNode.TABLESWITCH_INSN:
+            case AbstractInsnNode.LOOKUPSWITCH_INSN: {
+                LabelNode dflt;
+                List<Integer> keys;
+                List<LabelNode> labels;
+                if (insn instanceof TableSwitchInsnNode) {
+                    TableSwitchInsnNode tableSwitchInsn = (TableSwitchInsnNode) insn;
+                    dflt = tableSwitchInsn.dflt;
+                    keys = IntStream.rangeClosed(tableSwitchInsn.min, tableSwitchInsn.max).boxed().collect(Collectors.toList());
+                    labels = tableSwitchInsn.labels;
+                } else {
+                    LookupSwitchInsnNode lookupSwitchInsn = (LookupSwitchInsnNode) insn;
+                    dflt = lookupSwitchInsn.dflt;
+                    keys = lookupSwitchInsn.keys;
+                    labels = lookupSwitchInsn.labels;
+                }
+                StringBuilder builder = new StringBuilder();
+                builder.append(Printer.OPCODES[opcode]);
+                for (int i = 0; i < keys.size(); i++) {
+                    builder.append("\n  ").append(keys.get(i)).append(": ").append(labels.get(i).getLabel());
+                }
+                builder.append("\n  default: ").append(dflt.getLabel());
+                return builder.toString();
+            }
+            case AbstractInsnNode.MULTIANEWARRAY_INSN: {
+                MultiANewArrayInsnNode multiANewArrayInsn = (MultiANewArrayInsnNode) insn;
+                return Printer.OPCODES[opcode] + ' ' + multiANewArrayInsn.desc + ' ' + multiANewArrayInsn.dims;
+            }
+            case AbstractInsnNode.FRAME: {
+                FrameNode frameNode = (FrameNode) insn;
+                StringBuilder builder = new StringBuilder();
+                builder.append("FRAME ");
+                switch (frameNode.type) { //TODO: implement this
+                    case F_NEW:
+                        builder.append("NEW");
+                        break;
+                    case F_FULL:
+                        builder.append("FULL");
+                        break;
+                    case F_APPEND:
+                        builder.append("APPEND");
+                        break;
+                    case F_CHOP:
+                        builder.append("CHOP");
+                        break;
+                    case F_SAME:
+                        builder.append("SAME");
+                        break;
+                    case F_SAME1:
+                        builder.append("SAME1");
+                        break;
+                    default:
+                        throw new IllegalArgumentException();
+                }
+                return builder.toString();
+            }
+            case AbstractInsnNode.LINE: {
+                LineNumberNode lineNumberNode = (LineNumberNode) insn;
+                return "LINENUMBER " + lineNumberNode.line + ' ' + lineNumberNode.start.getLabel();
+            }
+        }
+        return insn.toString();
+    }
+
+    private static void append(StringBuilder builder, Handle handle) {
+        builder.append("    // handle kind 0x").append(Integer.toHexString(handle.getTag())).append(" : ").append(Printer.HANDLE_TAG[handle.getTag()])
+                .append("\n    ").append(handle.getOwner()).append('.').append(handle.getName());
+        switch (handle.getTag()) {
+            case H_GETFIELD:
+            case H_GETSTATIC:
+            case H_PUTFIELD:
+            case H_PUTSTATIC:
+                builder.append(" : ");
+        }
+        builder.append(handle.getDesc());
+        if (handle.isInterface()) {
+            builder.append(" <interface>");
+        }
     }
 
     public static MethodNode cloneMethod(MethodNode srcMethod) {

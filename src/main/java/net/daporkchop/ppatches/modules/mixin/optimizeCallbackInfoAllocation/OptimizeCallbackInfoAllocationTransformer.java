@@ -11,6 +11,7 @@ import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.OptionalBytecodeType;
+import net.daporkchop.ppatches.util.asm.analysis.ResultUsageGraph;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
@@ -292,6 +293,9 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
                 throw new IllegalArgumentException(newInsn.desc);
         }
 
+        Frame<SourceValue>[] sources = BytecodeHelper.analyzeSources(classNode.name, creatingMethod);
+        ResultUsageGraph usages = BytecodeHelper.analyzeUsages(classNode.name, creatingMethod, sources);
+
         Type creatingMethodReturnType = Type.getReturnType(creatingMethod.desc);
 
         List<AbstractInsnNode> creationInsns = new ArrayList<>();
@@ -324,7 +328,10 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             creationInsns.add(currentInsn);
             currentInsn = currentInsn.getNext();
 
-            storeCapturedReturnValueToLvtInsn = (VarInsnNode) newInsn.getPrevious();
+            //the captured return value could be saved into a local variable any number of instructions ago, use the method analysis result to find the corresponding store instruction
+            Set<AbstractInsnNode> captureReturnValueSources = sources[creatingMethod.instructions.indexOf(captureReturnValueInsn)].getLocal(captureReturnValueInsn.var).insns;
+            Preconditions.checkState(captureReturnValueSources.size() == 1, "captured return value local variable has multiple source instructions?!?");
+            storeCapturedReturnValueToLvtInsn = (VarInsnNode) captureReturnValueSources.iterator().next();
             Preconditions.checkState(storeCapturedReturnValueToLvtInsn.getOpcode() == creatingMethodReturnType.getOpcode(ISTORE), "expected %s, got %s", Printer.OPCODES[creatingMethodReturnType.getOpcode(ISTORE)], Printer.OPCODES[storeCapturedReturnValueToLvtInsn.getOpcode()]);
         }
 
