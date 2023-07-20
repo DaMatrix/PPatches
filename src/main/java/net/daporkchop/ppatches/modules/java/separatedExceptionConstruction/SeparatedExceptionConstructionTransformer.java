@@ -34,8 +34,8 @@ public class SeparatedExceptionConstructionTransformer implements ITreeClassTran
     }
 
     @Override
-    public boolean transformClass(String name, String transformedName, ClassNode classNode) {
-        boolean anyChanged = false;
+    public int transformClass(String name, String transformedName, ClassNode classNode) {
+        int changeFlags = 0;
 
         List<InsnNode> throwInsns = null;
         for (MethodNode methodNode : classNode.methods) {
@@ -51,31 +51,31 @@ public class SeparatedExceptionConstructionTransformer implements ITreeClassTran
 
             if (throwInsns != null && !throwInsns.isEmpty()) {
                 for (InsnNode throwInsn : throwInsns) {
-                    anyChanged |= this.transformThrow(classNode, methodNode, throwInsn);
+                    changeFlags |= this.transformThrow(classNode, methodNode, throwInsn);
                 }
                 throwInsns.clear();
             }
         }
 
-        return anyChanged;
+        return changeFlags;
     }
 
-    private boolean transformThrow(ClassNode classNode, MethodNode methodNode, InsnNode throwInsn) {
+    private int transformThrow(ClassNode classNode, MethodNode methodNode, InsnNode throwInsn) {
         Frame<SourceValue>[] sourceFrames = BytecodeHelper.analyzeSources(classNode.name, methodNode);
         TypeInsnNode newInsn;
 
         {
             Frame<SourceValue> sourceFrame = sourceFrames[methodNode.instructions.indexOf(throwInsn)];
             if (sourceFrame == null) { //unreachable instruction, ignore
-                return false;
+                return 0;
             }
             Set<AbstractInsnNode> sources = BytecodeHelper.getStackValueFromTop(sourceFrame, 0).insns;
             if (sources.size() != 1) {
                 PPatchesMod.LOGGER.trace("ATHROW in L{};{}{} has multiple possible sources!", classNode.name, methodNode.name, methodNode.desc);
-                return false;
+                return 0;
             } else if (sources.iterator().next().getOpcode() != NEW) {
                 PPatchesMod.LOGGER.trace("ATHROW in L{};{}{} doesn't come from a NEW instruction!", classNode.name, methodNode.name, methodNode.desc);
-                return false;
+                return 0;
             }
             newInsn = (TypeInsnNode) sources.iterator().next();
         }
@@ -128,7 +128,7 @@ public class SeparatedExceptionConstructionTransformer implements ITreeClassTran
                             new Handle(H_NEWINVOKESPECIAL, newInsn.desc, "<init>", invokeCtorInsn.desc, false),
                             true, //isConstant
                             constantArgInsn.cst));
-                    return true;
+                    return CHANGED;
                 }
                 case INVOKEVIRTUAL: {
                     MethodInsnNode toStringInsn = (MethodInsnNode) sources.iterator().next();
@@ -155,7 +155,7 @@ public class SeparatedExceptionConstructionTransformer implements ITreeClassTran
                     for (AbstractInsnNode removeInsn : concatenation.get().removeInsns) {
                         methodNode.instructions.remove(removeInsn);
                     }
-                    return true;
+                    return CHANGED;
                 }
             }
         }
@@ -168,7 +168,7 @@ public class SeparatedExceptionConstructionTransformer implements ITreeClassTran
                 new Handle(H_INVOKESTATIC, Type.getInternalName(SeparatedExceptionConstructionTransformer.class), "bootstrapExceptionCtor",
                         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
                 new Handle(H_NEWINVOKESPECIAL, newInsn.desc, "<init>", invokeCtorInsn.desc, false)));
-        return true;
+        return CHANGED;
     }
 
     public static CallSite bootstrapExceptionCtor(MethodHandles.Lookup lookup, String name, MethodType type, MethodHandle ctor) {

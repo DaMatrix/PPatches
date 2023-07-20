@@ -17,8 +17,8 @@ import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
  */
 public class UseFasterRandomTransformer implements ITreeClassTransformer {
     @Override
-    public boolean transformClass(String name, String transformedName, ClassNode classNode) {
-        boolean anyChanged = false;
+    public int transformClass(String name, String transformedName, ClassNode classNode) {
+        int changeFlags = 0;
         for (MethodNode methodNode : classNode.methods) {
             for (ListIterator<AbstractInsnNode> itr = methodNode.instructions.iterator(); itr.hasNext(); ) {
                 AbstractInsnNode insn = itr.next();
@@ -28,11 +28,11 @@ public class UseFasterRandomTransformer implements ITreeClassTransformer {
                         PPatchesMod.LOGGER.info("replacing Math.random() with ThreadLocalRandom.current().nextDouble() in L{};{}{}", classNode.name, methodNode.name, methodNode.desc);
                         itr.set(new MethodInsnNode(INVOKESTATIC, "java/util/concurrent/ThreadLocalRandom", "current", "()Ljava/util/concurrent/ThreadLocalRandom;", false));
                         itr.add(new MethodInsnNode(INVOKEVIRTUAL, "java/util/concurrent/ThreadLocalRandom", "nextDouble", "()D", false));
-                        anyChanged = true;
+                        changeFlags |= CHANGED;
                     }
                 }
             }
         }
-        return anyChanged;
+        return changeFlags;
     }
 }

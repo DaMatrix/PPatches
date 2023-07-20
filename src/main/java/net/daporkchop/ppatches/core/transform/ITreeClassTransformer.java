@@ -6,6 +6,9 @@ import org.objectweb.asm.tree.ClassNode;
  * @author DaPorkchop_
  */
 public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer> {
+    int CHANGED = 1;
+    int CHANGED_MANDATORY = 2 | CHANGED;
+
     default int priority() { //higher values come last
         return 1000;
     }
@@ -19,5 +22,5 @@ public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer>
         return true;
     }
 
-    boolean transformClass(String name, String transformedName, ClassNode classNode);
+    int transformClass(String name, String transformedName, ClassNode classNode);
 }

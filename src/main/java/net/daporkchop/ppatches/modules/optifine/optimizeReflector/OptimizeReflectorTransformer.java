@@ -30,13 +30,13 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
     }
 
     @Override
-    public boolean transformClass(String name, String transformedName, ClassNode classNode) {
+    public int transformClass(String name, String transformedName, ClassNode classNode) {
         if ("net.optifine.reflect.Reflector".equals(transformedName)) {
-            return false;
+            return 0;
         }
 
         //some other class, we want to check for references to reflector so we can get rid of them
-        boolean anyChanged = false;
+        int changeFlags = 0;
         for (MethodNode methodNode : classNode.methods) {
             for (ListIterator<AbstractInsnNode> itr = methodNode.instructions.iterator(); itr.hasNext(); ) {
                 AbstractInsnNode insn = itr.next();
@@ -50,18 +50,18 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                 }
 
                 //body moved to separate method to help JIT optimize the main loop, which is supposed to be fast
-                anyChanged |= this.transformCall(classNode, methodNode, methodInsnNode, itr);
+                changeFlags |= this.transformCall(classNode, methodNode, methodInsnNode, itr);
             }
         }
-        return anyChanged;
+        return changeFlags;
     }
 
-    private boolean transformCall(ClassNode classNode, MethodNode methodNode, MethodInsnNode methodInsnNode, ListIterator<AbstractInsnNode> itr) {
+    private int transformCall(ClassNode classNode, MethodNode methodNode, MethodInsnNode methodInsnNode, ListIterator<AbstractInsnNode> itr) {
         FieldInsnNode reflectorFieldLoadInsn;
         for (AbstractInsnNode node = methodInsnNode.getPrevious(); ; node = node.getPrevious()) {
             if (node == null) {
                 PPatchesMod.LOGGER.warn("{}#{}: couldn't find GETSTATIC corresponding to {} {}.{}{}", classNode.name, methodNode.name, Printer.OPCODES[methodInsnNode.getOpcode()], methodInsnNode.owner, methodInsnNode.name, methodInsnNode.desc);
-                return false;
+                return 0;
             }
 
             if (node.getOpcode() == GETSTATIC && ((FieldInsnNode) node).desc.startsWith("net/optifine/reflect/Reflector", 1)) {
@@ -166,7 +166,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
 
         switch (methodInsnNode.owner) {
             default:
-                return false;
+                return 0;
             case "net/optifine/reflect/Reflector":
                 //this is disabled since it's not easy to test and isn't even remotely performance-critical
                 /*if (methodInsnNode.name.startsWith("setFieldValue")) {
@@ -187,7 +187,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                         if (!BytecodeHelper.isConstant(prev)) {
                             //we can only optimize this away if the index is constant, if it isn't we'll just leave the normal reflective lookup in there
                             PPatchesMod.LOGGER.warn("{}#{}: non-constant index in call to {} {}.{}{}", classNode.name, methodNode.name, Printer.OPCODES[methodInsnNode.getOpcode()], methodInsnNode.owner, methodInsnNode.name, methodInsnNode.desc);
-                            return false;
+                            return 0;
                         }
 
                         replacementInsn = new InvokeDynamicInsnNode(methodInsnNode.name, effectiveCallDesc.replace("Lnet/optifine/reflect/ReflectorFields;I)", ")"),
@@ -312,8 +312,8 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
                 }
             }
 
-            return true;
+            return CHANGED;
         }
-        return false;
+        return 0;
     }
 }

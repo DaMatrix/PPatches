@@ -97,7 +97,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         }
 
         ClassNode classNode = null;
-        boolean anyChanged = false;
+        int changeFlags = 0;
 
         for (ITreeClassTransformer transformer : TRANSFORMERS) {
             if (transformer.interestedInClass(name, transformedName)) {
@@ -108,7 +108,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                 }
 
                 try {
-                    anyChanged |= transformer.transformClass(name, transformedName, classNode);
+                    changeFlags |= transformer.transformClass(name, transformedName, classNode);
                 } catch (Throwable t) {
                     t.printStackTrace();
                     throw new RuntimeException("failed to transform class " + transformedName, t);
@@ -116,14 +116,30 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             }
         }
 
-        if (anyChanged) {
+        if ((changeFlags & ITreeClassTransformer.CHANGED) != 0) {
             if (classNode.version < Opcodes.V1_8) {
                 PPatchesMod.LOGGER.trace("upgrading {} bytecode version to 1.8 (" + Opcodes.V1_8 + ") from {}", transformedName, classNode.version);
                 classNode.version = Opcodes.V1_8;
             }
 
-            ClassWriter writer = new MixinClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
-            classNode.accept(writer);
+            ClassWriter writer = new PPatchesClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+            try {
+                classNode.accept(writer);
+            } catch (PPatchesClassWriter.UnknownCommonSuperClassException e) {
+                //this can only occur in a few very rare situations where two different object types are being merged together from different sides of a branch, and one of the types refers
+                //  to a class which isn't available at runtime. this makes automatic computation of the resulting stackmap frame effectively impossible (technically it would still be
+                //  possible, as if we assume that none of our transformers are able to cause something like that to occur, we could "simply" derive the expected common superclass from the
+                //  existing stackmap frames in the original bytecode, but extremely tedious and not worthwhile for a situation which seems to be exceedingly rare), so rather than go through
+                //  great pain to implement this correctly i've elected to simply allow the class to be ignored entirely.
+                //of course, if a transformer made changes to this class which it considers mandatory (e.g. it adds a new method which must be accessible from a different class), we must crash
+                //  the game!
+                if ((changeFlags & ITreeClassTransformer.CHANGED_MANDATORY) == ITreeClassTransformer.CHANGED_MANDATORY) { //some mandatory changes were made to this class which we aren't allowed to omit, crash the game
+                    throw e;
+                } else {
+                    PPatchesMod.LOGGER.fatal("Unable to patch class " + classNode.name + ", it will not be modified!", e);
+                    return basicClass;
+                }
+            }
 
             if (DUMP_CLASSES) {
                 try {

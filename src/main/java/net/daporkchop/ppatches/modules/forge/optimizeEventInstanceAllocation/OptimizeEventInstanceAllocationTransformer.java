@@ -46,24 +46,24 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
     }
 
     @Override
-    public boolean transformClass(String name, String transformedName, ClassNode classNode) {
-        boolean anyChanged = false;
+    public int transformClass(String name, String transformedName, ClassNode classNode) {
+        int changeFlags = 0;
 
         try {
             //use the same logic as Forge's EventSubscriptionTransformer to determine if the class in question is an event
             if (classNode.superName != null && !transformedName.startsWith("net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.")
                 && !name.startsWith("net.minecraft.") && name.indexOf('.') >= 0
                 && isEventClass(transformedName)) {
-                anyChanged |= examineAndTransformEventClass(classNode);
+                changeFlags |= examineAndTransformEventClass(classNode);
             }
         } catch (Throwable e) {
             //Forge's EventSubscriptionTransformer silently ignores these exceptions, we'll do the same
         }
 
         //try to transform non-event classes to make the event optimizations more effective
-        anyChanged |= this.makeMethodsMoreOptimizable(classNode);
+        changeFlags |= this.makeMethodsMoreOptimizable(classNode);
 
-        anyChanged |= checkForUnsafeEventHandlers(classNode);
+        changeFlags |= checkForUnsafeEventHandlers(classNode);
 
         List<MethodInsnNode> invokePostInsns = null;
         for (MethodNode methodNode : classNode.methods) {
@@ -83,21 +83,21 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
 
             if (invokePostInsns != null && !invokePostInsns.isEmpty()) {
                 for (MethodInsnNode invokePostInsn : invokePostInsns) {
-                    anyChanged |= transformEventBusPost(classNode, methodNode, invokePostInsn);
+                    changeFlags |= transformEventBusPost(classNode, methodNode, invokePostInsn);
                 }
                 invokePostInsns.clear();
             }
         }
 
-        return anyChanged;
+        return changeFlags;
     }
 
     private boolean isLikelyEventClass(String internalName) {
         return internalName.contains("Event");
     }
 
-    private boolean makeMethodsMoreOptimizable(ClassNode classNode) {
-        boolean anyChanged = false;
+    private int makeMethodsMoreOptimizable(ClassNode classNode) {
+        int changeFlags = 0;
 
         for (ListIterator<MethodNode> methodItr = classNode.methods.listIterator(); methodItr.hasNext(); ) {
             MethodNode method = methodItr.next();
@@ -107,7 +107,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                 continue;
             }
 
-            anyChanged = true;
+            changeFlags |= CHANGED_MANDATORY;
 
             //the method returns an event instance, which is probably not necessary. we'll add a variant which returns nothing and a variant which returns the result of isCancelled,
             //  which other code can then be optimized to use.
@@ -154,7 +154,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                         callInsn.name = "$ppatches_void_" + callInsn.name;
                         callInsn.desc = Type.getMethodDescriptor(Type.VOID_TYPE, Type.getArgumentTypes(callInsn.desc));
                         methodNode.instructions.remove(nextInsn);
-                        anyChanged = true;
+                        changeFlags |= CHANGED;
                         break;
                     case INVOKEVIRTUAL:
                         MethodInsnNode nextCallInsn = (MethodInsnNode) nextInsn;
@@ -163,18 +163,18 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                             callInsn.name = "$ppatches_isCanceled_" + callInsn.name;
                             callInsn.desc = Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getArgumentTypes(callInsn.desc));
                             methodNode.instructions.remove(nextInsn);
-                            anyChanged = true;
+                            changeFlags |= CHANGED;
                         }
                         break;
                 }
             }
         }
 
-        return anyChanged;
+        return changeFlags;
     }
 
-    private static boolean checkForUnsafeEventHandlers(ClassNode classNode) {
-        boolean anyChanged = false;
+    private static int checkForUnsafeEventHandlers(ClassNode classNode) {
+        int changeFlags = 0;
 
         for (MethodNode methodNode : classNode.methods) {
             if (!BytecodeHelper.findAnnotationByDesc(methodNode.visibleAnnotations, "Lnet/minecraftforge/fml/common/eventhandler/SubscribeEvent;").isPresent()) {
@@ -230,11 +230,11 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             for (AbstractInsnNode insn : insertMarkUnsafeBeforeInsns) {
                 methodNode.instructions.insertBefore(insn, new VarInsnNode(ALOAD, eventInstanceLvtIndex));
                 methodNode.instructions.insertBefore(insn, new MethodInsnNode(INVOKEVIRTUAL, Type.getArgumentTypes(methodNode.desc)[0].getInternalName(), "$ppatches_markUnsafe", "()V", false));
-                anyChanged = true;
+                changeFlags |= CHANGED_MANDATORY;
             }
         }
 
-        return anyChanged;
+        return changeFlags;
     }
 
     private static String getResetMethodDesc(Type eventClass, String origCtorDesc) {
@@ -246,7 +246,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
         return Type.getMethodDescriptor(Type.VOID_TYPE, newArgumentTypes);
     }
 
-    private static boolean examineAndTransformEventClass(ClassNode classNode) {
+    private static int examineAndTransformEventClass(ClassNode classNode) {
         PPatchesMod.LOGGER.info("adding instance cache to event class {}", classNode.name);
 
         classNode.fields.add(new FieldNode(ACC_PUBLIC | ACC_STATIC | ACC_FINAL, "$ppatches_instanceCache", "Ljava/lang/ThreadLocal;", null, null));
@@ -411,15 +411,15 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             markUnsafeMethod.instructions.add(new InsnNode(RETURN));
         }
 
-        return true;
+        return CHANGED_MANDATORY;
     }
 
-    private static boolean transformEventBusPost(ClassNode classNode, MethodNode methodNode, MethodInsnNode invokePostInsn) {
+    private static int transformEventBusPost(ClassNode classNode, MethodNode methodNode, MethodInsnNode invokePostInsn) {
         Frame<SourceValue>[] sourceFrames = BytecodeHelper.analyzeSources(classNode.name, methodNode);
 
         Frame<SourceValue> invokePostSources = sourceFrames[methodNode.instructions.indexOf(invokePostInsn)];
         if (invokePostSources == null) { //unreachable instruction, ignore
-            return false;
+            return 0;
         }
 
         Set<AbstractInsnNode> eventBusSources = BytecodeHelper.getStackValueFromTop(invokePostSources, 1).insns;
@@ -434,7 +434,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
         }
 
         if (eventInstanceSources.size() != 1) {
-            return false;
+            return 0;
         }
 
         AbstractInsnNode eventInstanceSource = eventInstanceSources.iterator().next();
@@ -471,7 +471,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;)Ljava/lang/invoke/CallSite;", false),
                         Type.getObjectType(newEventInsn.desc)));
             }
-            return true;
+            return CHANGED;
         }
 
         if (eventInstanceSource.getOpcode() == ALOAD) { //the event instance passed to EventBus#post(Event) comes from a local variable
@@ -482,7 +482,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             AbstractInsnNode eventInstanceVariableSource;
             if (eventInstanceVariableSources.size() != 1
                 || (eventInstanceVariableSource = eventInstanceVariableSources.iterator().next()).getOpcode() != ASTORE) {
-                return false;
+                return 0;
             }
 
             //find instruction(s) which push the event instance onto the stack before it can be stored to the local variable
@@ -491,7 +491,7 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
             AbstractInsnNode eventInstanceCreationSource;
             if (eventInstanceCreationSources.size() != 1
                 || (eventInstanceCreationSource = eventInstanceCreationSources.iterator().next()).getOpcode() != NEW) {
-                return false;
+                return 0;
             }
 
             //check if the event instance is used in some way which would prevent us from optimizing it
@@ -514,15 +514,15 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                                                                     && sourceFrames[methodNode.instructions.indexOf(sourceInsn)].getLocal(eventInstanceLvtIndex).insns.contains(eventInstanceVariableSource))) {
                         if (sourceInsns.size() != 1) {
                             //the instruction doesn't always refer to our event instance, which results in some extra complicated logic that can't be easily optimized away
-                            return false;
+                            return 0;
                         }
                         switch (consumingInsn.getOpcode()) {
                             default:
-                                return false;
+                                return 0;
                             case INVOKEVIRTUAL:
                             case INVOKESPECIAL:
                                 if (i != consumedStackOperands - 1) {
-                                    return false;
+                                    return 0;
                                 }
                                 break;
                             case GETFIELD:
@@ -620,10 +620,10 @@ public class OptimizeEventInstanceAllocationTransformer implements ITreeClassTra
                                 eventType));
             }
 
-            return true;
+            return CHANGED;
         }
 
-        return false;
+        return 0;
     }
 
     public static CallSite bootstrapPostToConstantBus(MethodHandles.Lookup lookup, String name, MethodType type, MethodHandle busGetter) throws Throwable {

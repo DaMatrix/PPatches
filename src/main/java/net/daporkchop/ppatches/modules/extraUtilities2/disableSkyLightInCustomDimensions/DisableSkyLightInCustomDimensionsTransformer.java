@@ -20,8 +20,8 @@ public class DisableSkyLightInCustomDimensionsTransformer implements ITreeClassT
     }
 
     @Override
-    public boolean transformClass(String name, String transformedName, ClassNode classNode) {
+    public int transformClass(String name, String transformedName, ClassNode classNode) {
         classNode.methods.remove(BytecodeHelper.findObfuscatedMethodOrThrow(classNode, ImmutableList.of("hasSkyLight", "func_191066_m"), "()Z"));
-        return true;
+        return CHANGED;
     }
 }

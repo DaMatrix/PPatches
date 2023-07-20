@@ -26,7 +26,7 @@ public class FanEntityOptimizationTransformer implements ITreeClassTransformer {
     }
 
     @Override
-    public boolean transformClass(String name, String transformedName, ClassNode classNode) {
+    public int transformClass(String name, String transformedName, ClassNode classNode) {
         for (MethodNode methodNode : classNode.methods) {
             for (ListIterator<AbstractInsnNode> itr = methodNode.instructions.iterator(); itr.hasNext(); ) {
                 AbstractInsnNode insnNode = itr.next();
@@ -47,7 +47,7 @@ public class FanEntityOptimizationTransformer implements ITreeClassTransformer {
                                 "func_72872_a".equals(methodInsnNode.name) ? "func_175647_a" : "getEntitiesWithinAABB",
                                 "(Ljava/lang/Class;Lnet/minecraft/util/math/AxisAlignedBB;Lcom/google/common/base/Predicate;)Ljava/util/List;",
                                 false));
-                        return true;
+                        return CHANGED_MANDATORY;
                     }
                 }
             }

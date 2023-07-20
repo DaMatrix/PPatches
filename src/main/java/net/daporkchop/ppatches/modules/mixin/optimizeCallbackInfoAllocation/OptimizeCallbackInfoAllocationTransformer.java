@@ -201,7 +201,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
     }
 
     @Override
-    public boolean transformClass(String name, String transformedName, ClassNode classNode) {
+    public int transformClass(String name, String transformedName, ClassNode classNode) {
         List<CallbackInfoCreation> callbackInfoCreations = null;
         Int2ObjectMap<CallbackInfoCreation> currentCallbackCreationsByLvt = null;
         List<CallbackInvocation> callbackInvocations = null;
@@ -274,10 +274,10 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         }
 
         if (callbackInfoCreations == null) { //no CallbackInfos were created in this class
-            return false;
+            return 0;
         }
 
-        return doFinalTransform(classNode, callbackInfoCreations, callbackInvocations, callbackMethods);
+        return doFinalTransform(classNode, callbackInfoCreations, callbackInvocations, callbackMethods) ? CHANGED : 0;
     }
 
     private static CallbackInfoCreation wrapCallbackInfoCreation(ClassNode classNode, MethodNode creatingMethod, TypeInsnNode newInsn) {

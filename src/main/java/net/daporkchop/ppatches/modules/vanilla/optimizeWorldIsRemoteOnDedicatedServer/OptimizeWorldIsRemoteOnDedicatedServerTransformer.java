@@ -30,12 +30,11 @@ public class OptimizeWorldIsRemoteOnDedicatedServerTransformer implements ITreeC
     }
 
     @Override
-    public boolean transformClass(String name, String transformedName, ClassNode classNode) {
-        boolean anyChanged = false;
+    public int transformClass(String name, String transformedName, ClassNode classNode) {
+        int changeFlags = 0;
 
         if ("net/minecraft/world/World".equals(classNode.name)) {
-            this.transformWorldClass(classNode);
-            anyChanged = true;
+            changeFlags |= this.transformWorldClass(classNode);
         }
 
         for (MethodNode methodNode : classNode.methods) {
@@ -52,15 +51,15 @@ public class OptimizeWorldIsRemoteOnDedicatedServerTransformer implements ITreeC
                         //load a constant "false", since we're on the dedicated server and therefore there can never be a remote world
                         itr.add(new LdcInsnNode(0));
 
-                        anyChanged = true;
+                        changeFlags |= CHANGED;
                     }
                 }
             }
         }
-        return anyChanged;
+        return changeFlags;
     }
 
-    private void transformWorldClass(ClassNode classNode) {
+    private int transformWorldClass(ClassNode classNode) {
         //remove the "isRemote" field
         for (Iterator<FieldNode> itr = classNode.fields.iterator(); itr.hasNext(); ) {
             FieldNode field = itr.next();
@@ -103,5 +102,7 @@ public class OptimizeWorldIsRemoteOnDedicatedServerTransformer implements ITreeC
                 }
             }
         }
+
+        return CHANGED_MANDATORY;
     }
 }
