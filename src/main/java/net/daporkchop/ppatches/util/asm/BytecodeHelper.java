@@ -4,6 +4,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.ppatches.util.COWArrayUtils;
 import net.daporkchop.ppatches.util.asm.analysis.ResultUsageGraph;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
@@ -730,6 +731,149 @@ public class BytecodeHelper {
         return consumedStackOperands;
     }
 
+    public static boolean equals(AbstractInsnNode insn0, AbstractInsnNode insn1) {
+        if (insn0 == insn1) {
+            return true;
+        }
+
+        int opcode = insn0.getOpcode();
+        if (opcode != insn1.getOpcode() || insn0.getClass() != insn1.getClass()) {
+            return false;
+        }
+
+        //...we could compare annotations here?
+
+        //if we got this far, both instructions have the same opcode and are of the same type
+
+        switch (insn0.getType()) {
+            case AbstractInsnNode.INSN:
+                return true;
+            case AbstractInsnNode.INT_INSN:
+                return ((IntInsnNode) insn0).operand == ((IntInsnNode) insn1).operand;
+            case AbstractInsnNode.VAR_INSN:
+                return ((VarInsnNode) insn0).var == ((VarInsnNode) insn1).var;
+            case AbstractInsnNode.TYPE_INSN:
+                return ((TypeInsnNode) insn0).desc.equals(((TypeInsnNode) insn1).desc);
+            case AbstractInsnNode.FIELD_INSN: {
+                FieldInsnNode fieldInsn0 = (FieldInsnNode) insn0;
+                FieldInsnNode fieldInsn1 = (FieldInsnNode) insn1;
+                return fieldInsn0.owner.equals(fieldInsn1.owner) && fieldInsn0.name.equals(fieldInsn1.name) && fieldInsn0.desc.equals(fieldInsn1.desc);
+            }
+            case AbstractInsnNode.METHOD_INSN: {
+                MethodInsnNode methodInsn0 = (MethodInsnNode) insn0;
+                MethodInsnNode methodInsn1 = (MethodInsnNode) insn1;
+                return methodInsn0.owner.equals(methodInsn1.owner) && methodInsn0.name.equals(methodInsn1.name) && methodInsn0.desc.equals(methodInsn1.desc);
+            }
+            case AbstractInsnNode.INVOKE_DYNAMIC_INSN: {
+                InvokeDynamicInsnNode invokeDynamicInsn0 = (InvokeDynamicInsnNode) insn0;
+                InvokeDynamicInsnNode invokeDynamicInsn1 = (InvokeDynamicInsnNode) insn1;
+                Object[] args0 = invokeDynamicInsn0.bsmArgs;
+                Object[] args1 = invokeDynamicInsn1.bsmArgs;
+                if (!invokeDynamicInsn0.name.equals(invokeDynamicInsn1.name) || !invokeDynamicInsn0.desc.equals(invokeDynamicInsn1.desc)
+                    || !equals(invokeDynamicInsn0.bsm, invokeDynamicInsn1.bsm) || args0.length != args1.length) {
+                    return false;
+                }
+                for (int i = 0; i < args0.length; i++) {
+                    if (!args0[i].equals(args1[i])) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            case AbstractInsnNode.JUMP_INSN:
+                return equals(((JumpInsnNode) insn0).label, ((JumpInsnNode) insn1).label);
+            case AbstractInsnNode.LABEL: //TODO: how should we compare labels?
+                return ((LabelNode) insn0).equals((LabelNode) insn1);
+            case AbstractInsnNode.LDC_INSN:
+                return ((LdcInsnNode) insn0).cst.equals(((LdcInsnNode) insn1).cst);
+            case AbstractInsnNode.IINC_INSN: {
+                IincInsnNode iincInsn0 = (IincInsnNode) insn0;
+                IincInsnNode iincInsn1 = (IincInsnNode) insn1;
+                return iincInsn0.var == iincInsn1.var && iincInsn0.incr == iincInsn1.incr;
+            }
+            case AbstractInsnNode.TABLESWITCH_INSN: {
+                TableSwitchInsnNode tableSwitchInsn0 = (TableSwitchInsnNode) insn0;
+                TableSwitchInsnNode tableSwitchInsn1 = (TableSwitchInsnNode) insn1;
+                if (tableSwitchInsn0.min != tableSwitchInsn1.min || tableSwitchInsn0.max != tableSwitchInsn1.max || !equals(tableSwitchInsn0.dflt, tableSwitchInsn1.dflt)) {
+                    return false;
+                }
+                assert tableSwitchInsn0.labels.size() == tableSwitchInsn1.labels.size(); //the min/max values are the same, so the number of labels must be identical as well
+                for (Iterator<LabelNode> itr0 = tableSwitchInsn0.labels.iterator(), itr1 = tableSwitchInsn1.labels.iterator(); itr0.hasNext(); ) {
+                    if (!equals(itr0.next(), itr1.next())) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            case AbstractInsnNode.LOOKUPSWITCH_INSN: {
+                LookupSwitchInsnNode lookupSwitchInsn0 = (LookupSwitchInsnNode) insn0;
+                LookupSwitchInsnNode lookupSwitchInsn1 = (LookupSwitchInsnNode) insn1;
+                assert lookupSwitchInsn0.keys.size() == lookupSwitchInsn0.labels.size() && lookupSwitchInsn1.keys.size() == lookupSwitchInsn1.labels.size();
+                if (!equals(lookupSwitchInsn0.dflt, lookupSwitchInsn1.dflt) || !lookupSwitchInsn0.keys.equals(lookupSwitchInsn1.keys)) {
+                    return false;
+                }
+                //the keys lists are equal, so the number of keys/labels must be identical
+                for (Iterator<LabelNode> itr0 = lookupSwitchInsn0.labels.iterator(), itr1 = lookupSwitchInsn1.labels.iterator(); itr0.hasNext(); ) {
+                    if (!equals(itr0.next(), itr1.next())) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            case AbstractInsnNode.MULTIANEWARRAY_INSN: {
+                MultiANewArrayInsnNode multiANewArrayInsn0 = (MultiANewArrayInsnNode) insn0;
+                MultiANewArrayInsnNode multiANewArrayInsn1 = (MultiANewArrayInsnNode) insn1;
+                return multiANewArrayInsn0.dims == multiANewArrayInsn1.dims && multiANewArrayInsn0.desc.equals(multiANewArrayInsn1.desc);
+            }
+            case AbstractInsnNode.FRAME: {
+                FrameNode frame0 = (FrameNode) insn0;
+                FrameNode frame1 = (FrameNode) insn1;
+                return frame0.type == frame1.type && equalsForFrame(frame0.local, frame1.local) && equalsForFrame(frame0.stack, frame1.stack);
+            }
+            case AbstractInsnNode.LINE: {
+                LineNumberNode lineNumber0 = (LineNumberNode) insn0;
+                LineNumberNode lineNumber1 = (LineNumberNode) insn1;
+                return lineNumber0.line == lineNumber1.line && equals(lineNumber0.start, lineNumber1.start);
+            }
+        }
+        throw new IllegalArgumentException(String.valueOf(insn0.getType()));
+    }
+
+    private static boolean equals(Handle handle0, Handle handle1) {
+        return handle0.getTag() == handle1.getTag() && handle0.isInterface() == handle1.isInterface()
+               && handle0.getOwner().equals(handle1.getOwner()) && handle0.getName().equals(handle1.getName()) && handle0.getDesc().equals(handle1.getDesc());
+    }
+
+    private static boolean equalsForFrame(List<Object> list0, List<Object> list1) {
+        if (list0 == list1) { //likely case: both are null
+            return true;
+        } else if (list0 == null || list1 == null //only one is non-null
+                   || list0.size() != list1.size()) { //size mismatch
+            return false;
+        }
+
+        for (Iterator<Object> itr0 = list0.iterator(), itr1 = list1.iterator(); itr0.hasNext(); ) {
+            Object v0 = itr0.next();
+            Object v1 = itr1.next();
+            if (v0 instanceof Integer) {
+                if (v0 != v1) { //this is one of the Integer instances from Opcodes, and must be compared by reference
+                    return false;
+                }
+            } else if (v0 instanceof String) {
+                    if (!v0.equals(v1)) {
+                        return false;
+                    }
+            } else if (v0 instanceof LabelNode) {
+                if (!(v1 instanceof LabelNode) || !equals((LabelNode) v0, (LabelNode) v1)) {
+                    return false;
+                }
+            } else {
+                throw new IllegalArgumentException();
+            }
+        }
+        return true;
+    }
+
     public static String toString(AbstractInsnNode insn) {
         int opcode = insn.getOpcode();
         switch (insn.getType()) {
@@ -820,24 +964,30 @@ public class BytecodeHelper {
                 FrameNode frameNode = (FrameNode) insn;
                 StringBuilder builder = new StringBuilder();
                 builder.append("FRAME ");
-                switch (frameNode.type) { //TODO: implement this
+                switch (frameNode.type) {
                     case F_NEW:
-                        builder.append("NEW");
-                        break;
                     case F_FULL:
-                        builder.append("FULL");
+                        builder.append("FULL [");
+                        appendFrameTypes(builder, frameNode.local);
+                        builder.append("] [");
+                        appendFrameTypes(builder, frameNode.stack);
+                        builder.append(']');
                         break;
                     case F_APPEND:
-                        builder.append("APPEND");
+                        builder.append("APPEND [");
+                        appendFrameTypes(builder, frameNode.local);
+                        builder.append(']');
                         break;
                     case F_CHOP:
-                        builder.append("CHOP");
+                        builder.append("CHOP ").append(frameNode.local.size());
                         break;
                     case F_SAME:
                         builder.append("SAME");
                         break;
                     case F_SAME1:
-                        builder.append("SAME1");
+                        builder.append("SAME1 ");
+                        assert frameNode.stack.size() == 1 : frameNode.stack;
+                        appendFrameTypes(builder, frameNode.stack);
                         break;
                     default:
                         throw new IllegalArgumentException();
@@ -865,6 +1015,24 @@ public class BytecodeHelper {
         builder.append(handle.getDesc());
         if (handle.isInterface()) {
             builder.append(" <interface>");
+        }
+    }
+
+    private static void appendFrameTypes(StringBuilder builder, List<Object> elements) {
+        boolean first = true;
+        for (Object element : elements) {
+            if (!first) {
+                builder.append(' ');
+            }
+            first = false;
+
+            if (element instanceof String) {
+                builder.append(element);
+            } else if (element instanceof Integer) {
+                builder.append("TIFDJNU".charAt((int) element));
+            } else {
+                builder.append((LabelNode) element);
+            }
         }
     }
 
@@ -1205,12 +1373,14 @@ public class BytecodeHelper {
         }
 
         //TODO: compute maxLocals properly?
+        int maxLocal = -1;
 
         for (AbstractInsnNode currentInsn = methodNode.instructions.getFirst(); currentInsn != null; currentInsn = currentInsn.getNext()) {
             if (currentInsn instanceof VarInsnNode && ((VarInsnNode) currentInsn).var > threshold) {
-                ((VarInsnNode) currentInsn).var += offset;
+                int d = currentInsn.getOpcode() == LLOAD || currentInsn.getOpcode() == DLOAD ? 1 : 0;
+                maxLocal = Math.max(maxLocal, (((VarInsnNode) currentInsn).var += offset) + d);
             } else if (currentInsn instanceof IincInsnNode && ((IincInsnNode) currentInsn).var > threshold) {
-                ((IincInsnNode) currentInsn).var += offset;
+                maxLocal = Math.max(maxLocal, ((IincInsnNode) currentInsn).var += offset);
             }
         }
 
@@ -1219,8 +1389,13 @@ public class BytecodeHelper {
             for (LocalVariableNode variableNode : methodNode.localVariables) {
                 if (variableNode.index > threshold) {
                     variableNode.index += offset;
+                    maxLocal = Math.max(maxLocal, variableNode.index + Type.getType(variableNode.desc).getSize() - 1);
                 }
             }
+        }
+
+        if (maxLocal >= 0) {
+            methodNode.maxLocals = maxLocal + 1;
         }
 
         //offset local variable annotation indices if necessary
@@ -1254,10 +1429,7 @@ public class BytecodeHelper {
             offsetLvtIndicesGreaterThan(methodNode, newArgumentLvtIndex - 1, newArgumentType.getSize());
 
             //add the new argument type to the method descriptor
-            Type[] modifiedArgumentTypes = Arrays.copyOf(argumentTypes, argumentTypes.length + 1);
-            modifiedArgumentTypes[parameter] = newArgumentType;
-            System.arraycopy(argumentTypes, parameter, modifiedArgumentTypes, parameter + 1, argumentTypes.length - parameter);
-            methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc), modifiedArgumentTypes);
+            methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc), COWArrayUtils.insert(argumentTypes, parameter, newArgumentType));
 
             //add a new local variable entry
             getLocalVariables(methodNode).add(new LocalVariableNode(newArgumentName, newArgumentType.getDescriptor(), null,
@@ -1270,18 +1442,12 @@ public class BytecodeHelper {
 
             //insert null element into visibleParameterAnnotations array
             if (methodNode.visibleParameterAnnotations != null) {
-                List<AnnotationNode>[] resized = Arrays.copyOf(methodNode.visibleParameterAnnotations, methodNode.visibleParameterAnnotations.length + 1);
-                System.arraycopy(methodNode.visibleParameterAnnotations, parameter, resized, parameter + 1, methodNode.visibleParameterAnnotations.length - parameter);
-                resized[parameter] = null;
-                methodNode.visibleParameterAnnotations = resized;
+                methodNode.visibleParameterAnnotations = COWArrayUtils.insert(methodNode.visibleParameterAnnotations, parameter, (List<AnnotationNode>) null);
             }
 
             //insert null element into visibleParameterAnnotations array
             if (methodNode.invisibleParameterAnnotations != null) {
-                List<AnnotationNode>[] resized = Arrays.copyOf(methodNode.invisibleParameterAnnotations, methodNode.invisibleParameterAnnotations.length + 1);
-                System.arraycopy(methodNode.invisibleParameterAnnotations, parameter, resized, parameter + 1, methodNode.invisibleParameterAnnotations.length - parameter);
-                resized[parameter] = null;
-                methodNode.invisibleParameterAnnotations = resized;
+                methodNode.invisibleParameterAnnotations = COWArrayUtils.insert(methodNode.invisibleParameterAnnotations, parameter, (List<AnnotationNode>) null);
             }
             return;
         }
@@ -1302,9 +1468,7 @@ public class BytecodeHelper {
             //we found an existing argument to insert the new argument before!
 
             //remove the old argument type from the method descriptor
-            Type[] modifiedArgumentTypes = Arrays.copyOf(argumentTypes, argumentTypes.length - 1);
-            System.arraycopy(argumentTypes, parameter + 1, modifiedArgumentTypes, parameter, modifiedArgumentTypes.length - parameter);
-            methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc), modifiedArgumentTypes);
+            methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc), COWArrayUtils.remove(argumentTypes, parameter));
 
             //remove the corresponding local variable entry
             if (methodNode.localVariables != null) {
@@ -1325,16 +1489,12 @@ public class BytecodeHelper {
 
             //remove the corresponding element from the visibleParameterAnnotations array
             if (methodNode.visibleParameterAnnotations != null) {
-                List<AnnotationNode>[] resized = Arrays.copyOf(methodNode.visibleParameterAnnotations, methodNode.visibleParameterAnnotations.length - 1);
-                System.arraycopy(methodNode.visibleParameterAnnotations, parameter + 1, resized, parameter, resized.length - parameter);
-                methodNode.visibleParameterAnnotations = resized;
+                methodNode.visibleParameterAnnotations = COWArrayUtils.remove(methodNode.visibleParameterAnnotations, parameter);
             }
 
             //remove the corresponding element from the visibleParameterAnnotations array
             if (methodNode.invisibleParameterAnnotations != null) {
-                List<AnnotationNode>[] resized = Arrays.copyOf(methodNode.invisibleParameterAnnotations, methodNode.invisibleParameterAnnotations.length - 1);
-                System.arraycopy(methodNode.invisibleParameterAnnotations, parameter + 1, resized, parameter, resized.length - parameter);
-                methodNode.invisibleParameterAnnotations = resized;
+                methodNode.invisibleParameterAnnotations = COWArrayUtils.remove(methodNode.invisibleParameterAnnotations, parameter);
             }
 
             //shift all local variable indices up by the number of LVT entries the new argument will occupy
