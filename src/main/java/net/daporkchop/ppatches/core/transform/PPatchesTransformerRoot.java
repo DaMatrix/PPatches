@@ -27,7 +27,7 @@ import java.util.List;
  */
 public final class PPatchesTransformerRoot implements IClassTransformer, ITransformer {
     private static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
-    private static final boolean DUMP_CLASSES_DELETE_OLD = Boolean.getBoolean("ppatches.dumpTransformedClasses.deleteOld");
+    private static final boolean DUMP_CLASSES_DELETE_OLD = DUMP_CLASSES && Boolean.getBoolean("ppatches.dumpTransformedClasses.deleteOld");
 
     private static final List<PPatchesTransformerRoot> INSTANCES = new ArrayList<>();
     private static ITreeClassTransformer[] TRANSFORMERS = new ITreeClassTransformer[0];

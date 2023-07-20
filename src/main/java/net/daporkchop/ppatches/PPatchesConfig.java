@@ -82,6 +82,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Prevents the FML splash screen from automatically disabling itself in config if the splash renderer thread throws an exception.",
+            "This is mainly intended for mod developers who may regularly cause the game to crash during startup and don't want to have to re-enable the splash screen every time.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase forge_preventSplashScreenAutoDisable = new ModuleConfigBase(ModuleState.DISABLED);
+
+    @Config.Comment({
             "Patches all Java code to move construction of exception objects out of the main method body and into a separate INVOKEDYNAMIC instruction.",
             "This could theoretically improve performance in specific scenarios and on specific JVMs, but don't expect to see measurable improvements.",
     })
