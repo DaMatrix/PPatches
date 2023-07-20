@@ -7,9 +7,11 @@ import net.minecraft.launchwrapper.IClassTransformer;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FrameNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.spongepowered.asm.service.ITransformer;
-import org.spongepowered.asm.transformers.MixinClassWriter;
 
 import java.io.File;
 import java.io.IOException;
@@ -24,7 +26,8 @@ import java.util.List;
  * @author DaPorkchop_
  */
 public final class PPatchesTransformerRoot implements IClassTransformer, ITransformer {
-    public static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
+    private static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
+    private static final boolean DUMP_CLASSES_DELETE_OLD = Boolean.getBoolean("ppatches.dumpTransformedClasses.deleteOld");
 
     private static final List<PPatchesTransformerRoot> INSTANCES = new ArrayList<>();
     private static ITreeClassTransformer[] TRANSFORMERS = new ITreeClassTransformer[0];
@@ -50,7 +53,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         PPatchesMod.LOGGER.info("Registering new transformer at {}", this.phase);
 
         Path dir;
-        if (DUMP_CLASSES && INSTANCES.isEmpty() && Files.exists(dir = Paths.get(".ppatches_transformed"))) {
+        if (DUMP_CLASSES_DELETE_OLD && INSTANCES.isEmpty() && Files.exists(dir = Paths.get(".ppatches_transformed"))) {
             Files.walkFileTree(dir, new FileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
@@ -103,9 +106,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         for (ITreeClassTransformer transformer : TRANSFORMERS) {
             if (transformer.interestedInClass(name, transformedName)) {
                 if (classNode == null) { //this is the first transformer which was interested in transforming the class, it needs to be read into a tree
-                    classNode = new ClassNode();
-                    reader = new ClassReader(basicClass);
-                    reader.accept(classNode, 0);
+                    classNode = readClass(reader = new ClassReader(basicClass));
                 }
 
                 try {
@@ -166,5 +167,22 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
     @Override
     public boolean isDelegationExcluded() {
         return true;
+    }
+
+    private static ClassNode readClass(ClassReader reader) {
+        ClassNode classNode = new ClassNode();
+        reader.accept(classNode, 0);
+
+        //remove all frame instructions from all methods (this will help make transformers run slightly faster, as there will be slightly fewer instructions which need to be skipped over)
+        for (MethodNode methodNode : classNode.methods) {
+            for (AbstractInsnNode insn = methodNode.instructions.getFirst(), next; insn != null; insn = next) {
+                next = insn.getNext();
+                if (insn instanceof FrameNode) {
+                    methodNode.instructions.remove(insn);
+                }
+            }
+        }
+
+        return classNode;
     }
 }
