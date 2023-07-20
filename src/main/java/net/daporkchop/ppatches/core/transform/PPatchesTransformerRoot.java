@@ -96,6 +96,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             return basicClass;
         }
 
+        ClassReader reader = null;
         ClassNode classNode = null;
         int changeFlags = 0;
 
@@ -103,7 +104,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             if (transformer.interestedInClass(name, transformedName)) {
                 if (classNode == null) { //this is the first transformer which was interested in transforming the class, it needs to be read into a tree
                     classNode = new ClassNode();
-                    ClassReader reader = new ClassReader(basicClass);
+                    reader = new ClassReader(basicClass);
                     reader.accept(classNode, 0);
                 }
 
@@ -122,7 +123,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                 classNode.version = Opcodes.V1_8;
             }
 
-            ClassWriter writer = new PPatchesClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+            ClassWriter writer = new PPatchesClassWriter(reader, ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
             try {
                 classNode.accept(writer);
             } catch (PPatchesClassWriter.UnknownCommonSuperClassException e) {
