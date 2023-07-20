@@ -1,7 +1,7 @@
 {
   "required": true,
   "compatibilityLevel": "JAVA_8",
-  "package": "net.daporkchop.ppatches.modules.justPlayerHeads.fixSkinRetrieval.asm",
+  "package": "net.daporkchop.ppatches.modules.justPlayerHeads.fixSkinRetrieval.mixin",
   "refmap": "mixins.ppatches.refmap.json",
   "mixins": [
     "MixinPlayerHeads"

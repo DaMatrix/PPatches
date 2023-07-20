@@ -1,7 +1,7 @@
 {
   "required": true,
   "compatibilityLevel": "JAVA_8",
-  "package": "net.daporkchop.ppatches.modules.extraUtilities2.optimizeItemCaptureHandler.asm",
+  "package": "net.daporkchop.ppatches.modules.extraUtilities2.optimizeItemCaptureHandler.mixin",
   "refmap": "mixins.ppatches.refmap.json",
   "mixins": [
     "MixinItemCaptureHandler"

@@ -1,7 +1,7 @@
 {
   "required": true,
   "compatibilityLevel": "JAVA_8",
-  "package": "net.daporkchop.ppatches.modules.journeyMap.skipRenderingOffscreenTooltips.asm",
+  "package": "net.daporkchop.ppatches.modules.journeyMap.skipRenderingOffscreenTooltips.mixin",
   "refmap": "mixins.ppatches.refmap.json",
   "client": [
     "MixinBaseOverlayDrawStep"
