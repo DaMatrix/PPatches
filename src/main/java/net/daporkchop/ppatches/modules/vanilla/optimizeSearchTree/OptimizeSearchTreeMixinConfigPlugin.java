@@ -1,7 +1,7 @@
 package net.daporkchop.ppatches.modules.vanilla.optimizeSearchTree;
 
 import net.daporkchop.ppatches.PPatchesConfig;
-import net.daporkchop.ppatches.util.MixinConfigPluginAdapter;
+import net.daporkchop.ppatches.util.mixin.MixinConfigPluginAdapter;
 
 /**
  * @author DaPorkchop_

@@ -1,6 +1,6 @@
 package net.daporkchop.ppatches.modules.vanilla.useFasterRandom;
 
-import net.daporkchop.ppatches.util.MixinConfigPluginAdapter;
+import net.daporkchop.ppatches.util.mixin.MixinConfigPluginAdapter;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;

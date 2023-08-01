@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.util;
+package net.daporkchop.ppatches.util.mixin;
 
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;

@@ -17,6 +17,7 @@
 package net.daporkchop.ppatches;
 
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
+import net.daporkchop.ppatches.util.mixin.ext.PPatchesMixinExtension;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin;
 import org.spongepowered.asm.launch.MixinBootstrap;
@@ -36,6 +37,7 @@ public class PPatchesLoadingPlugin implements IFMLLoadingPlugin {
     public PPatchesLoadingPlugin() {
         PPatchesMod.LOGGER.info("Initializing Mixin...");
         MixinBootstrap.init();
+        PPatchesMixinExtension.register();
 
         PPatchesBootstrap.preinit();
     }
