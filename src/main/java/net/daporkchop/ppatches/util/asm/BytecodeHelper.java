@@ -61,6 +61,13 @@ public class BytecodeHelper {
         return insn;
     }
 
+    public static AbstractInsnNode nextNormalCodeInstructionOrCurrent(AbstractInsnNode insn) {
+        while (insn != null && !isNormalCodeInstruction(insn)) {
+            insn = insn.getNext();
+        }
+        return insn;
+    }
+
     //
     // <instruction equality checks>
     //
@@ -98,6 +105,7 @@ public class BytecodeHelper {
             case LCONST_1:
             case FCONST_0:
             case FCONST_1:
+            case FCONST_2:
             case DCONST_0:
             case DCONST_1:
                 return true;
@@ -1503,5 +1511,20 @@ public class BytecodeHelper {
         }
 
         throw new IllegalStateException("couldn't find any arguments at LVT index " + oldArgumentLvtIndex + " in method " + methodNode.name + methodNode.desc);
+    }
+
+    public static Optional<MethodInsnNode> findSuperCtorInvocationInCtor(ClassNode classNode, MethodNode ctor) {
+        Frame<SourceValue>[] sourceFrames = BytecodeHelper.analyzeSources(classNode.name, ctor);
+        for (AbstractInsnNode insn = ctor.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            MethodInsnNode methodInsn;
+            if (insn.getOpcode() == INVOKESPECIAL && classNode.superName.equals((methodInsn = (MethodInsnNode) insn).owner) && "<init>".equals(methodInsn.name)) { //found super constructor invocation
+                Frame<SourceValue> sourceFrame = sourceFrames[ctor.instructions.indexOf(insn)];
+                AbstractInsnNode sourceInsn = BytecodeHelper.getStackValueFromTop(sourceFrame, BytecodeHelper.getConsumedStackOperandCount(methodInsn, sourceFrame) - 1).insns.iterator().next();
+                if (sourceInsn.getOpcode() == ALOAD && ((VarInsnNode) sourceInsn).var == 0) { //the target of the constructor is actually this
+                    return Optional.of(methodInsn);
+                }
+            }
+        }
+        return Optional.empty();
     }
 }

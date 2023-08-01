@@ -263,6 +263,19 @@ public class PPatchesConfig {
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigBase vanilla_useFastThreadLocalThread = new ModuleConfigBase(ModuleState.ENABLED);
 
+    @Config.Comment({
+            "Rewrites a lot of frequently-used methods in classes such as Block and Item which simply return a constant value and have multiple overrides which also return a constant value"
+            + " so that the value is stored in a field in the base class, the base class' method returns the value from the field (instead of the constant) and the overriding methods are"
+            + " removed entirely.",
+            "This can substantially reduce the amount of virtual method invocations, and allow these methods to be inlined far more aggressively by the JIT compiler. It will definitely"
+            + " result in an increase in performance by some amount, although by how much can vary drastically based on a wide variety of factors.",
+            "(some additional benchmarking should be done)",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            transformerClass = "net.daporkchop.ppatches.modules.vanilla.useFieldsForSimpleConstantGetters.UseFieldsForSimpleConstantGettersTransformer")
+    public static final ModuleConfigBase vanilla_useFieldsForSimpleConstantGetters = new ModuleConfigBase(ModuleState.AUTO);
+
     /**
      * @author DaPorkchop_
      */
