@@ -242,7 +242,6 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
-            hasMixins = false,
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeWorldIsRemoteOnDedicatedServer.OptimizeWorldIsRemoteOnDedicatedServerTransformer")
     public static final ModuleConfigBase vanilla_optimizeWorldIsRemoteOnDedicatedServer = new ModuleConfigBase(ModuleState.ENABLED);
 
