@@ -44,4 +44,6 @@ abstract class MixinWorldProviderDeepDark extends MixinXUWorldProvider {
                 this.getDimensionType().getId(), this.getDimensionType().getName());
         this.hasSkyLight = false;
     }
+
+    //TODO: figure out if i can get away with using @Delete here instead of a transformer
 }

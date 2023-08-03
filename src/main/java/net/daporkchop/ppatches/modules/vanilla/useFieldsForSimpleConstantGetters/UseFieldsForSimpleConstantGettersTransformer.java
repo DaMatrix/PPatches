@@ -45,7 +45,6 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
     private static final class Dummy_CanBeReplacedWithFieldMethods {
         private static void COMMON() {
             ((Biome) null).getSpawningChance();
-            //TODO: remove overrides of Biome#getBiomeClass() in BiomeForest and BiomeSavanna, they're redundant
             ((Biome) null).ignorePlayerSpawnSuitability();
 
             //TODO: there are some more in block which could be implemented better if we could make some more assumptions about Material and IBlockState methods
@@ -192,7 +191,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
             ((Material) null).getMaterialMapColor();
 
             ((WorldProvider) null).doesWaterVaporize();
-            ((WorldProvider) null).hasSkyLight();
+            ((WorldProvider) null).hasSkyLight(); //TODO: this is assigned by init(), not the class constructor! (should also check other methods)
             ((WorldProvider) null).isNether();
         }
 

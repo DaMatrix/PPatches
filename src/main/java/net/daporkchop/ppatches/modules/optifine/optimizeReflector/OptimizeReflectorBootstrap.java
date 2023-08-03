@@ -3,6 +3,7 @@ package net.daporkchop.ppatches.modules.optifine.optimizeReflector;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.PPatchesMod;
+import net.daporkchop.ppatches.util.MethodHandleUtils;
 import net.minecraftforge.client.settings.KeyConflictContext;
 import net.minecraftforge.common.MinecraftForge;
 
@@ -30,7 +31,7 @@ public class OptimizeReflectorBootstrap {
         Object reflector = lookup.findStaticGetter(reflectorClass, reflectorName, reflectorInstanceClass).invoke();
 
         Object value = getValueMethod.invoke(reflector);
-        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, MethodHandles.constant(type.returnType(), value));
+        return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, MethodHandleUtils.constant(type.returnType(), value));
     }
 
     @SneakyThrows
@@ -40,7 +41,7 @@ public class OptimizeReflectorBootstrap {
 
         Object targetClass = getTargetClassMethod.invoke(reflector);
         MethodHandle handle = targetClass == null
-                ? MethodHandles.constant(boolean.class, false) //clazz == null means that the target class doesn't exist!
+                ? MethodHandleUtils.constant(boolean.class, false) //clazz == null means that the target class doesn't exist!
                 : lookup.bind(targetClass, name, type);
         return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
@@ -52,7 +53,7 @@ public class OptimizeReflectorBootstrap {
 
         Field targetField = (Field) getTargetFieldMethod.invoke(reflector);
         MethodHandle handle = targetField == null
-                ? MethodHandles.constant(Object.class, null)
+                ? MethodHandleUtils.constant(Object.class, null)
                 : lookup.unreflectGetter(targetField);
         return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
@@ -64,7 +65,7 @@ public class OptimizeReflectorBootstrap {
 
         Field targetField = (Field) getTargetFieldMethod.invoke(reflector);
         MethodHandle handle = targetField == null
-                ? MethodHandles.constant(Object.class, null)
+                ? MethodHandleUtils.constant(Object.class, null)
                 : lookup.unreflectSetter(targetField);
         return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
@@ -80,7 +81,7 @@ public class OptimizeReflectorBootstrap {
             if (type.returnType().isPrimitive()) { //all getFieldValue* methods with a primitive return type take a default argument
                 handle = MethodHandles.permuteArguments(MethodHandles.identity(type.returnType()), type, type.parameterCount() - 1);
             } else { //all getFieldValue* methods with an Object return type return null by default
-                handle = MethodHandles.dropArguments(MethodHandles.constant(type.returnType(), null), 0, type.parameterArray());
+                handle = MethodHandles.dropArguments(MethodHandleUtils.constant(type.returnType(), null), 0, type.parameterArray());
             }
         } else {
             handle = lookup.unreflectGetter(targetField);
@@ -101,11 +102,11 @@ public class OptimizeReflectorBootstrap {
 
         MethodHandle handle;
         if (reflectorField == null) {
-            handle = MethodHandles.dropArguments(MethodHandles.constant(type.returnType(), null), 0, type.parameterArray());
+            handle = MethodHandles.dropArguments(MethodHandleUtils.constant(type.returnType(), null), 0, type.parameterArray());
         } else {
             Field targetField = (Field) getTargetFieldMethod.invoke(reflectorField);
             handle = targetField == null
-                    ? MethodHandles.dropArguments(MethodHandles.constant(type.returnType(), null), 0, type.parameterArray())
+                    ? MethodHandles.dropArguments(MethodHandleUtils.constant(type.returnType(), null), 0, type.parameterArray())
                     : lookup.unreflectGetter(targetField);
         }
         return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
@@ -118,8 +119,8 @@ public class OptimizeReflectorBootstrap {
 
         Field targetField = (Field) getTargetFieldMethod.invoke(reflector);
         MethodHandle handle = targetField == null
-                ? MethodHandles.constant(boolean.class, false)
-                : MethodHandles.collectArguments(MethodHandles.constant(boolean.class, true), 0, lookup.unreflectSetter(targetField).asType(MethodType.methodType(void.class, type)));
+                ? MethodHandleUtils.constant(boolean.class, false)
+                : MethodHandles.collectArguments(MethodHandleUtils.constant(boolean.class, true), 0, lookup.unreflectSetter(targetField).asType(MethodType.methodType(void.class, type)));
         return makeCallSite(lookup, name, type, reflectorClass, reflectorName, reflectorInstanceClass, handle);
     }
 
@@ -134,13 +135,13 @@ public class OptimizeReflectorBootstrap {
             Class<?> returnType = type.returnType();
             MethodHandle returnDefaultValue;
             if (!returnType.isPrimitive()) {
-                returnDefaultValue = MethodHandles.constant(returnType, null);
+                returnDefaultValue = MethodHandleUtils.constant(returnType, null);
             } else if (returnType == void.class) {
                 returnDefaultValue = lookup.findStatic(OptimizeReflectorBootstrap.class, "empty", MethodType.methodType(void.class));
             } else if (returnType == boolean.class) {
-                returnDefaultValue = MethodHandles.constant(returnType, false);
+                returnDefaultValue = MethodHandleUtils.constant(returnType, false);
             } else { //this should be able to be automatically converted to the correct type, we use byte so that there can only be widening conversions
-                returnDefaultValue = MethodHandles.constant(returnType, (byte) 0);
+                returnDefaultValue = MethodHandleUtils.constant(returnType, (byte) 0);
             }
             handle = MethodHandles.dropArguments(returnDefaultValue, 0, type.parameterArray());
         } else {
@@ -157,7 +158,7 @@ public class OptimizeReflectorBootstrap {
         Constructor<?> targetConstructor = (Constructor<?>) getTargetConstructorMethod.invoke(reflector);
         MethodHandle handle;
         if (targetConstructor == null) { //the method wasn't found, return the default value
-            handle = MethodHandles.dropArguments(MethodHandles.constant(type.returnType(), null), 0, type.parameterArray());
+            handle = MethodHandles.dropArguments(MethodHandleUtils.constant(type.returnType(), null), 0, type.parameterArray());
         } else {
             handle = lookup.unreflectConstructor(targetConstructor);
         }

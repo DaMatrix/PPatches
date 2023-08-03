@@ -9,6 +9,7 @@ import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.PPatchesMod;
+import net.daporkchop.ppatches.util.MethodHandleUtils;
 import net.daporkchop.ppatches.util.UnsafeWrapper;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Handle;
@@ -109,13 +110,8 @@ public class InvokeDynamicUtils {
                         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;", false));
     }
 
-    private static final CallSite[] CONSTANT_BOOLEAN_CALL_SITES = {
-            new ConstantCallSite(MethodHandles.constant(boolean.class, false)),
-            new ConstantCallSite(MethodHandles.constant(boolean.class, true)),
-    };
-
     public static CallSite bootstrapAssertionState(MethodHandles.Lookup lookup, String name, MethodType type) throws Throwable {
-        return CONSTANT_BOOLEAN_CALL_SITES[lookup.lookupClass().desiredAssertionStatus() ? 1 : 0];
+        return new ConstantCallSite(MethodHandleUtils.constant(boolean.class, lookup.lookupClass().desiredAssertionStatus()));
     }
 
     public static CallSite bootstrapStringConcatenation(MethodHandles.Lookup lookup, String name, MethodType type, Object... args) throws Throwable {

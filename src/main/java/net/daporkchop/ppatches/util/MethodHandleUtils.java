@@ -4,13 +4,17 @@ import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.primitives.Primitives;
+import lombok.EqualsAndHashCode;
 import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import org.objectweb.asm.Type;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.Objects;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -49,6 +53,64 @@ public class MethodHandleUtils {
     }
 
     /**
+     * Produces a method handle of the requested return type which returns the given constant value every time it is invoked.
+     *
+     * @param type the return type of the desired method handle
+     * @param value the value to return
+     * @see MethodHandles#constant(Class, Object)
+     */
+    public static MethodHandle constant(Class<?> type, Object value) {
+        return Constant.constant(type, value);
+    }
+
+    private static final class Constant extends CacheLoader<Constant.Key, MethodHandle> {
+        //not using weak keys, since the Key object itself is never referenced by the value (no way around that, it's a MethodHandle) and we need the
+        //  Key instances to remain in the cache as long as the value is still around.
+        //  since guava caches don't evict the entire entry immediately when a weakly referenced key/value is garbage collected, this could technically result in
+        //  the actual class and/or value instance remaining in memory indefinitely (until the next time the cache is accessed) even if the MethodHandle instance has
+        //  already been garbage-collected. i might attempt to solve this in the future, but for now i'll treat this as a non-issue by assuming that if a user is providing
+        //  garbage-collectable class instances to this method, they're likely to call this method again at some point when loading another class.
+        private static final LoadingCache<Key, MethodHandle> CACHE = CacheBuilder.newBuilder().concurrencyLevel(1).weakValues().build(new Constant());
+
+        @SneakyThrows
+        public static MethodHandle constant(Class<?> type, Object value) {
+            Preconditions.checkArgument(type != void.class, "expected non-void type");
+
+            if ((type.isPrimitive() || Primitives.isWrapperType(type)) && value != null && Primitives.wrap(type) != value.getClass()) {
+                //ensure the value is of the correct wrapper type, widening it if not.
+                //  this is necessary because otherwise, invoking 'constant(int.class, (byte) 0)' would result in a different cache key than 'constant(int.class, 0)', even
+                //  though the resulting MethodHandles are equivalent.
+
+                //we delegate all the boilerplate code for unboxing, widening and re-boxing to java and let it handle everything for us
+                value = box(Primitives.unwrap(type)).invoke(value);
+            }
+
+            return CACHE.getUnchecked(new Key(type, value));
+        }
+
+        @Override
+        public MethodHandle load(Key key) throws Exception {
+            return MethodHandles.constant(key.type, key.value);
+        }
+
+        @RequiredArgsConstructor
+        private static final class Key {
+            private final Class<?> type;
+            private final Object value;
+
+            @Override
+            public int hashCode() {
+                return this.type.hashCode() * 31 + System.identityHashCode(this.value);
+            }
+
+            @Override
+            public boolean equals(Object obj) {
+                return this == obj || (obj instanceof Key && this.type == ((Key) obj).type && this.value == ((Key) obj).value);
+            }
+        }
+    }
+
+    /**
      * Produces a method handle which accepts a primitive value of the given primitive type, and returns the value after undergoing a boxing conversion.
      */
     public static MethodHandle box(Class<?> primitive) {
@@ -61,7 +123,7 @@ public class MethodHandleUtils {
 
         @Override
         public MethodHandle load(Class<?> primitive) throws Exception {
-            Preconditions.checkArgument(primitive.isPrimitive(), "expected a primitive type: %s", primitive);
+            Preconditions.checkArgument(primitive.isPrimitive(), "expected primitive type: %s", primitive);
 
             Class<?> boxed = MethodType.methodType(primitive).wrap().returnType();
             return MethodHandles.lookup().findStatic(boxed, "valueOf", MethodType.methodType(boxed, primitive));
@@ -81,7 +143,7 @@ public class MethodHandleUtils {
 
         @Override
         public MethodHandle load(Class<?> primitive) throws Exception {
-            Preconditions.checkArgument(primitive.isPrimitive(), "expected a primitive type: %s", primitive);
+            Preconditions.checkArgument(primitive.isPrimitive(), "expected primitive type: %s", primitive);
 
             Class<?> boxed = MethodType.methodType(primitive).wrap().returnType();
             return MethodHandles.lookup().findVirtual(boxed, primitive.getName() + "Value", MethodType.methodType(primitive));
@@ -132,8 +194,8 @@ public class MethodHandleUtils {
 
             Class<?> param0 = type.parameterType(0);
             Class<?> param1 = type.parameterType(1);
-            Preconditions.checkArgument(!param0.isPrimitive(), "expected a non-primitive type: %s", param0);
-            Preconditions.checkArgument(!param1.isPrimitive(), "expected a non-primitive type: %s", param1);
+            Preconditions.checkArgument(!param0.isPrimitive(), "expected non-primitive type: %s", param0);
+            Preconditions.checkArgument(!param1.isPrimitive(), "expected non-primitive type: %s", param1);
             Preconditions.checkArgument(param0.isAssignableFrom(param1) || param1.isAssignableFrom(param0), "neither type is assignable to the other: %s, %s", param0, param1);
 
             return RAW.asType(type);
@@ -184,8 +246,8 @@ public class MethodHandleUtils {
 
             Class<?> param0 = type.parameterType(0);
             Class<?> param1 = type.parameterType(1);
-            Preconditions.checkArgument(!param0.isPrimitive(), "expected a non-primitive type: %s", param0);
-            Preconditions.checkArgument(!param1.isPrimitive(), "expected a non-primitive type: %s", param1);
+            Preconditions.checkArgument(!param0.isPrimitive(), "expected non-primitive type: %s", param0);
+            Preconditions.checkArgument(!param1.isPrimitive(), "expected non-primitive type: %s", param1);
             Preconditions.checkArgument(param0.isAssignableFrom(param1) || param1.isAssignableFrom(param0), "neither type is assignable to the other: %s, %s", param0, param1);
 
             return RAW.asType(type);
@@ -217,7 +279,7 @@ public class MethodHandleUtils {
 
         @Override
         public MethodHandle load(Class<?> primitive) throws Exception {
-            Preconditions.checkArgument(primitive.isPrimitive(), "expected a primitive type: %s", primitive);
+            Preconditions.checkArgument(primitive.isPrimitive(), "expected primitive type: %s", primitive);
 
             try {
                 return MethodHandles.lookup().findStatic(this.getClass(), this.op, MethodType.methodType(boolean.class, primitive, primitive));

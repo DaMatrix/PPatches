@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import net.daporkchop.ppatches.PPatchesConfig;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
+import net.daporkchop.ppatches.util.MethodHandleUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.OptionalBytecodeType;
 import net.daporkchop.ppatches.util.asm.analysis.ResultUsageGraph;
@@ -1101,19 +1102,19 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         return anyChanged;
     }
 
-    private static final Map<Class<?>, Map<String, CallSite>> CALL_SITES_BY_TYPE = ImmutableMap.of(CallbackInfo.class, new TreeMap<>(), CallbackInfoReturnable.class, new TreeMap<>());
+    private static final Map<Class<?>, Map<String, MethodHandle>> METHOD_HANDLES_BY_NAME = ImmutableMap.of(CallbackInfo.class, new TreeMap<>(), CallbackInfoReturnable.class, new TreeMap<>());
 
     public static CallSite bootstrapSimpleConstantCallbackInfo(MethodHandles.Lookup lookup, String name, MethodType type, MethodHandle ctor, String id) throws Throwable {
-        Map<String, CallSite> callSitesByName = CALL_SITES_BY_TYPE.get(type.returnType());
-        assert callSitesByName != null : "unknown CallbackInfo type: " + type.returnType().getTypeName();
+        Map<String, MethodHandle> methodHandlesByName = METHOD_HANDLES_BY_NAME.get(type.returnType());
+        assert methodHandlesByName != null : "unknown CallbackInfo type: " + type.returnType().getTypeName();
 
-        synchronized (callSitesByName) {
-            CallSite callSite = callSitesByName.get(id);
-            if (callSite == null) {
-                callSite = new ConstantCallSite(MethodHandles.constant(type.returnType(), (CallbackInfo) ctor.invoke(id, false)));
-                callSitesByName.put(id, callSite);
+        synchronized (methodHandlesByName) {
+            MethodHandle methodHandle = methodHandlesByName.get(id);
+            if (methodHandle == null) {
+                methodHandle = MethodHandleUtils.constant(type.returnType(), (CallbackInfo) ctor.invoke(id, false));
+                methodHandlesByName.put(id, methodHandle);
             }
-            return callSite;
+            return new ConstantCallSite(methodHandle);
         }
     }
 }
