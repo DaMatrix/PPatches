@@ -1,6 +1,10 @@
 package net.daporkchop.ppatches.util;
 
-import lombok.SneakyThrows;
+import com.google.common.base.Preconditions;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import lombok.RequiredArgsConstructor;
 import lombok.experimental.UtilityClass;
 import org.objectweb.asm.Type;
 
@@ -17,36 +21,6 @@ import static org.objectweb.asm.Opcodes.*;
  */
 @UtilityClass
 public class MethodHandleUtils {
-    private static final MethodHandle VOID_IDENTITY;
-    private static final MethodHandle IDENTITY_EQUALS;
-    private static final MethodHandle IDENTITY_NOT_EQUALS;
-
-    private static final MethodHandle[][] PRIMITIVE_COMPARISONS = new MethodHandle[Type.DOUBLE + 1][6];
-
-    static {
-        try {
-            MethodHandles.Lookup lookup = MethodHandles.lookup();
-
-            VOID_IDENTITY = lookup.findStatic(MethodHandleUtils.class, "voidIdentity", MethodType.methodType(void.class));
-            IDENTITY_EQUALS = lookup.findStatic(MethodHandleUtils.class, "identityEquals", MethodType.methodType(boolean.class, Object.class, Object.class));
-            IDENTITY_NOT_EQUALS = lookup.findStatic(MethodHandleUtils.class, "identityNotEquals", MethodType.methodType(boolean.class, Object.class, Object.class));
-
-            String[] comparisonNames = {"eq", "ne", "lt", "ge", "gt", "le"};
-            for (Type primitiveType : new Type[]{Type.BOOLEAN_TYPE, Type.BYTE_TYPE, Type.SHORT_TYPE, Type.CHAR_TYPE, Type.INT_TYPE, Type.LONG_TYPE, Type.FLOAT_TYPE, Type.LONG_TYPE}) {
-                MethodType methodType = MethodType.fromMethodDescriptorString(Type.getMethodDescriptor(Type.BOOLEAN_TYPE, primitiveType, primitiveType), ClassLoader.getSystemClassLoader());
-                for (int comparisonIndex = 0, lim = primitiveType == Type.BOOLEAN_TYPE ? 2 : 6; comparisonIndex < lim; comparisonIndex++) {
-                    PRIMITIVE_COMPARISONS[primitiveType.getSort()][comparisonIndex] = lookup.findStatic(MethodHandleUtils.class, comparisonNames[comparisonIndex], methodType);
-                }
-            }
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
-    }
-
-    private static void voidIdentity() {
-        //no-op
-    }
-
     /**
      * Produces a method handle which returns its sole argument when invoked.
      * <p>
@@ -56,31 +30,62 @@ public class MethodHandleUtils {
      * @see MethodHandles#identity(Class)
      */
     public static MethodHandle identity(Class<?> type) {
-        return type == void.class ? VOID_IDENTITY : MethodHandles.identity(type);
+        return Identity.CACHE.getUnchecked(type);
+    }
+
+    private static final class Identity extends CacheLoader<Class<?>, MethodHandle> {
+        public static final LoadingCache<Class<?>, MethodHandle> CACHE = CacheBuilder.newBuilder().concurrencyLevel(1).weakKeys().weakValues().build(new Identity());
+
+        private static void voidIdentity() {
+            //no-op
+        }
+
+        @Override
+        public MethodHandle load(Class<?> type) throws Exception {
+            return type == void.class
+                    ? MethodHandles.lookup().findStatic(this.getClass(), "voidIdentity", MethodType.methodType(void.class)) //special handling for void
+                    : MethodHandles.identity(type);
+        }
     }
 
     /**
      * Produces a method handle which accepts a primitive value of the given primitive type, and returns the value after undergoing a boxing conversion.
      */
-    @SneakyThrows
-    public static MethodHandle box(MethodHandles.Lookup lookup, Class<?> primitive) {
-        assert primitive.isPrimitive() : primitive;
-        Class<?> boxed = MethodType.methodType(primitive).wrap().returnType();
-        return lookup.findStatic(boxed, "valueOf", MethodType.methodType(boxed, primitive));
+    public static MethodHandle box(Class<?> primitive) {
+        return Box.CACHE.getUnchecked(primitive);
+    }
+
+    private static final class Box extends CacheLoader<Class<?>, MethodHandle> {
+        //not using weak keys, since the only keys which could be used are primitive classes which can never be unloaded
+        public static final LoadingCache<Class<?>, MethodHandle> CACHE = CacheBuilder.newBuilder().concurrencyLevel(1).weakValues().build(new Box());
+
+        @Override
+        public MethodHandle load(Class<?> primitive) throws Exception {
+            Preconditions.checkArgument(primitive.isPrimitive(), "expected a primitive type: %s", primitive);
+
+            Class<?> boxed = MethodType.methodType(primitive).wrap().returnType();
+            return MethodHandles.lookup().findStatic(boxed, "valueOf", MethodType.methodType(boxed, primitive));
+        }
     }
 
     /**
      * Produces a method handle which accepts a primitive value of the boxed type corresponding to the given primitive type, and returns the value after undergoing an unboxing conversion.
      */
-    @SneakyThrows
-    public static MethodHandle unbox(MethodHandles.Lookup lookup, Class<?> primitive) {
-        assert primitive.isPrimitive() : primitive;
-        Class<?> boxed = MethodType.methodType(primitive).wrap().returnType();
-        return lookup.findVirtual(boxed, primitive.getName() + "Value", MethodType.methodType(primitive));
+    public static MethodHandle unbox(Class<?> primitive) {
+        return Unbox.CACHE.getUnchecked(primitive);
     }
 
-    private static boolean identityEquals(Object a, Object b) {
-        return a == b;
+    private static final class Unbox extends CacheLoader<Class<?>, MethodHandle> {
+        //not using weak keys, since the only keys which could be used are primitive classes which can never be unloaded
+        public static final LoadingCache<Class<?>, MethodHandle> CACHE = CacheBuilder.newBuilder().concurrencyLevel(1).weakValues().build(new Unbox());
+
+        @Override
+        public MethodHandle load(Class<?> primitive) throws Exception {
+            Preconditions.checkArgument(primitive.isPrimitive(), "expected a primitive type: %s", primitive);
+
+            Class<?> boxed = MethodType.methodType(primitive).wrap().returnType();
+            return MethodHandles.lookup().findVirtual(boxed, primitive.getName() + "Value", MethodType.methodType(primitive));
+        }
     }
 
     /**
@@ -90,12 +95,49 @@ public class MethodHandleUtils {
      * @param type the type of objects to be compared
      */
     public static MethodHandle identityEquals(Class<?> type) {
-        assert !type.isPrimitive() : type;
-        return IDENTITY_EQUALS.asType(MethodType.methodType(boolean.class, type, type));
+        return identityEquals(type, type);
     }
 
-    private static boolean identityNotEquals(Object a, Object b) {
-        return a != b;
+    /**
+     * Produces a method handle which accepts two arguments of the given reference types and returns a {@code boolean} value indicating the result of performing an identity comparison on
+     * the two arguments.
+     *
+     * @param type1 the type of the first object to be compared
+     * @param type2 the type of the second object to be compared
+     * @throws IllegalArgumentException if neither of the given types is assignable to the other
+     */
+    public static MethodHandle identityEquals(Class<?> type1, Class<?> type2) {
+        return IdentityEquals.CACHE.getUnchecked(MethodType.methodType(boolean.class, type1, type2));
+    }
+
+    private static final class IdentityEquals extends CacheLoader<MethodType, MethodHandle> {
+        public static final LoadingCache<MethodType, MethodHandle> CACHE = CacheBuilder.newBuilder().concurrencyLevel(1).weakKeys().weakValues().build(new IdentityEquals());
+        private static final MethodHandle RAW;
+
+        static {
+            try {
+                RAW = MethodHandles.lookup().findStatic(IdentityEquals.class, "identityEquals", MethodType.methodType(boolean.class, Object.class, Object.class));
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        }
+
+        private static boolean identityEquals(Object a, Object b) {
+            return a == b;
+        }
+
+        @Override
+        public MethodHandle load(MethodType type) throws Exception {
+            Preconditions.checkArgument(type.returnType() == boolean.class && type.parameterCount() == 2, type);
+
+            Class<?> param0 = type.parameterType(0);
+            Class<?> param1 = type.parameterType(1);
+            Preconditions.checkArgument(!param0.isPrimitive(), "expected a non-primitive type: %s", param0);
+            Preconditions.checkArgument(!param1.isPrimitive(), "expected a non-primitive type: %s", param1);
+            Preconditions.checkArgument(param0.isAssignableFrom(param1) || param1.isAssignableFrom(param0), "neither type is assignable to the other: %s, %s", param0, param1);
+
+            return RAW.asType(type);
+        }
     }
 
     /**
@@ -105,62 +147,138 @@ public class MethodHandleUtils {
      * @param type the type of objects to be compared
      */
     public static MethodHandle identityNotEquals(Class<?> type) {
-        assert !type.isPrimitive() : type;
-        return IDENTITY_NOT_EQUALS.asType(MethodType.methodType(boolean.class, type, type));
+        return identityNotEquals(type, type);
     }
 
-    // @formatter:off
-    private static boolean eq(boolean a, boolean b) { return a == b; }
-    private static boolean ne(boolean a, boolean b) { return a != b; }
+    /**
+     * Produces a method handle which accepts two arguments of the given reference types and returns a {@code boolean} value indicating the negated result of performing an identity comparison on
+     * the two arguments.
+     *
+     * @param type1 the type of the first object to be compared
+     * @param type2 the type of the second object to be compared
+     * @throws IllegalArgumentException if neither of the given types is assignable to the other
+     */
+    public static MethodHandle identityNotEquals(Class<?> type1, Class<?> type2) {
+        return IdentityNotEquals.CACHE.getUnchecked(MethodType.methodType(boolean.class, type1, type2));
+    }
 
-    private static boolean eq(byte a, byte b) { return a == b; }
-    private static boolean ne(byte a, byte b) { return a != b; }
-    private static boolean lt(byte a, byte b) { return a < b; }
-    private static boolean le(byte a, byte b) { return a <= b; }
-    private static boolean gt(byte a, byte b) { return a > b; }
-    private static boolean ge(byte a, byte b) { return a >= b; }
+    private static final class IdentityNotEquals extends CacheLoader<MethodType, MethodHandle> {
+        public static final LoadingCache<MethodType, MethodHandle> CACHE = CacheBuilder.newBuilder().concurrencyLevel(1).weakKeys().weakValues().build(new IdentityNotEquals());
+        private static final MethodHandle RAW;
 
-    private static boolean eq(short a, short b) { return a == b; }
-    private static boolean ne(short a, short b) { return a != b; }
-    private static boolean lt(short a, short b) { return a < b; }
-    private static boolean le(short a, short b) { return a <= b; }
-    private static boolean gt(short a, short b) { return a > b; }
-    private static boolean ge(short a, short b) { return a >= b; }
+        static {
+            try {
+                RAW = MethodHandles.lookup().findStatic(IdentityNotEquals.class, "identityNotEquals", MethodType.methodType(boolean.class, Object.class, Object.class));
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        }
 
-    private static boolean eq(char a, char b) { return a == b; }
-    private static boolean ne(char a, char b) { return a != b; }
-    private static boolean lt(char a, char b) { return a < b; }
-    private static boolean le(char a, char b) { return a <= b; }
-    private static boolean gt(char a, char b) { return a > b; }
-    private static boolean ge(char a, char b) { return a >= b; }
+        private static boolean identityNotEquals(Object a, Object b) {
+            return a != b;
+        }
 
-    private static boolean eq(int a, int b) { return a == b; }
-    private static boolean ne(int a, int b) { return a != b; }
-    private static boolean lt(int a, int b) { return a < b; }
-    private static boolean le(int a, int b) { return a <= b; }
-    private static boolean gt(int a, int b) { return a > b; }
-    private static boolean ge(int a, int b) { return a >= b; }
+        @Override
+        public MethodHandle load(MethodType type) throws Exception {
+            Preconditions.checkArgument(type.returnType() == boolean.class && type.parameterCount() == 2, type);
 
-    private static boolean eq(long a, long b) { return a == b; }
-    private static boolean ne(long a, long b) { return a != b; }
-    private static boolean lt(long a, long b) { return a < b; }
-    private static boolean le(long a, long b) { return a <= b; }
-    private static boolean gt(long a, long b) { return a > b; }
-    private static boolean ge(long a, long b) { return a >= b; }
+            Class<?> param0 = type.parameterType(0);
+            Class<?> param1 = type.parameterType(1);
+            Preconditions.checkArgument(!param0.isPrimitive(), "expected a non-primitive type: %s", param0);
+            Preconditions.checkArgument(!param1.isPrimitive(), "expected a non-primitive type: %s", param1);
+            Preconditions.checkArgument(param0.isAssignableFrom(param1) || param1.isAssignableFrom(param0), "neither type is assignable to the other: %s, %s", param0, param1);
 
-    private static boolean eq(float a, float b) { return a == b; }
-    private static boolean ne(float a, float b) { return a != b; }
-    private static boolean lt(float a, float b) { return a < b; }
-    private static boolean le(float a, float b) { return a <= b; }
-    private static boolean gt(float a, float b) { return a > b; }
-    private static boolean ge(float a, float b) { return a >= b; }
-    private static boolean eq(double a, double b) { return a == b; }
-    private static boolean ne(double a, double b) { return a != b; }
-    private static boolean lt(double a, double b) { return a < b; }
-    private static boolean le(double a, double b) { return a <= b; }
-    private static boolean gt(double a, double b) { return a > b; }
-    private static boolean ge(double a, double b) { return a >= b; }
-    // @formatter:on
+            return RAW.asType(type);
+        }
+    }
+
+    @RequiredArgsConstructor
+    @SuppressWarnings({"unchecked", "unused"})
+    private static final class PrimitiveComparisons extends CacheLoader<Class<?>, MethodHandle> {
+        private static final LoadingCache<Class<?>, MethodHandle>[] CACHES;
+
+        private static final int OP_BASE = IFEQ;
+
+        static {
+            //not using weak keys, since the only keys which could be used are primitive classes which can never be unloaded
+            CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder().concurrencyLevel(1).weakValues().maximumSize(Type.DOUBLE);
+
+            CACHES = (LoadingCache<Class<?>, MethodHandle>[]) new LoadingCache[] {
+                    builder.build(new PrimitiveComparisons("eq")),
+                    builder.build(new PrimitiveComparisons("ne")),
+                    builder.build(new PrimitiveComparisons("lt")),
+                    builder.build(new PrimitiveComparisons("ge")),
+                    builder.build(new PrimitiveComparisons("gt")),
+                    builder.build(new PrimitiveComparisons("le")),
+            };
+        }
+
+        private final String op;
+
+        @Override
+        public MethodHandle load(Class<?> primitive) throws Exception {
+            Preconditions.checkArgument(primitive.isPrimitive(), "expected a primitive type: %s", primitive);
+
+            try {
+                return MethodHandles.lookup().findStatic(this.getClass(), this.op, MethodType.methodType(boolean.class, primitive, primitive));
+            } catch (NoSuchMethodException e) {
+                throw new IllegalArgumentException("type " + primitive + " doesn't support this operation", e);
+            }
+        }
+
+        // @formatter:off
+        private static boolean eq(boolean a, boolean b) { return a == b; }
+        private static boolean ne(boolean a, boolean b) { return a != b; }
+
+        private static boolean eq(byte a, byte b) { return a == b; }
+        private static boolean ne(byte a, byte b) { return a != b; }
+        private static boolean lt(byte a, byte b) { return a < b; }
+        private static boolean le(byte a, byte b) { return a <= b; }
+        private static boolean gt(byte a, byte b) { return a > b; }
+        private static boolean ge(byte a, byte b) { return a >= b; }
+
+        private static boolean eq(short a, short b) { return a == b; }
+        private static boolean ne(short a, short b) { return a != b; }
+        private static boolean lt(short a, short b) { return a < b; }
+        private static boolean le(short a, short b) { return a <= b; }
+        private static boolean gt(short a, short b) { return a > b; }
+        private static boolean ge(short a, short b) { return a >= b; }
+
+        private static boolean eq(char a, char b) { return a == b; }
+        private static boolean ne(char a, char b) { return a != b; }
+        private static boolean lt(char a, char b) { return a < b; }
+        private static boolean le(char a, char b) { return a <= b; }
+        private static boolean gt(char a, char b) { return a > b; }
+        private static boolean ge(char a, char b) { return a >= b; }
+
+        private static boolean eq(int a, int b) { return a == b; }
+        private static boolean ne(int a, int b) { return a != b; }
+        private static boolean lt(int a, int b) { return a < b; }
+        private static boolean le(int a, int b) { return a <= b; }
+        private static boolean gt(int a, int b) { return a > b; }
+        private static boolean ge(int a, int b) { return a >= b; }
+
+        private static boolean eq(long a, long b) { return a == b; }
+        private static boolean ne(long a, long b) { return a != b; }
+        private static boolean lt(long a, long b) { return a < b; }
+        private static boolean le(long a, long b) { return a <= b; }
+        private static boolean gt(long a, long b) { return a > b; }
+        private static boolean ge(long a, long b) { return a >= b; }
+
+        private static boolean eq(float a, float b) { return a == b; }
+        private static boolean ne(float a, float b) { return a != b; }
+        private static boolean lt(float a, float b) { return a < b; }
+        private static boolean le(float a, float b) { return a <= b; }
+        private static boolean gt(float a, float b) { return a > b; }
+        private static boolean ge(float a, float b) { return a >= b; }
+        private static boolean eq(double a, double b) { return a == b; }
+        private static boolean ne(double a, double b) { return a != b; }
+        private static boolean lt(double a, double b) { return a < b; }
+        private static boolean le(double a, double b) { return a <= b; }
+        private static boolean gt(double a, double b) { return a > b; }
+        private static boolean ge(double a, double b) { return a >= b; }
+        // @formatter:on
+    }
 
     /**
      * Produces a method handle which accepts two arguments of the given type and returns a {@code boolean} value indicating the result of comparing the two arguments using
@@ -173,11 +291,7 @@ public class MethodHandleUtils {
      */
     public static MethodHandle equal(Class<?> type) {
         if (type.isPrimitive()) {
-            MethodHandle handle = PRIMITIVE_COMPARISONS[Type.getType(type).getSort()][IFEQ - IFEQ];
-            if (handle == null) {
-                throw new IllegalArgumentException("type " + type + " doesn't support this operation");
-            }
-            return handle;
+            return PrimitiveComparisons.CACHES[IFEQ - PrimitiveComparisons.OP_BASE].getUnchecked(type);
         } else {
             return identityEquals(type);
         }
@@ -194,11 +308,7 @@ public class MethodHandleUtils {
      */
     public static MethodHandle notEqual(Class<?> type) {
         if (type.isPrimitive()) {
-            MethodHandle handle = PRIMITIVE_COMPARISONS[Type.getType(type).getSort()][IFNE - IFEQ];
-            if (handle == null) {
-                throw new IllegalArgumentException("type " + type + " doesn't support this operation");
-            }
-            return handle;
+            return PrimitiveComparisons.CACHES[IFNE - PrimitiveComparisons.OP_BASE].getUnchecked(type);
         } else {
             return identityNotEquals(type);
         }
@@ -212,11 +322,7 @@ public class MethodHandleUtils {
      * @throws IllegalArgumentException if this comparison operation is not applicable to the given type
      */
     public static MethodHandle lessThan(Class<?> type) {
-        MethodHandle handle;
-        if (!type.isPrimitive() || (handle = PRIMITIVE_COMPARISONS[Type.getType(type).getSort()][IFLT - IFEQ]) == null) {
-            throw new IllegalArgumentException("type " + type + " doesn't support this operation");
-        }
-        return handle;
+        return PrimitiveComparisons.CACHES[IFLT - PrimitiveComparisons.OP_BASE].getUnchecked(type);
     }
 
     /**
@@ -227,11 +333,7 @@ public class MethodHandleUtils {
      * @throws IllegalArgumentException if this comparison operation is not applicable to the given type
      */
     public static MethodHandle lessThanOrEqual(Class<?> type) {
-        MethodHandle handle;
-        if (!type.isPrimitive() || (handle = PRIMITIVE_COMPARISONS[Type.getType(type).getSort()][IFLE - IFEQ]) == null) {
-            throw new IllegalArgumentException("type " + type + " doesn't support this operation");
-        }
-        return handle;
+        return PrimitiveComparisons.CACHES[IFLE - PrimitiveComparisons.OP_BASE].getUnchecked(type);
     }
 
     /**
@@ -242,11 +344,7 @@ public class MethodHandleUtils {
      * @throws IllegalArgumentException if this comparison operation is not applicable to the given type
      */
     public static MethodHandle greaterThan(Class<?> type) {
-        MethodHandle handle;
-        if (!type.isPrimitive() || (handle = PRIMITIVE_COMPARISONS[Type.getType(type).getSort()][IFGT - IFEQ]) == null) {
-            throw new IllegalArgumentException("type " + type + " doesn't support this operation");
-        }
-        return handle;
+        return PrimitiveComparisons.CACHES[IFGT - PrimitiveComparisons.OP_BASE].getUnchecked(type);
     }
 
     /**
@@ -257,10 +355,6 @@ public class MethodHandleUtils {
      * @throws IllegalArgumentException if this comparison operation is not applicable to the given type
      */
     public static MethodHandle greaterThanOrEqual(Class<?> type) {
-        MethodHandle handle;
-        if (!type.isPrimitive() || (handle = PRIMITIVE_COMPARISONS[Type.getType(type).getSort()][IFGE - IFEQ]) == null) {
-            throw new IllegalArgumentException("type " + type + " doesn't support this operation");
-        }
-        return handle;
+        return PrimitiveComparisons.CACHES[IFGE - PrimitiveComparisons.OP_BASE].getUnchecked(type);
     }
 }
