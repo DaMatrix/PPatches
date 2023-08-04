@@ -14,7 +14,7 @@ abstract class MixinBlock {
      * @author DaPorkchop_
      * @reason replacing this method to make it more optimizable
      */
-    @Overwrite
+    @Overwrite(remap = false)
     public boolean isStickyBlock(IBlockState state) {
         return false;
     }

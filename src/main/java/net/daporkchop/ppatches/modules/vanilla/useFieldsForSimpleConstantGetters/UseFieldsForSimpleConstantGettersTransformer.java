@@ -2,9 +2,10 @@ package net.daporkchop.ppatches.modules.vanilla.useFieldsForSimpleConstantGetter
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.io.Resources;
 import it.unimi.dsi.fastutil.objects.Object2ObjectAVLTreeMap;
 import it.unimi.dsi.fastutil.objects.ObjectAVLTreeSet;
-import jdk.internal.org.objectweb.asm.Type;
+import org.objectweb.asm.Type;
 import lombok.SneakyThrows;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
@@ -25,8 +26,6 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.tree.*;
 import org.spongepowered.asm.mixin.transformer.ClassInfo;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Stream;
 
@@ -47,7 +46,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
             ((Biome) null).getSpawningChance();
             ((Biome) null).ignorePlayerSpawnSuitability();
 
-            //TODO: there are some more in block which could be implemented better if we could make some more assumptions about Material and IBlockState methods
+            //TODO: there are some more methods in Block which could be implemented better if we could make some more assumptions about Material and IBlockState methods
             ((Block) null).canEntitySpawn(null, null);
             ((Block) null).isFullCube(null);
             ((Block) null).getRenderType(null);
@@ -88,7 +87,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
             //((Entity) null).getSplashSound();
             //((Entity) null).makeFlySound();
             //((Entity) null).canTriggerWalking();
-            ((Entity) null).getCollisionBoundingBox(); //TODO: decide whether or not to keep this
+            //((Entity) null).getCollisionBoundingBox(); //TODO: decide whether or not to keep this
             ((Entity) null).canBeCollidedWith();
             ((Entity) null).canBePushed();
             //((Entity) null).shouldSetPosAfterLoading();
@@ -111,7 +110,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
             ((Entity) null).getSoundCategory();
             //((Entity) null).getFireImmuneTicks();
 
-            //TODO: there are some more in block which could be implemented better if we could make some more assumptions about the overloads which add an ItemStack argument
+            //TODO: there are some more methods in Item which could be implemented better if we could make some more assumptions about the overloads which add an ItemStack argument
             ((Item) null).getDestroySpeed(null, null);
             ((Item) null).shouldRotateAroundWhenRendering();
             ((Item) null).getShareTag();
@@ -211,7 +210,8 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
 
     @SneakyThrows
     private static Map<String, Set<String>> readStaticMethodList(String name) {
-        ClassReader reader = new ClassReader(Files.readAllBytes(Paths.get(UseFieldsForSimpleConstantGettersTransformer.class.getResource("UseFieldsForSimpleConstantGettersTransformer$" + name + ".class").toURI())));
+        //noinspection UnstableApiUsage
+        ClassReader reader = new ClassReader(Resources.toByteArray(Resources.getResource(UseFieldsForSimpleConstantGettersTransformer.class, "UseFieldsForSimpleConstantGettersTransformer$" + name + ".class")));
         ClassNode classNode = new ClassNode();
         reader.accept(classNode, 0);
 
@@ -274,16 +274,26 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
         Set<String> canBeReplacedWithFieldMethods = this.canBeReplacedWithFieldMethods.getOrDefault(classNode.name, Collections.emptySet());
         Set<String> alreadyImplementedWithFieldMethods = this.alreadyImplementedWithFieldMethods.getOrDefault(classNode.name, Collections.emptySet());
 
-        for (MethodNode methodNode : classNode.methods) {
+        for (ListIterator<MethodNode> itr = classNode.methods.listIterator(); itr.hasNext(); ) {
+            MethodNode methodNode = itr.next();
             String combinedDesc = methodNode.name + methodNode.desc;
             if (canBeReplacedWithFieldMethods.contains(combinedDesc)) {
                 Optional<AbstractInsnNode> loadConstantReturnValueInsn = getConstantReturnValue(methodNode);
                 if (loadConstantReturnValueInsn.isPresent()) { //the method is still implemented with a constant return value
-                    String returnTypeDesc = Type.getReturnType(methodNode.desc).getDescriptor();
+                    Type returnType = Type.getReturnType(methodNode.desc);
+                    String returnTypeDesc = returnType.getDescriptor();
                     String fieldName = "$ppatches_" + methodNode.name;
 
                     //add a new field to store the value
-                    classNode.visitField(ACC_PROTECTED, fieldName, returnTypeDesc, null, null);
+                    classNode.visitField(ACC_PRIVATE | ACC_FINAL, fieldName, returnTypeDesc, null, null);
+
+                    //add a new method which will return the actual constant value
+                    //  (in theory, we could avoid doing this and set the constant value directly in the constructor, however if we did that then accessing any properties before all constructors
+                    //  have completed could yield incorrect results)
+                    MethodNode constantMethodNode = new MethodNode(ASM5, ACC_PROTECTED, "$ppatches_flattenedConstantValue_" + methodNode.name, Type.getMethodDescriptor(returnType), null, null);
+                    itr.add(constantMethodNode);
+                    constantMethodNode.instructions.add(loadConstantReturnValueInsn.get().clone(null));
+                    constantMethodNode.instructions.add(new InsnNode(returnType.getOpcode(IRETURN)));
 
                     //add code to all constructors which initializes the new field to the constant value
                     for (MethodNode ctor : BytecodeHelper.findMethod(classNode, "<init>")) {
@@ -292,7 +302,8 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
                             ctor.maxStack = Math.max(ctor.maxStack, 2); //extend the stack if necessary
                             BytecodeHelper.insertAfter(superCtorInvocation, ctor.instructions,
                                     new VarInsnNode(ALOAD, 0),
-                                    loadConstantReturnValueInsn.get().clone(null),
+                                    new VarInsnNode(ALOAD, 0),
+                                    new MethodInsnNode(INVOKEVIRTUAL, classNode.name, constantMethodNode.name, constantMethodNode.desc, false),
                                     new FieldInsnNode(PUTFIELD, classNode.name, fieldName, returnTypeDesc));
                         }
                     }
@@ -362,23 +373,10 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
                     if (rootClassName.equals(classNode.superName) || !this.hasNonDefaultOverride(classNode.superName, rootClassName, combinedDesc)) {
                         PPatchesMod.LOGGER.info("removing override of {}{} from class {} and putting the constant return value in a field instead", methodNode.name, methodNode.desc, classNode.name);
 
-                        String returnTypeDesc = Type.getReturnType(methodNode.desc).getDescriptor();
-                        String fieldName = "$ppatches_" + methodNode.name;
-
-                        //add code to all constructors which initializes the new field to the constant value
-                        for (MethodNode ctor : BytecodeHelper.findMethod(classNode, "<init>")) {
-                            MethodInsnNode superCtorInvocation = BytecodeHelper.findSuperCtorInvocationInCtor(classNode, ctor).orElse(null);
-                            if (superCtorInvocation != null) {
-                                ctor.maxStack = Math.max(ctor.maxStack, 2); //extend the stack if necessary
-                                BytecodeHelper.insertAfter(superCtorInvocation, ctor.instructions,
-                                        new VarInsnNode(ALOAD, 0),
-                                        loadConstantReturnValueInsn.get().clone(null),
-                                        new FieldInsnNode(PUTFIELD, rootClassName, fieldName, returnTypeDesc));
-                            }
-                        }
-
-                        //remove the overridden method
-                        itr.remove();
+                        //rename the original method so that the base constructor can store the result into the field
+                        methodNode.access = ACC_PROTECTED;
+                        methodNode.name = "$ppatches_flattenedConstantValue_" + methodNode.name;
+                        methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc));
 
                         changedFlags |= CHANGED_MANDATORY;
                     } else {
