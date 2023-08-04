@@ -144,6 +144,8 @@ public class BytecodeHelper {
                 return 0.0f;
             case FCONST_1:
                 return 1.0f;
+            case FCONST_2:
+                return 2.0f;
             case DCONST_0:
                 return 0.0d;
             case DCONST_1:
