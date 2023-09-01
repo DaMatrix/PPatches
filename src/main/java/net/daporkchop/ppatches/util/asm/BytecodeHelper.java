@@ -72,6 +72,26 @@ public class BytecodeHelper {
     // <instruction equality checks>
     //
 
+    private static boolean isMethod(MethodInsnNode insn, String owner, String name, String desc) {
+        return owner.equals(insn.owner) && name.equals(insn.name) && desc.equals(insn.desc);
+    }
+
+    public static boolean isINVOKEVIRTUAL(AbstractInsnNode insn, String owner, String name, String desc) {
+        return insn.getOpcode() == INVOKEVIRTUAL && isMethod((MethodInsnNode) insn, owner, name, desc);
+    }
+
+    public static boolean isINVOKESPECIAL(AbstractInsnNode insn, String owner, String name, String desc) {
+        return insn.getOpcode() == INVOKESPECIAL && isMethod((MethodInsnNode) insn, owner, name, desc);
+    }
+
+    public static boolean isINVOKESTATIC(AbstractInsnNode insn, String owner, String name, String desc) {
+        return insn.getOpcode() == INVOKESTATIC && isMethod((MethodInsnNode) insn, owner, name, desc);
+    }
+
+    public static boolean isINVOKEINTERFACE(AbstractInsnNode insn, String owner, String name, String desc) {
+        return insn.getOpcode() == INVOKEINTERFACE && isMethod((MethodInsnNode) insn, owner, name, desc);
+    }
+
     public static boolean isCHECKCAST(AbstractInsnNode insn, String internalName) {
         return insn.getOpcode() == CHECKCAST && internalName.equals(((TypeInsnNode) insn).desc);
     }
@@ -188,6 +208,42 @@ public class BytecodeHelper {
                 return new InsnNode(DUP2);
         }
         throw new IllegalStateException();
+    }
+
+    public static AbstractInsnNode dup_x1(Type type) {
+        switch (type.getSize()) {
+            case 1:
+                return new InsnNode(DUP_X1);
+            case 2:
+                return new InsnNode(DUP2_X1);
+        }
+        throw new IllegalStateException();
+    }
+
+    public static AbstractInsnNode dup_x2(Type type) {
+        switch (type.getSize()) {
+            case 1:
+                return new InsnNode(DUP_X2);
+            case 2:
+                return new InsnNode(DUP2_X2);
+        }
+        throw new IllegalStateException();
+    }
+
+    public static InsnList swap(Type t0, Type t1) {
+        int s0 = t0.getSize();
+        int s1 = t1.getSize();
+        if (s0 == 1 && s1 == 1) {
+            return makeInsnList(new InsnNode(SWAP));
+        } else if (s0 == 1 && s1 == 2) {
+            return makeInsnList(new InsnNode(DUP2_X1), new InsnNode(POP2));
+        } else if (s0 == 2 && s1 == 1) {
+            return makeInsnList(new InsnNode(DUP_X2), new InsnNode(POP));
+        } else if (s0 == 2 && s1 == 2) {
+            return makeInsnList(new InsnNode(DUP2_X2), new InsnNode(POP2));
+        } else {
+            throw new IllegalStateException();
+        }
     }
 
     public static AbstractInsnNode pop(Type type) {

@@ -50,7 +50,7 @@ ext {
     //dependency things
     configanytimeVersion = "1.0"
     guavaVersion = "21.0"
-    lombokVersion = "1.16.20"
+    lombokVersion = "1.18.20"
     mixinVersion = "0.8.2"
 }
 

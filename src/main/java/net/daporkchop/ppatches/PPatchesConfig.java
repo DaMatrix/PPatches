@@ -89,6 +89,16 @@ public class PPatchesConfig {
     public static final ModuleConfigBase forge_preventSplashScreenAutoDisable = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Rewrites simple usages of Java's Stream API into equivalent loop(s) and conditional(s).",
+            "This can significantly improve performance when using mods which make extensive use of the Stream API, however vanilla code is unlikely to benefit.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            hasMixins = false,
+            transformerClass = "net.daporkchop.ppatches.modules.java.flattenStreams.FlattenStreamsTransformer")
+    public static final ModuleConfigBase java_flattenStreams = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches all Java code to move construction of exception objects out of the main method body and into a separate INVOKEDYNAMIC instruction.",
             "This could theoretically improve performance in specific scenarios and on specific JVMs, but don't expect to see measurable improvements.",
     })
