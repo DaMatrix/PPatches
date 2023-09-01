@@ -1,10 +1,13 @@
 package net.daporkchop.ppatches.modules.java.flattenStreams;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.With;
@@ -12,6 +15,7 @@ import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.TypeUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
+import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
 import net.daporkchop.ppatches.util.asm.LVTReference;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.objectweb.asm.Type;
@@ -94,7 +98,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
     private static final Map<Type, PerElementTypeInfo> ELEMENT_TYPE_INFO = ImmutableMap.<Type, PerElementTypeInfo>builder()
             .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo(
                     Type.getType(Stream.class), TypeUtils.OBJECT_TYPE,
-                    Type.getType(Object[].class), Type.getType(Optional.class), null,
+                    Type.getType(Object[].class), Type.getType(ObjectArrayList.class), Type.getType(Optional.class), null,
                     Type.getType(Predicate.class),
                     Type.getType(Consumer.class),
                     new Type[]{Type.getType(Comparator.class)},
@@ -123,7 +127,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
 
             .put(Type.INT_TYPE, new PerElementTypeInfo(
                     Type.getType(IntStream.class), Type.INT_TYPE,
-                    Type.getType(int[].class), Type.getType(OptionalInt.class), Type.getType(IntSummaryStatistics.class),
+                    Type.getType(int[].class), Type.getType(IntArrayList.class), Type.getType(OptionalInt.class), Type.getType(IntSummaryStatistics.class),
                     Type.getType(IntPredicate.class),
                     Type.getType(IntConsumer.class),
                     new Type[0],
@@ -152,7 +156,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
 
             .put(Type.LONG_TYPE, new PerElementTypeInfo(
                     Type.getType(LongStream.class), Type.LONG_TYPE,
-                    Type.getType(long[].class), Type.getType(OptionalLong.class), Type.getType(LongSummaryStatistics.class),
+                    Type.getType(long[].class), Type.getType(LongArrayList.class), Type.getType(OptionalLong.class), Type.getType(LongSummaryStatistics.class),
                     Type.getType(LongPredicate.class),
                     Type.getType(LongConsumer.class),
                     new Type[0],
@@ -179,7 +183,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
 
             .put(Type.DOUBLE_TYPE, new PerElementTypeInfo(
                     Type.getType(DoubleStream.class), Type.DOUBLE_TYPE,
-                    Type.getType(double[].class), Type.getType(OptionalDouble.class), Type.getType(DoubleSummaryStatistics.class),
+                    Type.getType(double[].class), Type.getType(DoubleArrayList.class), Type.getType(OptionalDouble.class), Type.getType(DoubleSummaryStatistics.class),
                     Type.getType(DoublePredicate.class),
                     Type.getType(DoubleConsumer.class),
                     new Type[0],
@@ -209,6 +213,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         public final Type elementType;
 
         public final Type elementArrayType;
+        public final Type elementArrayListType;
         public final Type elementOptionalType;
         public final Type elementSummaryStatisticsType;
 
@@ -264,7 +269,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             } else if ((BytecodeHelper.isINVOKEVIRTUAL(insn, insn.owner, "stream", Type.getMethodDescriptor(streamClass))
                         || BytecodeHelper.isINVOKEINTERFACE(insn, insn.owner, "stream", Type.getMethodDescriptor(streamClass)))
                        && TypeUtils.hasSuperClass(insn.owner, Type.getInternalName(Collection.class))) {
-                int knownSpliteratorCharacteristics = Spliterator.SIZED;
+                //TODO: a better way of determining whether the input collection is sized
+                int knownSpliteratorCharacteristics = 0;
 
                 if (TypeUtils.hasSuperClass(insn.owner, Type.getInternalName(List.class))) {
                     knownSpliteratorCharacteristics |= Spliterator.ORDERED;
@@ -556,7 +562,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns);
 
         default void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
-            throw new UnsupportedOperationException(this.getClass().getTypeName()); //TODO
+            throw new UnsupportedOperationException("visitCode on " + this.getClass().getTypeName()); //TODO
         }
 
         void visitDone(InsnList out, LabelNode breakLabel, LabelNode returnLabel);
@@ -570,6 +576,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         default Type producedElementType() {
             return getRawElementType(Type.getReturnType(this.stageInsn().desc));
         }
+
+        void loadExactSize(InsnList out, boolean asInt);
     }
 
     private interface ConsumerStage extends Stage {
@@ -623,6 +631,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             this.nextStage.visitDone(out, breakLabel, returnLabel);
         }
 
+        @Override
+        public void loadExactSize(InsnList out, boolean asInt) {
+            throw new UnsupportedOperationException("loadExactSize on " + this.getClass().getTypeName());
+        }
+
         private static class OfEmpty extends Source {
             public OfEmpty(MethodInsnNode stageInsn) {
                 super(stageInsn, Spliterator.ORDERED | Spliterator.DISTINCT | Spliterator.SIZED | Spliterator.SUBSIZED | Spliterator.IMMUTABLE);
@@ -636,6 +649,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
                 //no-op
+            }
+
+            @Override
+            public void loadExactSize(InsnList out, boolean asInt) {
+                out.add(new InsnNode(asInt ? ICONST_0 : LCONST_0));
             }
         }
 
@@ -655,6 +673,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
                 this.nextStage.visitCode(out, labels.withSkipLabel(labels.breakLabel), this.singleValue);
+            }
+
+            @Override
+            public void loadExactSize(InsnList out, boolean asInt) {
+                out.add(new InsnNode(asInt ? ICONST_1 : LCONST_1));
             }
         }
 
@@ -696,6 +719,15 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 out.add(new IincInsnNode(this.indexValue.var(), 1));
                 out.add(new JumpInsnNode(GOTO, headLabel));
             }
+
+            @Override
+            public void loadExactSize(InsnList out, boolean asInt) {
+                out.add(this.arrayValue.makeLoad());
+                out.add(new InsnNode(ARRAYLENGTH));
+                if (!asInt) {
+                    out.add(new InsnNode(I2L));
+                }
+            }
         }
 
         private static class OfArraySubsequence extends Source {
@@ -711,6 +743,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
 
             protected LVTReference minValue;
             protected LVTReference maxValue;
+            protected LVTReference currentValue;
 
             public OfRange(MethodInsnNode stageInsn, boolean closed) {
                 super(stageInsn, Spliterator.ORDERED | Spliterator.SIZED | Spliterator.SUBSIZED | Spliterator.IMMUTABLE | Spliterator.NONNULL | Spliterator.DISTINCT | Spliterator.SORTED);
@@ -722,6 +755,10 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
                 this.minValue = rawOperandValues.get(0);
                 this.maxValue = rawOperandValues.get(1);
+
+                this.currentValue = transformedOperandLvtAlloc.apply(rawOperandTypes.get(0));
+                transformInsns.add(this.minValue.makeLoad());
+                transformInsns.add(this.currentValue.makeStore());
             }
 
             @Override
@@ -732,7 +769,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 LabelNode incrementLabel = new LabelNode();
 
                 out.add(headLabel);
-                out.add(this.minValue.makeLoad());
+                out.add(this.currentValue.makeLoad());
                 out.add(this.maxValue.makeLoad());
                 if (this.producedElementType().equals(Type.INT_TYPE)) {
                     out.add(new JumpInsnNode(this.closed ? IF_ICMPGT : IF_ICMPGE, labels.breakLabel));
@@ -740,21 +777,44 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     out.add(new InsnNode(LCMP));
                     out.add(new JumpInsnNode(this.closed ? IFGT : IFGE, labels.breakLabel));
                 }
-                this.nextStage.visitCode(out, labels.withSkipLabel(incrementLabel), this.minValue);
+                this.nextStage.visitCode(out, labels.withSkipLabel(incrementLabel), this.currentValue);
                 out.add(incrementLabel);
                 if (this.producedElementType().equals(Type.INT_TYPE)) {
-                    out.add(new IincInsnNode(this.minValue.var(), 1));
+                    out.add(new IincInsnNode(this.currentValue.var(), 1));
                 } else {
-                    out.add(this.minValue.makeLoad());
+                    out.add(this.currentValue.makeLoad());
                     out.add(new InsnNode(LCONST_1));
                     out.add(new InsnNode(LADD));
-                    out.add(this.minValue.makeStore());
+                    out.add(this.currentValue.makeStore());
                 }
                 out.add(new JumpInsnNode(GOTO, headLabel));
+            }
+
+            @Override
+            public void loadExactSize(InsnList out, boolean asInt) {
+                out.add(this.maxValue.makeLoad());
+                out.add(this.minValue.makeLoad());
+                out.add(new InsnNode(this.producedElementType().getOpcode(ISUB)));
+                if (this.closed) {
+                    out.add(new InsnNode(this.producedElementType().equals(Type.INT_TYPE) ? ICONST_1 : LCONST_1));
+                    out.add(new InsnNode(this.producedElementType().getOpcode(IADD)));
+                }
+
+                out.add(BytecodeHelper.loadConstantDefaultValueInsn(this.producedElementType()));
+                out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Math.class), "max", Type.getMethodDescriptor(this.producedElementType(), this.producedElementType(), this.producedElementType()), false));
+
+                if (this.producedElementType().equals(Type.INT_TYPE)) {
+                    if (!asInt) {
+                        out.add(new InsnNode(I2L));
+                    }
+                } else if (asInt) {
+                    out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Math.class), "toIntExact", "(J)I", false));
+                }
             }
         }
 
         private static class OfCollection extends Source {
+            protected LVTReference collectionValue;
             protected LVTReference iteratorValue;
 
             public OfCollection(MethodInsnNode stageInsn, int knownSpliteratorCharacteristics) {
@@ -764,8 +824,9 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             @Override
             public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
                 super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
+                this.collectionValue = rawOperandValues.get(0);
                 this.iteratorValue = transformedOperandLvtAlloc.apply(Type.getType(Iterator.class));
-                transformInsns.add(rawOperandValues.get(0).makeLoad());
+                transformInsns.add(this.collectionValue.makeLoad());
                 transformInsns.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(Collection.class), "iterator", Type.getMethodDescriptor(Type.getType(Iterator.class)), true));
                 transformInsns.add(this.iteratorValue.makeStore());
             }
@@ -785,6 +846,15 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 out.add(this.producedValue.makeStore());
                 this.nextStage.visitCode(out, labels.withSkipLabel(headLabel), this.producedValue);
                 out.add(new JumpInsnNode(GOTO, headLabel));
+            }
+
+            @Override
+            public void loadExactSize(InsnList out, boolean asInt) {
+                out.add(this.collectionValue.makeLoad());
+                out.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(Collection.class), "size", "()I", true));
+                if (!asInt) {
+                    out.add(new InsnNode(I2L));
+                }
             }
         }
 
@@ -843,6 +913,12 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         @Override
         public void visitDone(InsnList out, LabelNode breakLabel, LabelNode returnLabel) {
             this.nextStage.visitDone(out, breakLabel, returnLabel);
+        }
+
+        @Override
+        public void loadExactSize(InsnList out, boolean asInt) {
+            Preconditions.checkState((this.knownSpliteratorCharacteristics() & Spliterator.SIZED) != 0);
+            this.previousStage.loadExactSize(out, asInt);
         }
 
         private static class Filter extends IntermediateOp {
@@ -925,13 +1001,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             //TODO
         }
 
-        private static abstract class Buffered extends IntermediateOp {
-            public Buffered(MethodInsnNode stageInsn, boolean doesProduceValue) {
-                super(stageInsn, doesProduceValue);
-            }
-        }
-
-        private static class Distinct extends Buffered {
+        private static class Distinct extends IntermediateOp {
             public Distinct(MethodInsnNode stageInsn) {
                 super(stageInsn, true);
             }
@@ -947,7 +1017,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             //TODO
         }
 
-        private static class Sorted extends Buffered {
+        private static class Sorted extends IntermediateOp {
             public final boolean hasComparator;
 
             protected LVTReference comparatorValue;
@@ -975,26 +1045,17 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 if (this.hasComparator) {
                     this.comparatorValue = rawOperandValues.get(0);
                 }
-                
-                switch (this.consumedElementType().getSort()) {
-                    case Type.ARRAY:
-                    case Type.OBJECT:
-                        this.listType = Type.getType(ArrayList.class);
-                        break;
-                    case Type.INT:
-                        this.listType = Type.getType(IntArrayList.class);
-                        break;
-                    case Type.LONG:
-                        this.listType = Type.getType(LongArrayList.class);
-                        break;
-                    case Type.DOUBLE:
-                        this.listType = Type.getType(DoubleArrayList.class);
-                        break;
-                }
+
+                this.listType = this.consumedElementTypeInfo().elementArrayListType;
                 this.listValue = transformedOperandLvtAlloc.apply(this.listType);
                 transformInsns.add(new TypeInsnNode(NEW, this.listType.getInternalName()));
                 transformInsns.add(new InsnNode(DUP));
-                transformInsns.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "()V", false));
+                if ((this.previousStage.knownSpliteratorCharacteristics() & Spliterator.SIZED) != 0) { //we can preallocate the backing array exactly
+                    this.previousStage.loadExactSize(transformInsns, true);
+                    transformInsns.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "(I)V", false));
+                } else {
+                    transformInsns.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "()V", false));
+                }
                 transformInsns.add(this.listValue.makeStore());
 
                 this.indexValue = transformedOperandLvtAlloc.apply(Type.INT_TYPE);
@@ -1012,16 +1073,19 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
 
             @Override
             public void visitDone(InsnList out, LabelNode breakLabel, LabelNode returnLabel) {
+                PerElementTypeInfo info = this.consumedElementTypeInfo();
+
                 //sort the array
                 out.add(this.listValue.makeLoad());
-                if (BytecodeHelper.isReference(this.consumedElementType())) {
-                    out.add(this.hasComparator
-                            ? this.comparatorValue.makeLoad()
-                            : new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Comparator.class), "naturalOrder", Type.getMethodDescriptor(Type.getType(Comparator.class)), false));
-                    out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "sort", Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(Comparator.class)), false));
+                out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "elements", Type.getMethodDescriptor(info.elementArrayType), false));
+                out.add(new InsnNode(ICONST_0));
+                out.add(this.listValue.makeLoad());
+                out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "size", "()I", false));
+                if (this.hasComparator) {
+                    out.add(this.comparatorValue.makeLoad());
+                    out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Arrays.class), "sort", Type.getMethodDescriptor(Type.VOID_TYPE, info.elementArrayType, Type.INT_TYPE, Type.INT_TYPE, Type.getType(Comparator.class)), false));
                 } else {
-                    out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "elements", Type.getMethodDescriptor(this.consumedElementTypeInfo().elementArrayType), false));
-                    out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Arrays.class), "sort", Type.getMethodDescriptor(Type.VOID_TYPE, this.consumedElementTypeInfo().elementArrayType), false));
+                    out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Arrays.class), "sort", Type.getMethodDescriptor(Type.VOID_TYPE, info.elementArrayType, Type.INT_TYPE, Type.INT_TYPE), false));
                 }
 
                 //iterate over the elements and pass them to the next stage
@@ -1076,7 +1140,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         }
 
         private static class Limit extends IntermediateOp {
-            protected LVTReference nValue;
+            protected LVTReference maxSizeValue;
+            protected LVTReference currValue;
 
             public Limit(MethodInsnNode stageInsn) {
                 super(stageInsn, false);
@@ -1085,27 +1150,44 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             @Override
             public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
                 super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.nValue = rawOperandValues.get(0);
+                this.maxSizeValue = rawOperandValues.get(0);
+                this.currValue = transformedOperandLvtAlloc.apply(Type.LONG_TYPE);
+                transformInsns.add(new InsnNode(LCONST_0));
+                transformInsns.add(this.currValue.makeStore());
+
+                //TODO: throw exception if maxSize is negative
             }
 
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
-                // if (n <= 0L) break; else { n = n - 1L; nextStage(consumedValue); }
+                // if (curr >= maxSize) break; else { curr++; nextStage(consumedValue); }
 
-                out.add(this.nValue.makeLoad());
-                out.add(new InsnNode(LCONST_0));
+                out.add(this.currValue.makeLoad());
+                out.add(this.maxSizeValue.makeLoad());
                 out.add(new InsnNode(LCMP));
-                out.add(new JumpInsnNode(IFLE, labels.breakLabel));
-                out.add(this.nValue.makeLoad());
+                out.add(new JumpInsnNode(IFGE, labels.breakLabel));
+                out.add(this.currValue.makeLoad());
                 out.add(new InsnNode(LCONST_1));
-                out.add(new InsnNode(LSUB));
-                out.add(this.nValue.makeStore());
+                out.add(new InsnNode(LADD));
+                out.add(this.currValue.makeStore());
                 this.nextStage.visitCode(out, labels, consumedValue);
+            }
+
+            @Override
+            public void loadExactSize(InsnList out, boolean asInt) {
+                super.loadExactSize(out, false);
+
+                out.add(this.maxSizeValue.makeLoad());
+                out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Math.class), "min", "(JJ)J", false));
+                if (asInt) {
+                    out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Math.class), "toIntExact", "(J)I", false));
+                }
             }
         }
 
         private static class Skip extends IntermediateOp {
             protected LVTReference nValue;
+            protected LVTReference currValue;
 
             public Skip(MethodInsnNode stageInsn) {
                 super(stageInsn, false);
@@ -1115,25 +1197,43 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
                 super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
                 this.nValue = rawOperandValues.get(0);
+                this.currValue = transformedOperandLvtAlloc.apply(Type.LONG_TYPE);
+                transformInsns.add(new InsnNode(LCONST_0));
+                transformInsns.add(this.currValue.makeStore());
+
+                //TODO: throw exception if n is negative
             }
 
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
-                // if (n <= 0L) nextStage(consumedValue); else n = n - 1L;
+                // if (curr >= n) nextStage(consumedValue); else curr++;
 
                 LabelNode passLabel = new LabelNode();
 
+                out.add(this.currValue.makeLoad());
                 out.add(this.nValue.makeLoad());
-                out.add(new InsnNode(LCONST_0));
                 out.add(new InsnNode(LCMP));
-                out.add(new JumpInsnNode(IFLE, passLabel));
-                out.add(this.nValue.makeLoad());
+                out.add(new JumpInsnNode(IFGE, passLabel));
+                out.add(this.currValue.makeLoad());
                 out.add(new InsnNode(LCONST_1));
-                out.add(new InsnNode(LSUB));
-                out.add(this.nValue.makeStore());
+                out.add(new InsnNode(LADD));
+                out.add(this.currValue.makeStore());
                 out.add(new JumpInsnNode(GOTO, labels.skipLabel));
                 out.add(passLabel);
                 this.nextStage.visitCode(out, labels, consumedValue);
+            }
+
+            @Override
+            public void loadExactSize(InsnList out, boolean asInt) {
+                super.loadExactSize(out, false);
+
+                out.add(this.nValue.makeLoad());
+                out.add(new InsnNode(LSUB));
+                out.add(new InsnNode(LCONST_0));
+                out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Math.class), "max", "(JJ)J", false));
+                if (asInt) {
+                    out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Math.class), "toIntExact", "(J)I", false));
+                }
             }
         }
 
@@ -1145,7 +1245,13 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 this.convertInsn = convertInsn;
             }
 
-            //TODO
+            @Override
+            public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
+                out.add(consumedValue.makeLoad());
+                out.add(this.convertInsn.clone(null));
+                out.add(this.producedValue.makeStore());
+                this.nextStage.visitCode(out, labels, this.producedValue);
+            }
         }
     }
 
@@ -1209,6 +1315,9 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             protected Type listType;
             protected LVTReference listValue;
 
+            protected LVTReference fixedArrayValue;
+            protected LVTReference writeIndexValue;
+
             public ToArray(MethodInsnNode stageInsn, boolean hasGenerator) {
                 super(stageInsn);
                 this.hasGenerator = hasGenerator;
@@ -1221,58 +1330,100 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     this.generatorValue = rawOperandValues.get(0);
                 }
 
-                switch (this.consumedElementType().getSort()) {
-                    case Type.ARRAY:
-                    case Type.OBJECT:
-                        this.listType = Type.getType(ArrayList.class);
-                        break;
-                    case Type.INT:
-                        this.listType = Type.getType(IntArrayList.class);
-                        break;
-                    case Type.LONG:
-                        this.listType = Type.getType(LongArrayList.class);
-                        break;
-                    case Type.DOUBLE:
-                        this.listType = Type.getType(DoubleArrayList.class);
-                        break;
+                PerElementTypeInfo info = this.consumedElementTypeInfo();
+
+                if ((this.previousStage.knownSpliteratorCharacteristics() & Spliterator.SIZED) != 0) { //we can preallocate the backing array exactly
+                    this.fixedArrayValue = transformedOperandLvtAlloc.apply(info.elementArrayType);
+                    if (this.hasGenerator) {
+                        transformInsns.add(this.generatorValue.makeLoad());
+                        this.previousStage.loadExactSize(transformInsns, true);
+                        transformInsns.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(TypeUtils.OBJECT_TYPE, Type.INT_TYPE), true));
+                        transformInsns.add(new TypeInsnNode(CHECKCAST, info.elementArrayType.getInternalName()));
+                    } else {
+                        this.previousStage.loadExactSize(transformInsns, true);
+                        transformInsns.add(BytecodeHelper.generateNewArray(info.elementType));
+                    }
+                    transformInsns.add(this.fixedArrayValue.makeStore());
+
+                    this.writeIndexValue = transformedOperandLvtAlloc.apply(Type.INT_TYPE);
+                    transformInsns.add(new InsnNode(ICONST_0));
+                    transformInsns.add(this.writeIndexValue.makeStore());
+                } else {
+                    //TODO: i'd like to use some kind of spined buffer in this case
+                    this.listType = this.consumedElementTypeInfo().elementArrayListType;
+                    this.listValue = transformedOperandLvtAlloc.apply(this.listType);
+                    transformInsns.add(new TypeInsnNode(NEW, this.listType.getInternalName()));
+                    transformInsns.add(new InsnNode(DUP));
+                    transformInsns.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "()V", false));
+                    transformInsns.add(this.listValue.makeStore());
                 }
-                this.listValue = transformedOperandLvtAlloc.apply(this.listType);
-                transformInsns.add(new TypeInsnNode(NEW, this.listType.getInternalName()));
-                transformInsns.add(new InsnNode(DUP));
-                transformInsns.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "()V", false));
-                transformInsns.add(this.listValue.makeStore());
             }
 
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
-                // list.add(consumedValue);
+                if ((this.previousStage.knownSpliteratorCharacteristics() & Spliterator.SIZED) != 0) {
+                    // { fixedArray[writeIndex] = consumedValue; writeIndex++; }
 
-                out.add(this.listValue.makeLoad());
-                out.add(consumedValue.makeLoad());
-                out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "add", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, this.consumedElementType()), false));
-                out.add(new InsnNode(POP));
+                    out.add(this.fixedArrayValue.makeLoad());
+                    out.add(this.writeIndexValue.makeLoad());
+                    out.add(consumedValue.makeLoad());
+                    out.add(new InsnNode(this.consumedElementType().getOpcode(IASTORE)));
+                    out.add(new IincInsnNode(this.writeIndexValue.var(), 1));
+                } else {
+                    // list.add(consumedValue);
+
+                    out.add(this.listValue.makeLoad());
+                    out.add(consumedValue.makeLoad());
+                    out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "add", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, this.consumedElementType()), false));
+                    out.add(new InsnNode(POP));
+                }
             }
 
             @Override
             public void finalizeReturnValue(InsnList out) {
                 PerElementTypeInfo info = this.consumedElementTypeInfo();
 
-                out.add(this.listValue.makeLoad());
-                if (this.hasGenerator) {
-                    // list.toArray((Object[]) generator.apply(list.size()));
-                    out.add(this.generatorValue.makeLoad());
-                    out.add(this.listValue.makeLoad());
-                    out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "size", Type.getMethodDescriptor(Type.INT_TYPE), false));
-                    out.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(TypeUtils.OBJECT_TYPE, Type.INT_TYPE), true));
-                    out.add(new TypeInsnNode(CHECKCAST, info.elementArrayType.getInternalName()));
-                    out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "toArray", Type.getMethodDescriptor(info.elementArrayType, info.elementArrayType), false));
-                } else if (BytecodeHelper.isReference(info.elementType)) {
-                    // list.toArray();
-                    out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "toArray", Type.getMethodDescriptor(info.elementArrayType), false));
+                if ((this.previousStage.knownSpliteratorCharacteristics() & Spliterator.SIZED) != 0) {
+                    // { if (writeIndex != fixedArray.length) { throw new IllegalStateException(); } return fixedArray; }
+                    LabelNode tailLabel = new LabelNode();
+
+                    out.add(this.writeIndexValue.makeLoad());
+                    out.add(this.fixedArrayValue.makeLoad());
+                    out.add(new InsnNode(ARRAYLENGTH));
+                    out.add(new JumpInsnNode(IF_ICMPEQ, tailLabel));
+                    out.add(InvokeDynamicUtils.makeNewException(IllegalStateException.class, "Current size less than fixed size"));
+                    out.add(new InsnNode(ATHROW));
+                    out.add(tailLabel);
+                    out.add(this.fixedArrayValue.makeLoad());
                 } else {
-                    // list.toArray((int[]) null);
-                    out.add(new InsnNode(ACONST_NULL));
-                    out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "toArray", Type.getMethodDescriptor(info.elementArrayType, info.elementArrayType), false));
+                    if (this.hasGenerator) {
+                        // list.toArray((Object[]) generator.apply(list.size()));
+                        out.add(this.listValue.makeLoad());
+                        out.add(this.generatorValue.makeLoad());
+                        out.add(this.listValue.makeLoad());
+                        out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "size", Type.getMethodDescriptor(Type.INT_TYPE), false));
+                        out.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(TypeUtils.OBJECT_TYPE, Type.INT_TYPE), true));
+                        out.add(new TypeInsnNode(CHECKCAST, info.elementArrayType.getInternalName()));
+                        out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "toArray", Type.getMethodDescriptor(info.elementArrayType, info.elementArrayType), false));
+                    } else {
+                        // (list.elements().length == list.size() ? list.elements() : Arrays.copyOf(list.elements(), list.size()))
+
+                        LabelNode tailLabel = new LabelNode();
+
+                        out.add(this.listValue.makeLoad());
+                        out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "elements", Type.getMethodDescriptor(info.elementArrayType), false));
+                        out.add(new InsnNode(DUP));
+                        out.add(new InsnNode(ARRAYLENGTH));
+                        out.add(this.listValue.makeLoad());
+                        out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "size", Type.getMethodDescriptor(Type.INT_TYPE), false));
+                        out.add(new JumpInsnNode(IF_ICMPEQ, tailLabel));
+
+                        out.add(this.listValue.makeLoad());
+                        out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "size", Type.getMethodDescriptor(Type.INT_TYPE), false));
+                        out.add(new MethodInsnNode(INVOKESTATIC, Type.getInternalName(Arrays.class), "copyOf", Type.getMethodDescriptor(info.elementArrayType, info.elementArrayType, Type.INT_TYPE), false));
+
+                        out.add(tailLabel);
+                    }
                 }
             }
         }

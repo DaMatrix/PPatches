@@ -282,6 +282,42 @@ public class BytecodeHelper {
         return new MethodInsnNode(INVOKEVIRTUAL, boxedInternalName(primitiveType), primitiveType.getClassName() + "Value", "()" + primitiveType, false);
     }
 
+    public static AbstractInsnNode generateNewArray(Type elementType) {
+        int primitiveType;
+        switch (elementType.getSort()) {
+            case Type.ARRAY:
+            case Type.OBJECT:
+                return new TypeInsnNode(ANEWARRAY, elementType.getInternalName());
+            case Type.BOOLEAN:
+                primitiveType = T_BOOLEAN;
+                break;
+            case Type.CHAR:
+                primitiveType = T_CHAR;
+                break;
+            case Type.BYTE:
+                primitiveType = T_BYTE;
+                break;
+            case Type.SHORT:
+                primitiveType = T_SHORT;
+                break;
+            case Type.INT:
+                primitiveType = T_INT;
+                break;
+            case Type.LONG:
+                primitiveType = T_LONG;
+                break;
+            case Type.FLOAT:
+                primitiveType = T_FLOAT;
+                break;
+            case Type.DOUBLE:
+                primitiveType = T_DOUBLE;
+                break;
+            default:
+                throw new IllegalArgumentException("can't make array of type " + elementType);
+        }
+        return new IntInsnNode(NEWARRAY, primitiveType);
+    }
+
     public static InsnList generateNonNullAssertion(boolean preserveOnStack, Object... optionalStaticMethodComponents) {
         InsnList seq = new InsnList();
         LabelNode tailLbl = new LabelNode();
@@ -474,7 +510,19 @@ public class BytecodeHelper {
 
     @SneakyThrows(AnalyzerException.class)
     public static Frame<SourceValue>[] analyzeSources(String ownerName, MethodNode methodNode) {
-        return new Analyzer<>(new SourceInterpreter()).analyze(ownerName, methodNode);
+        do {
+            try {
+                return new Analyzer<>(new SourceInterpreter()).analyze(ownerName, methodNode);
+            } catch (AnalyzerException e) {
+                if (e.getMessage().endsWith("Insufficient maximum stack size.")) {
+                    //the method has probably been modified by another transformer and its maximum stack size needs to be
+                    //recomputed, so we'll fix it here (very inefficiently)
+                    methodNode.maxStack++;
+                    continue;
+                }
+                throw e;
+            }
+        } while (true);
     }
 
     public static Set<AbstractInsnNode> analyzeUsages(String ownerName, MethodNode methodNode, Frame<SourceValue>[] sources, AbstractInsnNode sourceInsn) {
