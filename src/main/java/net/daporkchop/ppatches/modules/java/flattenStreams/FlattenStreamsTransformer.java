@@ -54,7 +54,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
     private static Type getRawElementType(String streamTypeInternalName) {
         switch (streamTypeInternalName) {
             case "java/util/stream/Stream":
-                return TypeUtils.OBJECT_TYPE;
+                return Type.getType(Object.class);
             case "java/util/stream/IntStream":
                 return Type.INT_TYPE;
             case "java/util/stream/LongStream":
@@ -89,22 +89,22 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
     }
 
     private static final Type[] ELEMENT_TYPES = {
-            TypeUtils.OBJECT_TYPE,
+            Type.getType(Object.class),
             Type.INT_TYPE,
             Type.LONG_TYPE,
             Type.DOUBLE_TYPE,
     };
 
     private static final Map<Type, PerElementTypeInfo> ELEMENT_TYPE_INFO = ImmutableMap.<Type, PerElementTypeInfo>builder()
-            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo(
-                    Type.getType(Stream.class), TypeUtils.OBJECT_TYPE,
+            .put(Type.getType(Object.class), new PerElementTypeInfo(
+                    Type.getType(Stream.class), Type.getType(Object.class),
                     Type.getType(Object[].class), Type.getType(ObjectArrayList.class), Type.getType(Optional.class), null,
                     Type.getType(Predicate.class),
                     Type.getType(Consumer.class),
                     new Type[]{Type.getType(Comparator.class)},
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    TypeUtils.OBJECT_TYPE, "map", Type.getType(Function.class), "apply"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
+                                    Type.getType(Object.class), "map", Type.getType(Function.class), "apply"))
                             .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
                                     Type.INT_TYPE, "mapToInt", Type.getType(ToIntFunction.class), "applyAsInt"))
                             .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
@@ -113,8 +113,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                                     Type.DOUBLE_TYPE, "mapToDouble", Type.getType(ToDoubleFunction.class), "applyAsDouble"))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    TypeUtils.OBJECT_TYPE, "flatMap", Type.getType(Function.class), "apply"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
+                                    Type.getType(Object.class), "flatMap", Type.getType(Function.class), "apply"))
                             .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
                                     Type.INT_TYPE, "flatMapToInt", Type.getType(Function.class), "apply"))
                             .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
@@ -132,8 +132,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     Type.getType(IntConsumer.class),
                     new Type[0],
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    TypeUtils.OBJECT_TYPE, "mapToObj", Type.getType(IntFunction.class), "apply"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
+                                    Type.getType(Object.class), "mapToObj", Type.getType(IntFunction.class), "apply"))
                             .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
                                     Type.INT_TYPE, "map", Type.getType(IntUnaryOperator.class), "applyAsInt"))
                             .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
@@ -146,8 +146,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                                     Type.INT_TYPE, "flatMap", Type.getType(IntFunction.class), "apply"))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultConvertTypeInfo>builder()
-                            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo.PerResultConvertTypeInfo(
-                                    TypeUtils.OBJECT_TYPE, "boxed", BytecodeHelper.generateBoxingConversion(Type.INT_TYPE)))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultConvertTypeInfo(
+                                    Type.getType(Object.class), "boxed", BytecodeHelper.generateBoxingConversion(Type.INT_TYPE)))
                             .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultConvertTypeInfo(
                                     Type.LONG_TYPE, "asLongStream", new InsnNode(I2L)))
                             .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultConvertTypeInfo(
@@ -161,8 +161,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     Type.getType(LongConsumer.class),
                     new Type[0],
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    TypeUtils.OBJECT_TYPE, "mapToObj", Type.getType(LongFunction.class), "apply"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
+                                    Type.getType(Object.class), "mapToObj", Type.getType(LongFunction.class), "apply"))
                             .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
                                     Type.INT_TYPE, "mapToInt", Type.getType(LongToIntFunction.class), "applyAsInt"))
                             .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
@@ -175,8 +175,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                                     Type.LONG_TYPE, "flatMap", Type.getType(LongFunction.class), "apply"))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultConvertTypeInfo>builder()
-                            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo.PerResultConvertTypeInfo(
-                                    TypeUtils.OBJECT_TYPE, "boxed", BytecodeHelper.generateBoxingConversion(Type.LONG_TYPE)))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultConvertTypeInfo(
+                                    Type.getType(Object.class), "boxed", BytecodeHelper.generateBoxingConversion(Type.LONG_TYPE)))
                             .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultConvertTypeInfo(
                                     Type.DOUBLE_TYPE, "asDoubleStream", new InsnNode(L2D)))
                             .build()))
@@ -188,8 +188,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     Type.getType(DoubleConsumer.class),
                     new Type[0],
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    TypeUtils.OBJECT_TYPE, "mapToObj", Type.getType(DoubleFunction.class), "apply"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
+                                    Type.getType(Object.class), "mapToObj", Type.getType(DoubleFunction.class), "apply"))
                             .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
                                     Type.INT_TYPE, "mapToInt", Type.getType(DoubleToIntFunction.class), "applyAsInt"))
                             .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
@@ -202,8 +202,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                                     Type.DOUBLE_TYPE, "flatMap", Type.getType(DoubleFunction.class), "apply"))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultConvertTypeInfo>builder()
-                            .put(TypeUtils.OBJECT_TYPE, new PerElementTypeInfo.PerResultConvertTypeInfo(
-                                    TypeUtils.OBJECT_TYPE, "boxed", BytecodeHelper.generateBoxingConversion(Type.DOUBLE_TYPE)))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultConvertTypeInfo(
+                                    Type.getType(Object.class), "boxed", BytecodeHelper.generateBoxingConversion(Type.DOUBLE_TYPE)))
                             .build()))
             .build();
 
@@ -1337,7 +1337,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     if (this.hasGenerator) {
                         transformInsns.add(this.generatorValue.makeLoad());
                         this.previousStage.loadExactSize(transformInsns, true);
-                        transformInsns.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(TypeUtils.OBJECT_TYPE, Type.INT_TYPE), true));
+                        transformInsns.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.INT_TYPE), true));
                         transformInsns.add(new TypeInsnNode(CHECKCAST, info.elementArrayType.getInternalName()));
                     } else {
                         this.previousStage.loadExactSize(transformInsns, true);
@@ -1402,7 +1402,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                         out.add(this.generatorValue.makeLoad());
                         out.add(this.listValue.makeLoad());
                         out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "size", Type.getMethodDescriptor(Type.INT_TYPE), false));
-                        out.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(TypeUtils.OBJECT_TYPE, Type.INT_TYPE), true));
+                        out.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.INT_TYPE), true));
                         out.add(new TypeInsnNode(CHECKCAST, info.elementArrayType.getInternalName()));
                         out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "toArray", Type.getMethodDescriptor(info.elementArrayType, info.elementArrayType), false));
                     } else {

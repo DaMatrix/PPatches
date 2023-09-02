@@ -39,8 +39,8 @@ public class PPatchesBootstrap {
         PPatchesMod.LOGGER.info("Adding root loader mixin...");
         Mixins.addConfiguration("mixins.ppatches.json");
 
-        notifyBeginPhase(EFFECTIVE_PHASE);
         addRootTransformer();
+        notifyBeginPhase(EFFECTIVE_PHASE);
     }
 
     public synchronized static void afterMixinDefault() {
@@ -48,10 +48,10 @@ public class PPatchesBootstrap {
         Preconditions.checkState(EFFECTIVE_PHASE == Phase.PREINIT, "previous phase was %s, expected %s", EFFECTIVE_PHASE, Phase.PREINIT);
         EFFECTIVE_PHASE = Phase.AFTER_MIXIN_DEFAULT;
 
-        notifyBeginPhase(EFFECTIVE_PHASE);
-
         //add a transformer here to make sure that our transformers always run after Mixin's transformers
         addRootTransformer();
+
+        notifyBeginPhase(EFFECTIVE_PHASE);
     }
 
     @SneakyThrows

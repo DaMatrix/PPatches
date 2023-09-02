@@ -37,6 +37,16 @@ public class PPatchesConfig {
     private static ImmutableSortedMap<String, ModuleConfigBase> MODULES;
 
     @Config.Comment({
+            "Patches all references to the ObjectWeb ASM library's Type class to limit the number of temporary object allocations.",
+            "This does not directly affect game runtime performance by itself, but should slightly improve load times other transformers are loaded.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            hasMixins = false,
+            transformerClass = "net.daporkchop.ppatches.modules.asm.foldTypeConstants.FoldTypeConstantsTransformer")
+    public static final ModuleConfigBase asm_foldTypeConstants = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches CustomMainMenu to use GlStateManager instead of directly invoking glColor*.",
             "This fixes a bug that normally makes no difference, but is noticeable when using the vanilla.optimizeTessellatorDraw module. Enabling this patch should have"
             + " no performance implications.",

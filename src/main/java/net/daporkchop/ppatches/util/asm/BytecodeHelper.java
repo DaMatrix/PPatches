@@ -5,6 +5,7 @@ import com.google.common.collect.ImmutableSet;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.util.COWArrayUtils;
+import net.daporkchop.ppatches.util.TypeUtils;
 import net.daporkchop.ppatches.util.asm.analysis.ResultUsageGraph;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
@@ -65,6 +66,24 @@ public class BytecodeHelper {
         while (insn != null && !isNormalCodeInstruction(insn)) {
             insn = insn.getNext();
         }
+        return insn;
+    }
+
+    public static boolean isFunctionalInstruction(AbstractInsnNode insn) {
+        return !(insn instanceof FrameNode || insn instanceof LineNumberNode);
+    }
+
+    public static AbstractInsnNode previousFunctionalInstruction(AbstractInsnNode insn) {
+        do {
+            insn = insn.getPrevious();
+        } while (insn != null && !isFunctionalInstruction(insn));
+        return insn;
+    }
+
+    public static AbstractInsnNode neFunctionalInstruction(AbstractInsnNode insn) {
+        do {
+            insn = insn.getNext();
+        } while (insn != null && !isFunctionalInstruction(insn));
         return insn;
     }
 
@@ -200,6 +219,43 @@ public class BytecodeHelper {
         }
     }
 
+    public static AbstractInsnNode loadConstantInsn(Object cst) {
+        if (cst == null) {
+            return new InsnNode(ACONST_NULL);
+        } else if (cst instanceof Integer) {
+            int intVal = (Integer) cst;
+            if (intVal >= -1 && intVal <= 5) {
+                return new InsnNode(ICONST_0 + intVal);
+            } else if (intVal >= Byte.MIN_VALUE && intVal <= Byte.MAX_VALUE) {
+                return new IntInsnNode(BIPUSH, intVal);
+            } else if (intVal >= Short.MIN_VALUE && intVal <= Short.MAX_VALUE) {
+                return new IntInsnNode(SIPUSH, intVal);
+            }
+        } else if (cst instanceof Long) {
+            long longVal = (Long) cst;
+            if (longVal >= 0L && longVal <= 1L) {
+                return new InsnNode(LCONST_0 + (int) longVal);
+            }
+        } else if (cst instanceof Float) {
+            int floatBits = Float.floatToRawIntBits((Float) cst);
+            if (floatBits == Float.floatToRawIntBits(0.0f)) {
+                return new InsnNode(FCONST_0);
+            } else if (floatBits == Float.floatToRawIntBits(1.0f)) {
+                return new InsnNode(FCONST_1);
+            } else if (floatBits == Float.floatToRawIntBits(2.0f)) {
+                return new InsnNode(FCONST_2);
+            }
+        } else if (cst instanceof Double) {
+            long doubleBits = Double.doubleToRawLongBits((Double) cst);
+            if (doubleBits == Double.doubleToRawLongBits(0.0f)) {
+                return new InsnNode(DCONST_0);
+            } else if (doubleBits == Double.doubleToRawLongBits(1.0f)) {
+                return new InsnNode(DCONST_1);
+            }
+        }
+        return new LdcInsnNode(cst);
+    }
+
     public static AbstractInsnNode dup(Type type) {
         switch (type.getSize()) {
             case 1:
@@ -273,6 +329,15 @@ public class BytecodeHelper {
         return BOXED_INTERNAL_TYPE_NAMES_BY_SORT[primitiveType.getSort()];
     }
 
+    public static Optional<Type> unboxedPrimitiveType(String wrapperTypeInternalName) {
+        for (int sort = 0; sort < BOXED_INTERNAL_TYPE_NAMES_BY_SORT.length; sort++) {
+            if (wrapperTypeInternalName.equals(BOXED_INTERNAL_TYPE_NAMES_BY_SORT[sort])) {
+                return Optional.of(TypeUtils.primitiveTypeBySort(sort));
+            }
+        }
+        return Optional.empty();
+    }
+
     public static MethodInsnNode generateBoxingConversion(Type primitiveType) {
         String internalName = boxedInternalName(primitiveType);
         return new MethodInsnNode(INVOKESTATIC, internalName, "valueOf", '(' + primitiveType.getDescriptor() + ")L" + internalName + ';', false);
@@ -316,6 +381,35 @@ public class BytecodeHelper {
                 throw new IllegalArgumentException("can't make array of type " + elementType);
         }
         return new IntInsnNode(NEWARRAY, primitiveType);
+    }
+
+    public static Optional<Type> decodeNewArrayType(AbstractInsnNode newArrayInsn) {
+        switch (newArrayInsn.getOpcode()) {
+            case ANEWARRAY:
+                return Optional.of(Type.getType('[' + ((TypeInsnNode) newArrayInsn).desc));
+            case MULTIANEWARRAY:
+                return Optional.of(Type.getType(((MultiANewArrayInsnNode) newArrayInsn).desc));
+            case NEWARRAY:
+                switch (((IntInsnNode) newArrayInsn).operand) {
+                    case T_BOOLEAN:
+                        return Optional.of(TypeUtils.getArrayType(Type.BOOLEAN_TYPE));
+                    case T_CHAR:
+                        return Optional.of(TypeUtils.getArrayType(Type.CHAR_TYPE));
+                    case T_BYTE:
+                        return Optional.of(TypeUtils.getArrayType(Type.BYTE_TYPE));
+                    case T_SHORT:
+                        return Optional.of(TypeUtils.getArrayType(Type.SHORT_TYPE));
+                    case T_INT:
+                        return Optional.of(TypeUtils.getArrayType(Type.INT_TYPE));
+                    case T_LONG:
+                        return Optional.of(TypeUtils.getArrayType(Type.LONG_TYPE));
+                    case T_FLOAT:
+                        return Optional.of(TypeUtils.getArrayType(Type.FLOAT_TYPE));
+                    case T_DOUBLE:
+                        return Optional.of(TypeUtils.getArrayType(Type.DOUBLE_TYPE));
+                }
+        }
+        return Optional.empty();
     }
 
     public static InsnList generateNonNullAssertion(boolean preserveOnStack, Object... optionalStaticMethodComponents) {
@@ -592,6 +686,25 @@ public class BytecodeHelper {
         return frame.getStack(stackSize - 1 - indexFromTop);
     }
 
+    public static <V extends Value> V getStackValueFromTop(MethodNode methodNode, Frame<V>[] frames, AbstractInsnNode position, int indexFromTop) {
+        Frame<V> frame = frames[methodNode.instructions.indexOf(position)];
+        return frame != null
+                ? getStackValueFromTop(frame, indexFromTop)
+                : null; //unreachable instruction, ignore
+    }
+
+    public static AbstractInsnNode getSingleSourceInsnFromTop(Frame<SourceValue> sourceFrame, int indexFromTop) {
+        Set<AbstractInsnNode> insns = getStackValueFromTop(sourceFrame, indexFromTop).insns;
+        return insns.size() == 1 ? insns.iterator().next() : null;
+    }
+
+    public static AbstractInsnNode getSingleSourceInsnFromTop(MethodNode methodNode, Frame<SourceValue>[] sourceFrames, AbstractInsnNode position, int indexFromTop) {
+        Frame<SourceValue> sourceFrame = sourceFrames[methodNode.instructions.indexOf(position)];
+        return sourceFrame != null
+                ? getSingleSourceInsnFromTop(sourceFrame, indexFromTop)
+                : null; //unreachable instruction, ignore
+    }
+
     public static <V extends Value> int getUsedStackSlots(Frame<V> frame) {
         int slots = 0;
         for (int i = 0; i < frame.getStackSize(); i++) {
@@ -843,6 +956,42 @@ public class BytecodeHelper {
         }
 
         return consumedStackOperands;
+    }
+
+    public static Optional<AbstractInsnNode> tryFindExpressionStart(MethodNode methodNode, Frame<SourceValue>[] sourceFrames, AbstractInsnNode expressionConsumer, int expressionIndexFromTop) {
+        //BFS through instructions producing stack operands until we find the first one. we assume the first one of them
+        AbstractInsnNode firstInsn = expressionConsumer;
+        int firstInsnIndex = methodNode.instructions.indexOf(firstInsn);
+
+        Queue<AbstractInsnNode> queue = new ArrayDeque<>(getStackValueFromTop(sourceFrames[firstInsnIndex], expressionIndexFromTop).insns);
+        if (queue.size() != 1) {
+            //TODO: this code can't work for conditionals...
+            return Optional.empty();
+        }
+
+        Set<AbstractInsnNode> visitedExprs = new HashSet<>();
+
+        for (AbstractInsnNode curr; (curr = queue.poll()) != null; ) {
+            if (visitedExprs.add(curr)) {
+                int currInsnIndex = methodNode.instructions.indexOf(curr);
+
+                if (currInsnIndex < firstInsnIndex) {
+                    firstInsn = curr;
+                    firstInsnIndex = currInsnIndex;
+                }
+
+                Frame<SourceValue> currInsnFrame = sourceFrames[currInsnIndex];
+                for (int operand = getConsumedStackOperandCount(curr, currInsnFrame) - 1; operand >= 0; operand--) {
+                    if (getStackValueFromTop(currInsnFrame, operand).insns.size() > 1) {
+                        //TODO: this code can't work for conditionals...
+                        return Optional.empty();
+                    }
+                    queue.addAll(getStackValueFromTop(currInsnFrame, operand).insns);
+                }
+            }
+        }
+        Preconditions.checkState(firstInsn != expressionConsumer, "stack operand has no source instructions?");
+        return Optional.of(firstInsn);
     }
 
     public static boolean equals(AbstractInsnNode insn0, AbstractInsnNode insn1) {
@@ -1147,6 +1296,25 @@ public class BytecodeHelper {
             } else {
                 builder.append((LabelNode) element);
             }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T extends AbstractInsnNode> T cloneInsn(T srcInsn) {
+        return (T) srcInsn.clone(IdentityLabelMap.INSTANCE);
+    }
+
+    private static final class IdentityLabelMap extends AbstractMap<LabelNode, LabelNode> {
+        public static final IdentityLabelMap INSTANCE = new IdentityLabelMap();
+
+        @Override
+        public Set<Entry<LabelNode, LabelNode>> entrySet() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public LabelNode get(Object key) {
+            return (LabelNode) key;
         }
     }
 
