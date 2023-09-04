@@ -11,7 +11,7 @@ import org.objectweb.asm.tree.VarInsnNode;
  * @author DaPorkchop_
  */
 @EqualsAndHashCode
-public class LVTReference {
+public final class LVTReference {
     private final int loadOpcode;
     private final int storeOpcode;
 
@@ -38,5 +38,10 @@ public class LVTReference {
 
     public VarInsnNode makeStore() {
         return new VarInsnNode(this.storeOpcode, this.var);
+    }
+
+    @FunctionalInterface
+    public interface Allocator {
+        LVTReference allocate(Type type);
     }
 }

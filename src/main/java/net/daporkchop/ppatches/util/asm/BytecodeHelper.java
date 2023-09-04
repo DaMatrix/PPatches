@@ -80,11 +80,21 @@ public class BytecodeHelper {
         return insn;
     }
 
-    public static AbstractInsnNode neFunctionalInstruction(AbstractInsnNode insn) {
+    public static AbstractInsnNode nextFunctionalInstruction(AbstractInsnNode insn) {
         do {
             insn = insn.getNext();
         } while (insn != null && !isFunctionalInstruction(insn));
         return insn;
+    }
+
+    public static int findLineNumber(AbstractInsnNode insn) {
+        while (!(insn instanceof LineNumberNode)) {
+            insn = insn.getPrevious();
+            if (insn == null) {
+                return -1;
+            }
+        }
+        return ((LineNumberNode) insn).line;
     }
 
     //
@@ -117,6 +127,14 @@ public class BytecodeHelper {
 
     public static boolean isCHECKCAST(AbstractInsnNode insn, Type type) {
         return isCHECKCAST(insn, type.getInternalName());
+    }
+
+    public static boolean isHandle(Handle handle, int tag, String owner, String name) {
+        return handle.getTag() == tag && owner.equals(handle.getOwner()) && name.equals(handle.getName());
+    }
+
+    public static boolean isHandle(Handle handle, int tag, String owner, String name, String desc) {
+        return isHandle(handle, tag, owner, desc) && desc.equals(handle.getDesc());
     }
 
     //
@@ -329,6 +347,23 @@ public class BytecodeHelper {
         return BOXED_INTERNAL_TYPE_NAMES_BY_SORT[primitiveType.getSort()];
     }
 
+    private static final String[] BOXED_INTERNAL_BASE_TYPE_NAMES_BY_SORT = {
+            "java/lang/Void",
+            "java/lang/Boolean",
+            "java/lang/Character",
+            "java/lang/Number",
+            "java/lang/Number",
+            "java/lang/Number",
+            "java/lang/Number",
+            "java/lang/Number",
+            "java/lang/Number",
+    };
+
+    public static String boxedInternalBaseName(Type primitiveType) {
+        assert isPrimitive(primitiveType) : "not a primitive type: " + primitiveType;
+        return BOXED_INTERNAL_BASE_TYPE_NAMES_BY_SORT[primitiveType.getSort()];
+    }
+
     public static Optional<Type> unboxedPrimitiveType(String wrapperTypeInternalName) {
         for (int sort = 0; sort < BOXED_INTERNAL_TYPE_NAMES_BY_SORT.length; sort++) {
             if (wrapperTypeInternalName.equals(BOXED_INTERNAL_TYPE_NAMES_BY_SORT[sort])) {
@@ -345,6 +380,10 @@ public class BytecodeHelper {
 
     public static MethodInsnNode generateUnboxingConversion(Type primitiveType) {
         return new MethodInsnNode(INVOKEVIRTUAL, boxedInternalName(primitiveType), primitiveType.getClassName() + "Value", "()" + primitiveType, false);
+    }
+
+    public static MethodInsnNode generateUnboxingFromBaseConversion(Type primitiveType) {
+        return new MethodInsnNode(INVOKEVIRTUAL, boxedInternalBaseName(primitiveType), primitiveType.getClassName() + "Value", "()" + primitiveType, false);
     }
 
     public static AbstractInsnNode generateNewArray(Type elementType) {
@@ -412,6 +451,64 @@ public class BytecodeHelper {
         return Optional.empty();
     }
 
+    public static InsnList flattenHandle(Handle handle) {
+        String owner = handle.getOwner();
+        String name = handle.getName();
+        String desc = handle.getDesc();
+        boolean itf = handle.isInterface();
+
+        switch (handle.getTag()) {
+            case H_GETFIELD:
+                return makeInsnList(new FieldInsnNode(GETFIELD, owner, name, desc));
+            case H_GETSTATIC:
+                return makeInsnList(new FieldInsnNode(GETSTATIC, owner, name, desc));
+            case H_PUTFIELD:
+                return makeInsnList(new FieldInsnNode(PUTFIELD, owner, name, desc));
+            case H_PUTSTATIC:
+                return makeInsnList(new FieldInsnNode(PUTSTATIC, owner, name, desc));
+            case H_INVOKEVIRTUAL:
+                return makeInsnList(new MethodInsnNode(INVOKEVIRTUAL, owner, name, desc, itf));
+            case H_INVOKESTATIC:
+                return makeInsnList(new MethodInsnNode(INVOKESTATIC, owner, name, desc, itf));
+            case H_INVOKESPECIAL:
+                return makeInsnList(new MethodInsnNode(INVOKESPECIAL, owner, name, desc, itf));
+            case H_INVOKEINTERFACE:
+                return makeInsnList(new MethodInsnNode(INVOKEINTERFACE, owner, name, desc, itf));
+            case H_NEWINVOKESPECIAL:
+                return makeInsnList(
+                        new TypeInsnNode(NEW, owner),
+                        new InsnNode(DUP),
+                        new MethodInsnNode(INVOKESPECIAL, owner, name, desc, itf));
+        }
+        throw new IllegalStateException("illegal handle tag " + handle.getTag());
+    }
+
+    public static Type getEffectiveHandleMethodType(Handle handle) {
+        String owner = handle.getOwner();
+        String desc = handle.getDesc();
+
+        switch (handle.getTag()) {
+            case H_GETFIELD:
+                return Type.getMethodType(Type.getType(desc), Type.getObjectType(owner));
+            case H_GETSTATIC:
+                return Type.getMethodType(Type.getType(desc));
+            case H_PUTFIELD:
+                return Type.getMethodType(Type.VOID_TYPE, Type.getObjectType(owner), Type.getType(desc));
+            case H_PUTSTATIC:
+                return Type.getMethodType(Type.VOID_TYPE, Type.getType(desc));
+            case H_INVOKESTATIC:
+                return Type.getMethodType(desc);
+            case H_INVOKEVIRTUAL:
+            case H_INVOKESPECIAL:
+            case H_INVOKEINTERFACE:
+                return Type.getMethodType(Type.getReturnType(desc), COWArrayUtils.insert(Type.getArgumentTypes(desc), 0, Type.getObjectType(owner)));
+            case H_NEWINVOKESPECIAL:
+                return Type.getMethodType(Type.getObjectType(owner), Type.getArgumentTypes(desc));
+            default:
+                throw new IllegalStateException("illegal handle tag " + handle.getTag());
+        }
+    }
+
     public static InsnList generateNonNullAssertion(boolean preserveOnStack, Object... optionalStaticMethodComponents) {
         InsnList seq = new InsnList();
         LabelNode tailLbl = new LabelNode();
@@ -438,6 +535,53 @@ public class BytecodeHelper {
         seq.add(new InsnNode(ICONST_0));
         seq.add(tailLbl);
         return seq;
+    }
+
+    public static Optional<InsnList> tryGenerateWideningConversion(Type from, Type to) {
+        assert !isReference(from) && !isReference(to);
+
+        if (from == to) {
+            return Optional.of(makeInsnList());
+        }
+
+        switch (from.getSort()) {
+            case Type.CHAR:
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.INT:
+                switch (to.getSort()) {
+                    case Type.CHAR:
+                        return Optional.of(makeInsnList(new InsnNode(I2C)));
+                    case Type.BYTE:
+                        return Optional.of(makeInsnList(new InsnNode(I2B)));
+                    case Type.SHORT:
+                        return Optional.of(makeInsnList(new InsnNode(I2S)));
+                    case Type.INT:
+                        return Optional.of(makeInsnList());
+                    case Type.LONG:
+                        return Optional.of(makeInsnList(new InsnNode(I2L)));
+                    case Type.FLOAT:
+                        return Optional.of(makeInsnList(new InsnNode(I2F)));
+                    case Type.DOUBLE:
+                        return Optional.of(makeInsnList(new InsnNode(I2D)));
+                }
+                break;
+            case Type.LONG:
+                switch (to.getSort()) {
+                    case Type.FLOAT:
+                        return Optional.of(makeInsnList(new InsnNode(L2F)));
+                    case Type.DOUBLE:
+                        return Optional.of(makeInsnList(new InsnNode(L2D)));
+                }
+                break;
+            case Type.FLOAT:
+                if (to.getSort() == Type.DOUBLE) {
+                    return Optional.of(makeInsnList(new InsnNode(F2D)));
+                }
+                break;
+        }
+
+        return Optional.empty();
     }
 
     public static List<MethodNode> findMethod(ClassNode classNode, String name) {

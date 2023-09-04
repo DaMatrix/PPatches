@@ -3,7 +3,6 @@ package net.daporkchop.ppatches.modules.java.flattenStreams;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -17,7 +16,9 @@ import net.daporkchop.ppatches.util.TypeUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
 import net.daporkchop.ppatches.util.asm.LVTReference;
+import net.daporkchop.ppatches.util.asm.LambdaFlattener;
 import org.apache.commons.lang3.mutable.MutableInt;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.Frame;
@@ -100,27 +101,37 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     Type.getType(Stream.class), Type.getType(Object.class),
                     Type.getType(Object[].class), Type.getType(ObjectArrayList.class), Type.getType(Optional.class), null,
                     Type.getType(Predicate.class),
+                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Predicate.class), "test", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(Object.class)), true),
                     Type.getType(Consumer.class),
+                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Consumer.class), "accept", Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(Object.class)), true),
                     new Type[]{Type.getType(Comparator.class)},
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.getType(Object.class), "map", Type.getType(Function.class), "apply"))
-                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.INT_TYPE, "mapToInt", Type.getType(ToIntFunction.class), "applyAsInt"))
-                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.LONG_TYPE, "mapToLong", Type.getType(ToLongFunction.class), "applyAsLong"))
-                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.DOUBLE_TYPE, "mapToDouble", Type.getType(ToDoubleFunction.class), "applyAsDouble"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(Type.getType(Object.class),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Stream.class), "map", Type.getMethodDescriptor(Type.getType(Stream.class), Type.getType(Function.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Function.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.getType(Object.class)), true)))
+                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.INT_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Stream.class), "mapToInt", Type.getMethodDescriptor(Type.getType(IntStream.class), Type.getType(ToIntFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(ToIntFunction.class), "applyAsInt", Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(Object.class)), true)))
+                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.LONG_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Stream.class), "mapToLong", Type.getMethodDescriptor(Type.getType(LongStream.class), Type.getType(ToLongFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(ToLongFunction.class), "applyAsLong", Type.getMethodDescriptor(Type.LONG_TYPE, Type.getType(Object.class)), true)))
+                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.DOUBLE_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Stream.class), "mapToDouble", Type.getMethodDescriptor(Type.getType(DoubleStream.class), Type.getType(ToDoubleFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(ToDoubleFunction.class), "applyAsDouble", Type.getMethodDescriptor(Type.DOUBLE_TYPE, Type.getType(Object.class)), true)))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.getType(Object.class), "flatMap", Type.getType(Function.class), "apply"))
-                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.INT_TYPE, "flatMapToInt", Type.getType(Function.class), "apply"))
-                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.LONG_TYPE, "flatMapToLong", Type.getType(Function.class), "apply"))
-                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.DOUBLE_TYPE, "flatMapToDouble", Type.getType(Function.class), "apply"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(Type.getType(Object.class),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Stream.class), "flatMap", Type.getMethodDescriptor(Type.getType(Stream.class), Type.getType(Function.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Function.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.getType(Object.class)), true)))
+                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.INT_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Stream.class), "flatMapToInt", Type.getMethodDescriptor(Type.getType(IntStream.class), Type.getType(Function.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Function.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.getType(Object.class)), true)))
+                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.LONG_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Stream.class), "flatMapToLong", Type.getMethodDescriptor(Type.getType(LongStream.class), Type.getType(Function.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Function.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.getType(Object.class)), true)))
+                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.DOUBLE_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Stream.class), "flatMapToDouble", Type.getMethodDescriptor(Type.getType(DoubleStream.class), Type.getType(Function.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(Function.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.getType(Object.class)), true)))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultConvertTypeInfo>builder()
                             .build()))
@@ -129,21 +140,28 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     Type.getType(IntStream.class), Type.INT_TYPE,
                     Type.getType(int[].class), Type.getType(IntArrayList.class), Type.getType(OptionalInt.class), Type.getType(IntSummaryStatistics.class),
                     Type.getType(IntPredicate.class),
+                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntPredicate.class), "test", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.INT_TYPE), true),
                     Type.getType(IntConsumer.class),
+                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntConsumer.class), "accept", Type.getMethodDescriptor(Type.VOID_TYPE, Type.INT_TYPE), true),
                     new Type[0],
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.getType(Object.class), "mapToObj", Type.getType(IntFunction.class), "apply"))
-                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.INT_TYPE, "map", Type.getType(IntUnaryOperator.class), "applyAsInt"))
-                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.LONG_TYPE, "mapToLong", Type.getType(IntToLongFunction.class), "applyAsLong"))
-                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.DOUBLE_TYPE, "mapToDouble", Type.getType(IntToDoubleFunction.class), "applyAsDouble"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(Type.getType(Object.class),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntStream.class), "mapToObj", Type.getMethodDescriptor(Type.getType(Stream.class), Type.getType(IntFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.INT_TYPE), true)))
+                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.INT_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntStream.class), "map", Type.getMethodDescriptor(Type.getType(IntStream.class), Type.getType(IntUnaryOperator.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntUnaryOperator.class), "applyAsInt", Type.getMethodDescriptor(Type.INT_TYPE, Type.INT_TYPE), true)))
+                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.LONG_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntStream.class), "mapToLong", Type.getMethodDescriptor(Type.getType(LongStream.class), Type.getType(IntToLongFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntToLongFunction.class), "applyAsLong", Type.getMethodDescriptor(Type.LONG_TYPE, Type.INT_TYPE), true)))
+                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.DOUBLE_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntStream.class), "mapToDouble", Type.getMethodDescriptor(Type.getType(DoubleStream.class), Type.getType(IntToDoubleFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntToDoubleFunction.class), "applyAsDouble", Type.getMethodDescriptor(Type.DOUBLE_TYPE, Type.INT_TYPE), true)))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.INT_TYPE, "flatMap", Type.getType(IntFunction.class), "apply"))
+                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.INT_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntStream.class), "flatMap", Type.getMethodDescriptor(Type.getType(IntStream.class), Type.getType(IntFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.INT_TYPE), true)))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultConvertTypeInfo>builder()
                             .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultConvertTypeInfo(
@@ -158,21 +176,28 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     Type.getType(LongStream.class), Type.LONG_TYPE,
                     Type.getType(long[].class), Type.getType(LongArrayList.class), Type.getType(OptionalLong.class), Type.getType(LongSummaryStatistics.class),
                     Type.getType(LongPredicate.class),
+                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongPredicate.class), "test", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.LONG_TYPE), true),
                     Type.getType(LongConsumer.class),
+                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongConsumer.class), "accept", Type.getMethodDescriptor(Type.VOID_TYPE, Type.LONG_TYPE), true),
                     new Type[0],
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.getType(Object.class), "mapToObj", Type.getType(LongFunction.class), "apply"))
-                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.INT_TYPE, "mapToInt", Type.getType(LongToIntFunction.class), "applyAsInt"))
-                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.LONG_TYPE, "map", Type.getType(LongUnaryOperator.class), "applyAsLong"))
-                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.DOUBLE_TYPE, "mapToDouble", Type.getType(LongToDoubleFunction.class), "applyAsDouble"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(Type.getType(Object.class),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongStream.class), "mapToObj", Type.getMethodDescriptor(Type.getType(Stream.class), Type.getType(LongFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.LONG_TYPE), true)))
+                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.INT_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongStream.class), "mapToInt", Type.getMethodDescriptor(Type.getType(IntStream.class), Type.getType(LongToIntFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongToIntFunction.class), "applyAsInt", Type.getMethodDescriptor(Type.INT_TYPE, Type.LONG_TYPE), true)))
+                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.LONG_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongStream.class), "map", Type.getMethodDescriptor(Type.getType(LongStream.class), Type.getType(LongUnaryOperator.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongUnaryOperator.class), "applyAsLong", Type.getMethodDescriptor(Type.LONG_TYPE, Type.LONG_TYPE), true)))
+                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.DOUBLE_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongStream.class), "mapToDouble", Type.getMethodDescriptor(Type.getType(DoubleStream.class), Type.getType(LongToDoubleFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongToDoubleFunction.class), "applyAsDouble", Type.getMethodDescriptor(Type.DOUBLE_TYPE, Type.LONG_TYPE), true)))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.LONG_TYPE, "flatMap", Type.getType(LongFunction.class), "apply"))
+                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.LONG_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongStream.class), "flatMap", Type.getMethodDescriptor(Type.getType(LongStream.class), Type.getType(LongFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(LongFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.LONG_TYPE), true)))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultConvertTypeInfo>builder()
                             .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultConvertTypeInfo(
@@ -185,21 +210,28 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     Type.getType(DoubleStream.class), Type.DOUBLE_TYPE,
                     Type.getType(double[].class), Type.getType(DoubleArrayList.class), Type.getType(OptionalDouble.class), Type.getType(DoubleSummaryStatistics.class),
                     Type.getType(DoublePredicate.class),
+                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoublePredicate.class), "test", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.DOUBLE_TYPE), true),
                     Type.getType(DoubleConsumer.class),
+                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleConsumer.class), "accept", Type.getMethodDescriptor(Type.VOID_TYPE, Type.DOUBLE_TYPE), true),
                     new Type[0],
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.getType(Object.class), "mapToObj", Type.getType(DoubleFunction.class), "apply"))
-                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.INT_TYPE, "mapToInt", Type.getType(DoubleToIntFunction.class), "applyAsInt"))
-                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.LONG_TYPE, "mapToLong", Type.getType(DoubleToLongFunction.class), "applyAsLong"))
-                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.DOUBLE_TYPE, "mapToDouble", Type.getType(DoubleUnaryOperator.class), "applyAsDouble"))
+                            .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultMapTypeInfo(Type.getType(Object.class),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleStream.class), "mapToObj", Type.getMethodDescriptor(Type.getType(Stream.class), Type.getType(DoubleFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.DOUBLE_TYPE), true)))
+                            .put(Type.INT_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.INT_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleStream.class), "mapToInt", Type.getMethodDescriptor(Type.getType(IntStream.class), Type.getType(DoubleToIntFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleToIntFunction.class), "applyAsInt", Type.getMethodDescriptor(Type.INT_TYPE, Type.DOUBLE_TYPE), true)))
+                            .put(Type.LONG_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.LONG_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleStream.class), "mapToLong", Type.getMethodDescriptor(Type.getType(LongStream.class), Type.getType(DoubleToLongFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleToLongFunction.class), "applyAsLong", Type.getMethodDescriptor(Type.LONG_TYPE, Type.DOUBLE_TYPE), true)))
+                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.DOUBLE_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleStream.class), "map", Type.getMethodDescriptor(Type.getType(DoubleStream.class), Type.getType(DoubleUnaryOperator.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleUnaryOperator.class), "applyAsDouble", Type.getMethodDescriptor(Type.DOUBLE_TYPE, Type.DOUBLE_TYPE), true)))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultMapTypeInfo>builder()
-                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(
-                                    Type.DOUBLE_TYPE, "flatMap", Type.getType(DoubleFunction.class), "apply"))
+                            .put(Type.DOUBLE_TYPE, new PerElementTypeInfo.PerResultMapTypeInfo(Type.DOUBLE_TYPE,
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleStream.class), "flatMap", Type.getMethodDescriptor(Type.getType(DoubleStream.class), Type.getType(DoubleFunction.class)), true),
+                                    new Handle(H_INVOKEINTERFACE, Type.getInternalName(DoubleFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.DOUBLE_TYPE), true)))
                             .build(),
                     ImmutableMap.<Type, PerElementTypeInfo.PerResultConvertTypeInfo>builder()
                             .put(Type.getType(Object.class), new PerElementTypeInfo.PerResultConvertTypeInfo(
@@ -218,7 +250,9 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         public final Type elementSummaryStatisticsType;
 
         public final Type elementPredicateType;
+        public final Handle elementPredicateTestHandle;
         public final Type elementConsumerType;
+        public final Handle elementConsumerAcceptHandle;
 
         public final Type[] comparatorArray;
 
@@ -229,10 +263,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         private static final class PerResultMapTypeInfo {
             public final Type mappedElementType;
 
-            public final String mapMethodName;
-            public final Type mapFunctionType;
-
-            public final String mapFunctionApplyMethodName;
+            public final Handle mapMethodHandle;
+            public final Handle mapFunctionApplyHandle;
         }
 
         public final Map<Type, PerResultConvertTypeInfo> convertInfo;
@@ -297,14 +329,12 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 return Optional.of(new IntermediateOp.Filter(insn));
             }
             for (PerElementTypeInfo.PerResultMapTypeInfo mapInfo : info.mapInfo.values()) {
-                if (BytecodeHelper.isINVOKEINTERFACE(insn, insn.owner, mapInfo.mapMethodName,
-                        Type.getMethodDescriptor(getStreamTypeFromElementType(mapInfo.mappedElementType), mapInfo.mapFunctionType))) {
+                if (BytecodeHelper.isINVOKEINTERFACE(insn, insn.owner, mapInfo.mapMethodHandle.getName(), mapInfo.mapMethodHandle.getDesc())) {
                     return Optional.of(new IntermediateOp.MapTo(insn, mapInfo.mappedElementType));
                 }
             }
             for (PerElementTypeInfo.PerResultMapTypeInfo flatMapInfo : info.flatMapInfo.values()) {
-                if (BytecodeHelper.isINVOKEINTERFACE(insn, insn.owner, flatMapInfo.mapMethodName,
-                        Type.getMethodDescriptor(getStreamTypeFromElementType(flatMapInfo.mappedElementType), flatMapInfo.mapFunctionType))) {
+                if (BytecodeHelper.isINVOKEINTERFACE(insn, insn.owner, flatMapInfo.mapMethodHandle.getName(), flatMapInfo.mapMethodHandle.getDesc())) {
                     return Optional.of(new IntermediateOp.FlatMapTo(insn, flatMapInfo.mappedElementType));
                 }
             }
@@ -441,10 +471,6 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         allStages.add(sourceOp);
         allStages.addAll(intermediateOps);
         allStages.add(terminalOp);
-        @SuppressWarnings("unchecked")
-        List<ProducerStage> producerStages = (List<ProducerStage>) (Object) allStages.subList(0, allStages.size() - 1);
-        @SuppressWarnings("unchecked")
-        List<ConsumerStage> consumerStages = (List<ConsumerStage>) (Object) allStages.subList(1, allStages.size());
 
         //link stages together
         for (int i = 0; i < allStages.size(); i++) {
@@ -470,25 +496,12 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             InsnList transformInsns = new InsnList();
             List<LVTReference> operandValues = new ArrayList<>();
 
-            //Frame<SourceValue> sourceFrame = sourceFrames[methodNode.instructions.indexOf(stage.stageInsn())];
-            for (int i = 0; i < operandTypes.size(); i++) {
-                //Set<AbstractInsnNode> rawOperandSourceInsns = BytecodeHelper.getStackValueFromTop(sourceFrame, rawOperandTypes.size() - 1 - i).insns;
-                //TODO: optimize when the operand is already stored in a local variable? (what about potential side effects?)
-
-                operandValues.add(new LVTReference(operandTypes.get(i), newMaxLocals.getAndAdd(operandTypes.get(i).getSize())));
-            }
-
-            //store operand values into local variables
-            for (int i = operandValues.size() - 1; i >= 0; i--) {
-                transformInsns.add(operandValues.get(i).makeStore());
-            }
-
-            stage.transformOperands(ImmutableList.copyOf(operandTypes), ImmutableList.copyOf(operandValues), transformedOperandType -> {
-                int newLvtIndex = newMaxLocals.getAndAdd(transformedOperandType.getSize());
-                LVTReference lvtReference = new LVTReference(transformedOperandType, newLvtIndex);
+            stage.transformOperands(ImmutableList.copyOf(operandTypes), operandValues, type -> {
+                int newLvtIndex = newMaxLocals.getAndAdd(type.getSize());
+                LVTReference lvtReference = new LVTReference(type, newLvtIndex);
                 operandValues.add(lvtReference);
                 return lvtReference;
-            }, transformInsns, removeInsns);
+            }, transformInsns, removeInsns, insn -> sourceFrames[methodNode.instructions.indexOf(insn)]);
 
             allTransformInsns.add(transformInsns);
         }
@@ -512,6 +525,9 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         }
 
         //if we've gotten this far, we assume everything is going to be fine and apply the changes
+        PPatchesMod.LOGGER.info("Optimizing stream usage at L{};{}{} (line {})",
+                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(terminalOp.stageInsn));
+
         methodNode.maxLocals = newMaxLocals.intValue();
 
         //insert the main code sequence which emulates the stream behavior
@@ -525,6 +541,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         //remove the stream method invocation representing each pipeline stage
         for (Stage stage : allStages) {
             methodNode.instructions.remove(stage.stageInsn());
+        }
+
+        //allow each pipeline stage to modify the class node if it wants to
+        for (Stage stage : allStages) {
+            stage.visitClassNode(classNode);
         }
 
         //remove any other instructions a stage requested to remove
@@ -559,13 +580,17 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
     private interface Stage {
         MethodInsnNode stageInsn();
 
-        void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns);
+        void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources);
 
         default void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
             throw new UnsupportedOperationException("visitCode on " + this.getClass().getTypeName()); //TODO
         }
 
         void visitDone(InsnList out, LabelNode breakLabel, LabelNode returnLabel);
+
+        default void visitClassNode(ClassNode classNode) {
+            //no-op
+        }
     }
 
     private interface ProducerStage extends Stage {
@@ -598,8 +623,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         public final MethodInsnNode stageInsn;
 
         @Override
-        public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-            //no-op
+        public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+            //store operand values into local variables
+            for (int i = operandTypes.size() - 1; i >= 0; i--) {
+                out.add(lvtAlloc.allocate(operandTypes.get(i)).makeStore());
+            }
         }
     }
 
@@ -621,9 +649,9 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         }
 
         @Override
-        public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-            super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-            this.producedValue = transformedOperandLvtAlloc.apply(this.producedElementType());
+        public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+            super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+            this.producedValue = lvtAlloc.allocate(this.producedElementType());
         }
 
         @Override
@@ -642,7 +670,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
                 //no-op
             }
 
@@ -665,9 +693,9 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.singleValue = rawOperandValues.get(0);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.singleValue = operandValues.get(0);
             }
 
             @Override
@@ -690,12 +718,12 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.arrayValue = rawOperandValues.get(0);
-                this.indexValue = transformedOperandLvtAlloc.apply(Type.INT_TYPE);
-                transformInsns.add(new InsnNode(ICONST_0));
-                transformInsns.add(this.indexValue.makeStore());
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.arrayValue = operandValues.get(0);
+                this.indexValue = lvtAlloc.allocate(Type.INT_TYPE);
+                out.add(new InsnNode(ICONST_0));
+                out.add(this.indexValue.makeStore());
             }
 
             @Override
@@ -751,14 +779,14 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.minValue = rawOperandValues.get(0);
-                this.maxValue = rawOperandValues.get(1);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.minValue = operandValues.get(0);
+                this.maxValue = operandValues.get(1);
 
-                this.currentValue = transformedOperandLvtAlloc.apply(rawOperandTypes.get(0));
-                transformInsns.add(this.minValue.makeLoad());
-                transformInsns.add(this.currentValue.makeStore());
+                this.currentValue = lvtAlloc.allocate(operandTypes.get(0));
+                out.add(this.minValue.makeLoad());
+                out.add(this.currentValue.makeStore());
             }
 
             @Override
@@ -822,13 +850,13 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.collectionValue = rawOperandValues.get(0);
-                this.iteratorValue = transformedOperandLvtAlloc.apply(Type.getType(Iterator.class));
-                transformInsns.add(this.collectionValue.makeLoad());
-                transformInsns.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(Collection.class), "iterator", Type.getMethodDescriptor(Type.getType(Iterator.class)), true));
-                transformInsns.add(this.iteratorValue.makeStore());
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.collectionValue = operandValues.get(0);
+                this.iteratorValue = lvtAlloc.allocate(Type.getType(Iterator.class));
+                out.add(this.collectionValue.makeLoad());
+                out.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(Collection.class), "iterator", Type.getMethodDescriptor(Type.getType(Iterator.class)), true));
+                out.add(this.iteratorValue.makeStore());
             }
 
             @Override
@@ -903,10 +931,10 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         }
 
         @Override
-        public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-            super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
+        public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+            super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
             if (this.doesProduceValue) {
-                this.producedValue = transformedOperandLvtAlloc.apply(this.producedElementType());
+                this.producedValue = lvtAlloc.allocate(this.producedElementType());
             }
         }
 
@@ -922,7 +950,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         }
 
         private static class Filter extends IntermediateOp {
-            protected LVTReference predicateValue;
+            protected LambdaFlattener predicateFlattener;
 
             public Filter(MethodInsnNode stageInsn) {
                 super(stageInsn, false);
@@ -934,27 +962,34 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.predicateValue = rawOperandValues.get(0);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                this.predicateFlattener = LambdaFlattener.createFromSources(findSources.apply(this.stageInsn), 0, lvtAlloc, this.consumedElementTypeInfo().elementPredicateTestHandle).visitCaptureState(out, removeInsns);
+                operandTypes = ImmutableList.of();
+
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
             }
 
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
-                PerElementTypeInfo info = this.consumedElementTypeInfo();
-
-                out.add(this.predicateValue.makeLoad());
+                this.predicateFlattener.visitPreInvoke(out);
                 out.add(consumedValue.makeLoad());
-                out.add(new MethodInsnNode(INVOKEINTERFACE, info.elementPredicateType.getInternalName(), "test", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, info.elementType), true));
+                this.predicateFlattener.visitPostLoadInvokeArgument(out, 0);
+                this.predicateFlattener.visitPostInvoke(out);
                 out.add(new JumpInsnNode(IFEQ, labels.skipLabel));
                 this.nextStage.visitCode(out, labels, consumedValue);
+            }
+
+            @Override
+            public void visitClassNode(ClassNode classNode) {
+                super.visitClassNode(classNode);
+                this.predicateFlattener.visitClassNode(classNode);
             }
         }
 
         private static class MapTo extends IntermediateOp {
             public final Type mappedType;
 
-            protected LVTReference mapperValue;
+            protected LambdaFlattener mapperFlattener;
 
             public MapTo(MethodInsnNode stageInsn, Type mappedType) {
                 super(stageInsn, true);
@@ -967,21 +1002,27 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.mapperValue = rawOperandValues.get(0);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                this.mapperFlattener = LambdaFlattener.createFromSources(findSources.apply(this.stageInsn), 0, lvtAlloc, this.consumedElementTypeInfo().mapInfo.get(this.mappedType).mapFunctionApplyHandle).visitCaptureState(out, removeInsns);
+                operandTypes = ImmutableList.of();
+
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
             }
 
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
-                PerElementTypeInfo info = this.consumedElementTypeInfo();
-                PerElementTypeInfo.PerResultMapTypeInfo mapInfo = info.mapInfo.get(this.mappedType);
-
-                out.add(this.mapperValue.makeLoad());
+                this.mapperFlattener.visitPreInvoke(out);
                 out.add(consumedValue.makeLoad());
-                out.add(new MethodInsnNode(INVOKEINTERFACE, mapInfo.mapFunctionType.getInternalName(), mapInfo.mapFunctionApplyMethodName, Type.getMethodDescriptor(this.mappedType, info.elementType), true));
+                this.mapperFlattener.visitPostLoadInvokeArgument(out, 0);
+                this.mapperFlattener.visitPostInvoke(out);
                 out.add(this.producedValue.makeStore());
                 this.nextStage.visitCode(out, labels, this.producedValue);
+            }
+
+            @Override
+            public void visitClassNode(ClassNode classNode) {
+                super.visitClassNode(classNode);
+                this.mapperFlattener.visitClassNode(classNode);
             }
         }
 
@@ -1040,25 +1081,25 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
                 if (this.hasComparator) {
-                    this.comparatorValue = rawOperandValues.get(0);
+                    this.comparatorValue = operandValues.get(0);
                 }
 
                 this.listType = this.consumedElementTypeInfo().elementArrayListType;
-                this.listValue = transformedOperandLvtAlloc.apply(this.listType);
-                transformInsns.add(new TypeInsnNode(NEW, this.listType.getInternalName()));
-                transformInsns.add(new InsnNode(DUP));
+                this.listValue = lvtAlloc.allocate(this.listType);
+                out.add(new TypeInsnNode(NEW, this.listType.getInternalName()));
+                out.add(new InsnNode(DUP));
                 if ((this.previousStage.knownSpliteratorCharacteristics() & Spliterator.SIZED) != 0) { //we can preallocate the backing array exactly
-                    this.previousStage.loadExactSize(transformInsns, true);
-                    transformInsns.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "(I)V", false));
+                    this.previousStage.loadExactSize(out, true);
+                    out.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "(I)V", false));
                 } else {
-                    transformInsns.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "()V", false));
+                    out.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "()V", false));
                 }
-                transformInsns.add(this.listValue.makeStore());
+                out.add(this.listValue.makeStore());
 
-                this.indexValue = transformedOperandLvtAlloc.apply(Type.INT_TYPE);
+                this.indexValue = lvtAlloc.allocate(Type.INT_TYPE);
             }
 
             @Override
@@ -1116,24 +1157,28 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         }
 
         private static class Peek extends IntermediateOp {
-            protected LVTReference actionValue;
+            protected LambdaFlattener actionFlattener;
 
             public Peek(MethodInsnNode stageInsn) {
                 super(stageInsn, false);
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.actionValue = rawOperandValues.get(0);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                this.actionFlattener = LambdaFlattener.createFromSources(findSources.apply(this.stageInsn), 0, lvtAlloc, this.consumedElementTypeInfo().elementConsumerAcceptHandle).visitCaptureState(out, removeInsns);
+                operandTypes = ImmutableList.of();
+
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
             }
 
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
                 PerElementTypeInfo info = this.consumedElementTypeInfo();
 
-                out.add(this.actionValue.makeLoad());
+                this.actionFlattener.visitPreInvoke(out);
                 out.add(consumedValue.makeLoad());
+                this.actionFlattener.visitPostLoadInvokeArgument(out,0);
+                this.actionFlattener.visitPostInvoke(out);
                 out.add(new MethodInsnNode(INVOKEINTERFACE, info.elementConsumerType.getInternalName(), "accept", Type.getMethodDescriptor(Type.VOID_TYPE, info.elementType), true));
                 this.nextStage.visitCode(out, labels, consumedValue);
             }
@@ -1148,12 +1193,12 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.maxSizeValue = rawOperandValues.get(0);
-                this.currValue = transformedOperandLvtAlloc.apply(Type.LONG_TYPE);
-                transformInsns.add(new InsnNode(LCONST_0));
-                transformInsns.add(this.currValue.makeStore());
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.maxSizeValue = operandValues.get(0);
+                this.currValue = lvtAlloc.allocate(Type.LONG_TYPE);
+                out.add(new InsnNode(LCONST_0));
+                out.add(this.currValue.makeStore());
 
                 //TODO: throw exception if maxSize is negative
             }
@@ -1194,12 +1239,12 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.nValue = rawOperandValues.get(0);
-                this.currValue = transformedOperandLvtAlloc.apply(Type.LONG_TYPE);
-                transformInsns.add(new InsnNode(LCONST_0));
-                transformInsns.add(this.currValue.makeStore());
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.nValue = operandValues.get(0);
+                this.currValue = lvtAlloc.allocate(Type.LONG_TYPE);
+                out.add(new InsnNode(LCONST_0));
+                out.add(this.currValue.makeStore());
 
                 //TODO: throw exception if n is negative
             }
@@ -1279,7 +1324,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         private static class ForEach extends TerminalOp {
             public final boolean ordered;
 
-            protected LVTReference actionValue;
+            protected LambdaFlattener actionFlattener;
 
             public ForEach(MethodInsnNode stageInsn, boolean ordered) {
                 super(stageInsn);
@@ -1287,9 +1332,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.actionValue = rawOperandValues.get(0);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                this.actionFlattener = LambdaFlattener.createFromSources(findSources.apply(this.stageInsn), 0, lvtAlloc, this.consumedElementTypeInfo().elementConsumerAcceptHandle).visitCaptureState(out, removeInsns);
+                operandTypes = ImmutableList.of();
+
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
             }
 
             @Override
@@ -1301,16 +1348,23 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
                 PerElementTypeInfo info = this.consumedElementTypeInfo();
 
-                out.add(this.actionValue.makeLoad());
+                this.actionFlattener.visitPreInvoke(out);
                 out.add(consumedValue.makeLoad());
-                out.add(new MethodInsnNode(INVOKEINTERFACE, info.elementConsumerType.getInternalName(), "accept", Type.getMethodDescriptor(Type.VOID_TYPE, info.elementType), true));
+                this.actionFlattener.visitPostLoadInvokeArgument(out, 0);
+                this.actionFlattener.visitPostInvoke(out);
+            }
+
+            @Override
+            public void visitClassNode(ClassNode classNode) {
+                super.visitClassNode(classNode);
+                this.actionFlattener.visitClassNode(classNode);
             }
         }
 
         private static class ToArray extends TerminalOp {
             public final boolean hasGenerator;
 
-            protected LVTReference generatorValue;
+            protected LambdaFlattener generatorFlattener;
 
             protected Type listType;
             protected LVTReference listValue;
@@ -1324,38 +1378,41 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
                 if (this.hasGenerator) {
-                    this.generatorValue = rawOperandValues.get(0);
+                    this.generatorFlattener = LambdaFlattener.createFromSources(findSources.apply(this.stageInsn), 0, lvtAlloc, new Handle(H_INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.INT_TYPE), true)).visitCaptureState(out, removeInsns);
+                    operandTypes = ImmutableList.of();
                 }
+
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
 
                 PerElementTypeInfo info = this.consumedElementTypeInfo();
 
                 if ((this.previousStage.knownSpliteratorCharacteristics() & Spliterator.SIZED) != 0) { //we can preallocate the backing array exactly
-                    this.fixedArrayValue = transformedOperandLvtAlloc.apply(info.elementArrayType);
+                    this.fixedArrayValue = lvtAlloc.allocate(info.elementArrayType);
                     if (this.hasGenerator) {
-                        transformInsns.add(this.generatorValue.makeLoad());
-                        this.previousStage.loadExactSize(transformInsns, true);
-                        transformInsns.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.INT_TYPE), true));
-                        transformInsns.add(new TypeInsnNode(CHECKCAST, info.elementArrayType.getInternalName()));
+                        this.generatorFlattener.visitPreInvoke(out);
+                        this.previousStage.loadExactSize(out, true);
+                        this.generatorFlattener.visitPostLoadInvokeArgument(out, 0);
+                        this.generatorFlattener.visitPostInvoke(out);
+                        out.add(new TypeInsnNode(CHECKCAST, info.elementArrayType.getInternalName()));
                     } else {
-                        this.previousStage.loadExactSize(transformInsns, true);
-                        transformInsns.add(BytecodeHelper.generateNewArray(info.elementType));
+                        this.previousStage.loadExactSize(out, true);
+                        out.add(BytecodeHelper.generateNewArray(info.elementType));
                     }
-                    transformInsns.add(this.fixedArrayValue.makeStore());
+                    out.add(this.fixedArrayValue.makeStore());
 
-                    this.writeIndexValue = transformedOperandLvtAlloc.apply(Type.INT_TYPE);
-                    transformInsns.add(new InsnNode(ICONST_0));
-                    transformInsns.add(this.writeIndexValue.makeStore());
+                    this.writeIndexValue = lvtAlloc.allocate(Type.INT_TYPE);
+                    out.add(new InsnNode(ICONST_0));
+                    out.add(this.writeIndexValue.makeStore());
                 } else {
                     //TODO: i'd like to use some kind of spined buffer in this case
                     this.listType = this.consumedElementTypeInfo().elementArrayListType;
-                    this.listValue = transformedOperandLvtAlloc.apply(this.listType);
-                    transformInsns.add(new TypeInsnNode(NEW, this.listType.getInternalName()));
-                    transformInsns.add(new InsnNode(DUP));
-                    transformInsns.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "()V", false));
-                    transformInsns.add(this.listValue.makeStore());
+                    this.listValue = lvtAlloc.allocate(this.listType);
+                    out.add(new TypeInsnNode(NEW, this.listType.getInternalName()));
+                    out.add(new InsnNode(DUP));
+                    out.add(new MethodInsnNode(INVOKESPECIAL, this.listType.getInternalName(), "<init>", "()V", false));
+                    out.add(this.listValue.makeStore());
                 }
             }
 
@@ -1399,10 +1456,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     if (this.hasGenerator) {
                         // list.toArray((Object[]) generator.apply(list.size()));
                         out.add(this.listValue.makeLoad());
-                        out.add(this.generatorValue.makeLoad());
+                        this.generatorFlattener.visitPreInvoke(out);
                         out.add(this.listValue.makeLoad());
                         out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "size", Type.getMethodDescriptor(Type.INT_TYPE), false));
-                        out.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(IntFunction.class), "apply", Type.getMethodDescriptor(Type.getType(Object.class), Type.INT_TYPE), true));
+                        this.generatorFlattener.visitPostLoadInvokeArgument(out, 0);
+                        this.generatorFlattener.visitPostInvoke(out);
                         out.add(new TypeInsnNode(CHECKCAST, info.elementArrayType.getInternalName()));
                         out.add(new MethodInsnNode(INVOKEVIRTUAL, this.listType.getInternalName(), "toArray", Type.getMethodDescriptor(info.elementArrayType, info.elementArrayType), false));
                     } else {
@@ -1424,6 +1482,14 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
 
                         out.add(tailLabel);
                     }
+                }
+            }
+
+            @Override
+            public void visitClassNode(ClassNode classNode) {
+                super.visitClassNode(classNode);
+                if (this.hasGenerator) {
+                    this.generatorFlattener.visitClassNode(classNode);
                 }
             }
         }
@@ -1471,11 +1537,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.counterValue = transformedOperandLvtAlloc.apply(Type.LONG_TYPE);
-                transformInsns.add(new InsnNode(LCONST_0));
-                transformInsns.add(this.counterValue.makeStore());
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.counterValue = lvtAlloc.allocate(Type.LONG_TYPE);
+                out.add(new InsnNode(LCONST_0));
+                out.add(this.counterValue.makeStore());
             }
 
             @Override
@@ -1513,14 +1579,14 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.sumValue = transformedOperandLvtAlloc.apply(this.sumType);
-                transformInsns.add(BytecodeHelper.loadConstantDefaultValueInsn(this.sumType));
-                transformInsns.add(this.sumValue.makeStore());
-                this.countValue = transformedOperandLvtAlloc.apply(Type.LONG_TYPE);
-                transformInsns.add(new InsnNode(LCONST_0));
-                transformInsns.add(this.countValue.makeStore());
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.sumValue = lvtAlloc.allocate(this.sumType);
+                out.add(BytecodeHelper.loadConstantDefaultValueInsn(this.sumType));
+                out.add(this.sumValue.makeStore());
+                this.countValue = lvtAlloc.allocate(Type.LONG_TYPE);
+                out.add(new InsnNode(LCONST_0));
+                out.add(this.countValue.makeStore());
             }
 
             @Override
@@ -1578,16 +1644,16 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
 
                 PerElementTypeInfo info = this.consumedElementTypeInfo();
 
-                this.statisticsValue = transformedOperandLvtAlloc.apply(info.elementSummaryStatisticsType);
-                transformInsns.add(new TypeInsnNode(NEW, info.elementSummaryStatisticsType.getInternalName()));
-                transformInsns.add(new InsnNode(DUP));
-                transformInsns.add(new MethodInsnNode(INVOKESPECIAL, info.elementSummaryStatisticsType.getInternalName(), "<init>", "()V", false));
-                transformInsns.add(this.statisticsValue.makeStore());
+                this.statisticsValue = lvtAlloc.allocate(info.elementSummaryStatisticsType);
+                out.add(new TypeInsnNode(NEW, info.elementSummaryStatisticsType.getInternalName()));
+                out.add(new InsnNode(DUP));
+                out.add(new MethodInsnNode(INVOKESPECIAL, info.elementSummaryStatisticsType.getInternalName(), "<init>", "()V", false));
+                out.add(this.statisticsValue.makeStore());
             }
 
             @Override
@@ -1613,11 +1679,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.sumValue = transformedOperandLvtAlloc.apply(this.consumedElementType());
-                transformInsns.add(BytecodeHelper.loadConstantDefaultValueInsn(this.consumedElementType()));
-                transformInsns.add(this.sumValue.makeStore());
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+                this.sumValue = lvtAlloc.allocate(this.consumedElementType());
+                out.add(BytecodeHelper.loadConstantDefaultValueInsn(this.consumedElementType()));
+                out.add(this.sumValue.makeStore());
             }
 
             @Override
@@ -1636,47 +1702,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
         }
 
-        /*private static class Match extends TerminalOp {
-            protected final boolean breakWhenTestReturns;
-            protected final boolean defaultReturnValue;
-
-            protected LVTReference predicateValue;
-
-            public Match(MethodInsnNode stageInsn, boolean breakWhenTestReturns, boolean defaultReturnValue) {
-                super(stageInsn);
-                this.breakWhenTestReturns = breakWhenTestReturns;
-                this.defaultReturnValue = defaultReturnValue;
-            }
-
-            @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.predicateValue = rawOperandValues.get(0);
-            }
-
-            @Override
-            public InsnList finalizeReturnValue(Map<Stage, List<LVTReference>> stageLvtReferences) {
-                return BytecodeHelper.makeInsnList(new InsnNode(this.defaultReturnValue ? ICONST_1 : ICONST_0));
-            }
-
-            @Override
-            public void visitCode(InsnList out, Map<Stage, List<LVTReference>> stageLvtReferences, BranchLabels labels, LVTReference consumedValue) {
-                PerElementTypeInfo info = ELEMENT_TYPE_INFO.get(this.consumedElementType());
-
-                out.add(this.predicateValue.makeLoad());
-                out.add(consumedValue.makeLoad());
-                out.add(new MethodInsnNode(INVOKEINTERFACE, info.elementPredicateType.getInternalName(), "test", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, info.elementType), true));
-                out.add(new JumpInsnNode(this.breakWhenTestReturns ? IFEQ : IFNE, labels.skipLabel));
-                out.add(new InsnNode(this.defaultReturnValue ? ICONST_0 : ICONST_1)); //return opposite of defaultReturnValue on match
-                out.add(new JumpInsnNode(GOTO, labels.returnLabel));
-            }
-        }*/
-
         private static class Match extends TerminalOp {
             protected final boolean breakWhenTestReturns;
             protected final boolean defaultReturnValue;
 
-            protected LVTReference predicateValue;
+            protected LambdaFlattener predicateFlattener;
             protected LVTReference returnValue;
 
             public Match(MethodInsnNode stageInsn, boolean breakWhenTestReturns, boolean defaultReturnValue) {
@@ -1686,13 +1716,15 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             }
 
             @Override
-            public void transformOperands(List<Type> rawOperandTypes, List<LVTReference> rawOperandValues, Function<Type, LVTReference> transformedOperandLvtAlloc, InsnList transformInsns, List<AbstractInsnNode> removeInsns) {
-                super.transformOperands(rawOperandTypes, rawOperandValues, transformedOperandLvtAlloc, transformInsns, removeInsns);
-                this.predicateValue = rawOperandValues.get(0);
+            public void transformOperands(ImmutableList<Type> operandTypes, List<LVTReference> operandValues, LVTReference.Allocator lvtAlloc, InsnList out, List<AbstractInsnNode> removeInsns, Function<AbstractInsnNode, Frame<SourceValue>> findSources) {
+                this.predicateFlattener = LambdaFlattener.createFromSources(findSources.apply(this.stageInsn), 0, lvtAlloc, this.consumedElementTypeInfo().elementPredicateTestHandle).visitCaptureState(out, removeInsns);
+                operandTypes = ImmutableList.of();
 
-                this.returnValue = transformedOperandLvtAlloc.apply(Type.BOOLEAN_TYPE);
-                transformInsns.add(new InsnNode(this.defaultReturnValue ? ICONST_1 : ICONST_0));
-                transformInsns.add(this.returnValue.makeStore());
+                super.transformOperands(operandTypes, operandValues, lvtAlloc, out, removeInsns, findSources);
+
+                this.returnValue = lvtAlloc.allocate(Type.BOOLEAN_TYPE);
+                out.add(new InsnNode(this.defaultReturnValue ? ICONST_1 : ICONST_0));
+                out.add(this.returnValue.makeStore());
             }
 
             @Override
@@ -1702,15 +1734,20 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
 
             @Override
             public void visitCode(InsnList out, BranchLabels labels, LVTReference consumedValue) {
-                PerElementTypeInfo info = this.consumedElementTypeInfo();
-
-                out.add(this.predicateValue.makeLoad());
+                this.predicateFlattener.visitPreInvoke(out);
                 out.add(consumedValue.makeLoad());
-                out.add(new MethodInsnNode(INVOKEINTERFACE, info.elementPredicateType.getInternalName(), "test", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, info.elementType), true));
+                this.predicateFlattener.visitPostLoadInvokeArgument(out, 0);
+                this.predicateFlattener.visitPostInvoke(out);
                 out.add(new JumpInsnNode(this.breakWhenTestReturns ? IFEQ : IFNE, labels.skipLabel));
                 out.add(new InsnNode(this.defaultReturnValue ? ICONST_0 : ICONST_1)); //return opposite of defaultReturnValue on match
                 out.add(this.returnValue.makeStore());
                 out.add(new JumpInsnNode(GOTO, labels.breakLabel));
+            }
+
+            @Override
+            public void visitClassNode(ClassNode classNode) {
+                super.visitClassNode(classNode);
+                this.predicateFlattener.visitClassNode(classNode);
             }
         }
 

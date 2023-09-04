@@ -104,7 +104,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         int changeFlags = 0;
 
         for (ITreeClassTransformer transformer : TRANSFORMERS) {
-            if (transformer.interestedInClass(name, transformedName)) {
+            if (transformer.interestedInClass(name, transformedName) && !transformedName.startsWith(transformer.getClass().getTypeName())) {
                 if (classNode == null) { //this is the first transformer which was interested in transforming the class, it needs to be read into a tree
                     classNode = readClass(reader = new ClassReader(basicClass));
                 }
