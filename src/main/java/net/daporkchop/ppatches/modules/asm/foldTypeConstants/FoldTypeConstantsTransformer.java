@@ -4,10 +4,9 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
-import net.daporkchop.ppatches.util.TypeUtils;
+import net.daporkchop.ppatches.util.asm.TypeUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
-import net.daporkchop.ppatches.util.asm.ConcatGenerator;
-import net.daporkchop.ppatches.util.asm.VarargsParameterDecoder;
+import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
@@ -22,26 +21,15 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class FoldTypeConstantsTransformer implements ITreeClassTransformer {
+public class FoldTypeConstantsTransformer implements ITreeClassTransformer.IndividualMethod, ITreeClassTransformer.OptimizationPass {
     @Override
-    public int transformClass(String name, String transformedName, ClassNode classNode) {
+    public int transformMethod(String name, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
+        //set to CHANGED if a change is made which doesn't invalidate the source frame info
         int changedFlags = 0;
-        for (MethodNode methodNode : classNode.methods) {
-            //repeatedly attempt to transform the class until no more optimizations can be applied
-            while (tryTransformMethod(classNode.name, methodNode)) {
-                changedFlags |= CHANGED;
-            }
-        }
-        return changedFlags;
-    }
 
-    private static boolean tryTransformMethod(String ownerName, MethodNode methodNode) {
-        Frame<SourceValue>[] sourceFrames = null;
+        for (AbstractInsnNode insn = instructions.getFirst(), next; insn != null; insn = next) {
+            next = insn.getNext();
 
-        //set to true if a change is made which doesn't invalidate the source frame info
-        boolean compatibleChange = false;
-
-        for (AbstractInsnNode insn = methodNode.instructions.getFirst(); insn != null; insn = insn.getNext()) {
             if (insn.getOpcode() != INVOKESTATIC) {
                 continue;
             }
@@ -51,11 +39,7 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer {
                 continue;
             }
 
-            if (sourceFrames == null) {
-                sourceFrames = BytecodeHelper.analyzeSources(ownerName, methodNode);
-            }
-            Frame<SourceValue> sourceFrame = sourceFrames[methodNode.instructions.indexOf(insn)];
-            if (sourceFrame == null) { //unreachable instruction, ignore
+            if (instructions.isUnreachable(methodInsn)) { //unreachable instruction, ignore
                 continue;
             }
 
@@ -63,50 +47,56 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer {
                 case "getDescriptor":
                 case "getInternalName":
                     if ("(Ljava/lang/Class;)Ljava/lang/String;".equals(methodInsn.desc)) {
-                        AbstractInsnNode src = BytecodeHelper.getSingleSourceInsnFromTop(sourceFrame, 0);
+                        AbstractInsnNode src = instructions.singleStackSourceAtTop(methodInsn, Type.getType(Class.class));
                         if (src instanceof LdcInsnNode) {
-                            Type arg = (Type) ((LdcInsnNode) src).cst;
-                            ((LdcInsnNode) src).cst = "getDescriptor".equals(methodInsn.name) ? arg.getDescriptor() : arg.getInternalName();
-                            methodNode.instructions.remove(methodInsn);
-                            compatibleChange = true;
+                            try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
+                                Type arg = (Type) ((LdcInsnNode) src).cst;
+                                batch.set(src, new LdcInsnNode("getDescriptor".equals(methodInsn.name) ? arg.getDescriptor() : arg.getInternalName()));
+                                batch.remove(methodInsn);
+                            }
+                            changedFlags = CHANGED;
                         }
                     }
                     continue;
                 case "getType":
                     if ("(Ljava/lang/Class;)Lorg/objectweb/asm/Type;".equals(methodInsn.desc)) {
-                        AbstractInsnNode src = BytecodeHelper.getSingleSourceInsnFromTop(sourceFrame, 0);
+                        AbstractInsnNode src = instructions.singleStackSourceAtTop(methodInsn, Type.getType(Class.class));
                         if (src instanceof LdcInsnNode) {
                             //getType() on a constant class, redirect to a constant string to avoid loading classes
-                            LdcInsnNode ldcSrc = (LdcInsnNode) src;
-                            ldcSrc.cst = ((Type) ldcSrc.cst).getDescriptor();
-                            methodInsn.desc = "(Ljava/lang/String;)Lorg/objectweb/asm/Type;";
-                            return true;
+                            try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
+                                LdcInsnNode ldcSrc = (LdcInsnNode) src;
+                                batch.set(ldcSrc, new LdcInsnNode(((Type) ldcSrc.cst).getDescriptor()));
+                                batch.set(methodInsn, methodInsn = new MethodInsnNode(INVOKESTATIC, "org/objectweb/asm/Type", "getType", "(Ljava/lang/String;)Lorg/objectweb/asm/Type;", false));
+                            }
+                            changedFlags = CHANGED;
                         } else if (src instanceof FieldInsnNode && src.getOpcode() == GETSTATIC) {
                             FieldInsnNode fieldSrc = (FieldInsnNode) src;
                             Type primitiveType;
                             if ("TYPE".equals(fieldSrc.name) && "Ljava/lang/Class;".equals(fieldSrc.desc)
                                 && (primitiveType = BytecodeHelper.unboxedPrimitiveType(fieldSrc.owner).orElse(null)) != null) {
                                 //getType() on a constant primitive field, redirect to the static fields in Type
-                                fieldSrc.owner = "org/objectweb/asm/Type";
-                                fieldSrc.name = primitiveType.getClassName().toUpperCase(Locale.ROOT) + "_TYPE";
-                                fieldSrc.desc = "Lorg/objectweb/asm/Type;";
-                                methodNode.instructions.remove(methodInsn);
-                                return true;
+                                try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
+                                    batch.set(fieldSrc, new FieldInsnNode(GETSTATIC, "org/objectweb/asm/Type", primitiveType.getClassName().toUpperCase(Locale.ROOT) + "_TYPE", "Lorg/objectweb/asm/Type;"));
+                                    batch.remove(methodInsn);
+                                }
+                                changedFlags = CHANGED;
                             }
                         }
                     }
                     if ("(Ljava/lang/String;)Lorg/objectweb/asm/Type;".equals(methodInsn.desc)) {
-                        AbstractInsnNode src = BytecodeHelper.getSingleSourceInsnFromTop(sourceFrame, 0);
+                        AbstractInsnNode src = instructions.singleStackSourceAtTop(methodInsn, Type.getType(String.class));
                         if (src instanceof LdcInsnNode) {
                             //getType() on a constant string, turn it into an INVOKEDYNAMIC to avoid repeatedly allocating the same type
                             //TODO: this could be CONSTANT_DYNAMIC when available
-                            AbstractInsnNode invokedynamic = new InvokeDynamicInsnNode("$ppatches_getType", "()Lorg/objectweb/asm/Type;",
-                                    new Handle(H_INVOKESTATIC, "net/daporkchop/ppatches/modules/asm/foldTypeConstants/FoldTypeConstantsTransformer",
-                                            "bootstrapConstantType", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;)Ljava/lang/invoke/CallSite;", false),
-                                    ((LdcInsnNode) src).cst);
-                            methodNode.instructions.remove(src);
-                            methodNode.instructions.set(methodInsn, invokedynamic);
-                            return true;
+
+                            try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
+                                batch.remove(src);
+                                batch.set(methodInsn, new InvokeDynamicInsnNode("$ppatches_getType", "()Lorg/objectweb/asm/Type;",
+                                        new Handle(H_INVOKESTATIC, "net/daporkchop/ppatches/modules/asm/foldTypeConstants/FoldTypeConstantsTransformer",
+                                                "bootstrapConstantType", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;)Ljava/lang/invoke/CallSite;", false),
+                                        ((LdcInsnNode) src).cst));
+                            }
+                            changedFlags = CHANGED;
                         }
                     }
                     continue;
@@ -115,12 +105,12 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer {
                         continue;
                     }
 
-                    AbstractInsnNode returnTypeExprFirstInsn = BytecodeHelper.tryFindExpressionStart(methodNode, sourceFrames, methodInsn, 1).orElse(null);
+                    /*AbstractInsnNode returnTypeExprFirstInsn = BytecodeHelper.tryFindExpressionStart(methodNode, sourceFrames, methodInsn, 1).orElse(null);
                     if (returnTypeExprFirstInsn == null) {
                         continue;
                     }
 
-                    VarargsParameterDecoder.Result varargs = VarargsParameterDecoder.tryDecode(ownerName, methodNode, methodInsn, sourceFrames).orElse(null);
+                    VarargsParameterDecoder.Result varargs = VarargsParameterDecoder.tryDecode(classNode.name, methodNode, methodInsn, sourceFrames).orElse(null);
                     if (varargs != null) {
                         //convert into a StringBuilder chain
 
@@ -173,14 +163,14 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer {
                             methodNode.instructions.remove(removeInsn);
                         }
 
-                        return true;
-                    }
+                        return CHANGED;
+                    }*/
                     continue;
                 }
             }
         }
 
-        return compatibleChange;
+        return changedFlags;
     }
 
     private static String tryExtractConstantTypeDesc(MethodNode methodNode, Frame<SourceValue>[] sourceFrames, AbstractInsnNode consumingInsn, int indexFromTop, List<AbstractInsnNode> toRemove) {

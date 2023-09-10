@@ -1,11 +1,12 @@
 package net.daporkchop.ppatches.util.asm;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.util.COWArrayUtils;
-import net.daporkchop.ppatches.util.TypeUtils;
+import net.daporkchop.ppatches.util.asm.analysis.IReverseDataflowProvider;
 import net.daporkchop.ppatches.util.asm.analysis.ResultUsageGraph;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
@@ -746,11 +747,15 @@ public class BytecodeHelper {
         return Optional.empty();
     }
 
-    @SneakyThrows(AnalyzerException.class)
     public static Frame<SourceValue>[] analyzeSources(String ownerName, MethodNode methodNode) {
+        return analyze(new Analyzer<>(new SourceInterpreter()), ownerName, methodNode);
+    }
+
+    @SneakyThrows(AnalyzerException.class)
+    public static <V extends Value> Frame<V>[] analyze(Analyzer<V> analyzer, String ownerName, MethodNode methodNode) {
         do {
             try {
-                return new Analyzer<>(new SourceInterpreter()).analyze(ownerName, methodNode);
+                return analyzer.analyze(ownerName, methodNode);
             } catch (AnalyzerException e) {
                 if (e.getMessage().endsWith("Insufficient maximum stack size.")) {
                     //the method has probably been modified by another transformer and its maximum stack size needs to be
@@ -1136,6 +1141,109 @@ public class BytecodeHelper {
         }
         Preconditions.checkState(firstInsn != expressionConsumer, "stack operand has no source instructions?");
         return Optional.of(firstInsn);
+    }
+
+    public static Optional<AbstractInsnNode> tryFindExpressionStart(MethodNode methodNode, IReverseDataflowProvider dataflowProvider, AbstractInsnNode expressionConsumer, int expressionIndexFromTop) {
+        //BFS through instructions producing stack operands until we find the first one. we assume the first one of them
+        AbstractInsnNode firstInsn = expressionConsumer;
+        int firstInsnIndex = methodNode.instructions.indexOf(firstInsn);
+
+        Queue<AbstractInsnNode> queue = new ArrayDeque<>(dataflowProvider.getConsumedStackOperandFromTop(expressionConsumer, expressionIndexFromTop).insns);
+        if (queue.size() != 1) {
+            //TODO: this code can't work for conditionals...
+            return Optional.empty();
+        }
+
+        Set<AbstractInsnNode> visitedExprs = new HashSet<>();
+
+        for (AbstractInsnNode curr; (curr = queue.poll()) != null; ) {
+            if (visitedExprs.add(curr)) {
+                int currInsnIndex = methodNode.instructions.indexOf(curr);
+
+                if (currInsnIndex < firstInsnIndex) {
+                    firstInsn = curr;
+                    firstInsnIndex = currInsnIndex;
+                }
+
+                for (SourceValue consumedOperandValue : dataflowProvider.getConsumedStackOperands(curr)) {
+                    if (consumedOperandValue.insns.size() > 1) {
+                        //TODO: this code can't work for conditionals...
+                        return Optional.empty();
+                    }
+                    queue.addAll(consumedOperandValue.insns);
+                }
+            }
+        }
+        Preconditions.checkState(firstInsn != expressionConsumer, "stack operand has no source instructions?");
+        return Optional.of(firstInsn);
+    }
+
+    public static List<? extends AbstractInsnNode> possibleNextInstructions(AbstractInsnNode insn) {
+        switch (insn.getOpcode()) {
+            case RETURN:
+            case ARETURN:
+            case IRETURN:
+            case LRETURN:
+            case FRETURN:
+            case DRETURN:
+                return ImmutableList.of(); //return instructions can't advance to any instruction, as they're at the end of a control flow chain
+            case GOTO:
+                return ImmutableList.of(((JumpInsnNode) insn).label); //unlike other jump instructions, GOTO can only advance to the label
+
+            //TABLESWITCH and LOOKUPSWITCH can advance to any of the target labels or to the default label
+            case TABLESWITCH: {
+                TableSwitchInsnNode tableSwitchInsn = (TableSwitchInsnNode) insn;
+                return tableSwitchInsn.labels.contains(tableSwitchInsn.dflt) ? tableSwitchInsn.labels : ImmutableList.<LabelNode>builder().addAll(tableSwitchInsn.labels).add(tableSwitchInsn.dflt).build();
+            }
+            case LOOKUPSWITCH: {
+                LookupSwitchInsnNode lookupSwitchInsnNode = (LookupSwitchInsnNode) insn;
+                return lookupSwitchInsnNode.labels.contains(lookupSwitchInsnNode.dflt) ? lookupSwitchInsnNode.labels : ImmutableList.<LabelNode>builder().addAll(lookupSwitchInsnNode.labels).add(lookupSwitchInsnNode.dflt).build();
+            }
+        }
+
+        AbstractInsnNode next = insn.getNext();
+        return insn instanceof JumpInsnNode
+                ? ImmutableList.of(((JumpInsnNode) insn).label, next) //conditional jump instructions can advance to the label or the next instruction
+                : ImmutableList.of(next); //normal instructions can only advance to the next instruction
+    }
+
+    public static boolean canAdvanceJumpingToLabel(AbstractInsnNode insn) {
+        return insn instanceof JumpInsnNode || insn instanceof TableSwitchInsnNode || insn instanceof LookupSwitchInsnNode;
+    }
+
+    public static List<LabelNode> possibleNextLabels(AbstractInsnNode insn) {
+        switch (insn.getOpcode()) {
+            //TABLESWITCH and LOOKUPSWITCH can advance to any of the target labels or to the default label
+            case TABLESWITCH: {
+                TableSwitchInsnNode tableSwitchInsn = (TableSwitchInsnNode) insn;
+                return tableSwitchInsn.labels.contains(tableSwitchInsn.dflt) ? tableSwitchInsn.labels : ImmutableList.<LabelNode>builder().addAll(tableSwitchInsn.labels).add(tableSwitchInsn.dflt).build();
+            }
+            case LOOKUPSWITCH: {
+                LookupSwitchInsnNode lookupSwitchInsnNode = (LookupSwitchInsnNode) insn;
+                return lookupSwitchInsnNode.labels.contains(lookupSwitchInsnNode.dflt) ? lookupSwitchInsnNode.labels : ImmutableList.<LabelNode>builder().addAll(lookupSwitchInsnNode.labels).add(lookupSwitchInsnNode.dflt).build();
+            }
+        }
+
+        return insn instanceof JumpInsnNode
+                ? ImmutableList.of(((JumpInsnNode) insn).label) //conditional jump instructions can advance to the label or the next instruction
+                : ImmutableList.of(); //normal instructions can only advance to the next instruction
+    }
+
+    public static boolean canAdvanceNormallyToNextInstruction(AbstractInsnNode insn) {
+        switch (insn.getOpcode()) {
+            case RETURN: //return instructions can't advance to any instruction, as they're at the end of a control flow chain
+            case ARETURN:
+            case IRETURN:
+            case LRETURN:
+            case FRETURN:
+            case DRETURN:
+            case GOTO: //unlike other jump instructions, GOTO can only advance to the label
+            case TABLESWITCH: //TABLESWITCH and LOOKUPSWITCH can advance to any of the target labels or to the default label
+            case LOOKUPSWITCH:
+                return false;
+            default:
+                return true;
+        }
     }
 
     public static boolean equals(AbstractInsnNode insn0, AbstractInsnNode insn1) {
@@ -1586,6 +1694,10 @@ public class BytecodeHelper {
             seq.add(insn);
         }
         return seq;
+    }
+
+    public static <I extends AbstractInsnNode> Set<I> makeInsnSet() {
+        return Collections.newSetFromMap(new IdentityHashMap<>());
     }
 
     public static void addFirst(InsnList list, AbstractInsnNode... insns) {

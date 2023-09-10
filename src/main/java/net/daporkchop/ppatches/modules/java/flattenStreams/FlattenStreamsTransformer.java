@@ -12,7 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.With;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
-import net.daporkchop.ppatches.util.TypeUtils;
+import net.daporkchop.ppatches.util.asm.TypeUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
 import net.daporkchop.ppatches.util.asm.LVTReference;

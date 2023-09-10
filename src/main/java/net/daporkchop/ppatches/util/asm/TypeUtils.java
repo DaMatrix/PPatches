@@ -1,4 +1,4 @@
-package net.daporkchop.ppatches.util;
+package net.daporkchop.ppatches.util.asm;
 
 import org.objectweb.asm.Type;
 import org.spongepowered.asm.mixin.transformer.ClassInfo;
@@ -60,5 +60,37 @@ public class TypeUtils {
         boolean checkInterfaces = superClassInfo.isInterface();
 
         return subClassInfo.hasSuperClass(superClassInfo, ClassInfo.Traversal.ALL, checkInterfaces);
+    }
+
+    /**
+     * Equivalent to {@code Type.getType(desc).getSize()}.
+     *
+     * @param desc the type descriptor
+     * @return the {@link Type#getSize() size} of the {@link Type} described by the given descriptor
+     */
+    public static int getTypeSize(String desc) {
+        return Type.getType(desc).getSize();
+    }
+
+    /**
+     * Extracts the size of the method arguments from the packed arguments-and-return-sizes value as returned by {@link Type#getArgumentsAndReturnSizes(String)} and
+     * {@link Type#getArgumentsAndReturnSizes()}.
+     *
+     * @param argumentsAndReturnSizes the packed arguments-and-return-sizes value as returned by {@link Type#getArgumentsAndReturnSizes(String)} and {@link Type#getArgumentsAndReturnSizes()}
+     * @return the size of the method arguments
+     */
+    public static int extractArgumentsSizes(int argumentsAndReturnSizes) {
+        return argumentsAndReturnSizes >> 2;
+    }
+
+    /**
+     * Extracts the size of the return value from the packed arguments-and-return-sizes value as returned by {@link Type#getArgumentsAndReturnSizes(String)} and
+     * {@link Type#getArgumentsAndReturnSizes()}.
+     *
+     * @param argumentsAndReturnSizes the packed arguments-and-return-sizes value as returned by {@link Type#getArgumentsAndReturnSizes(String)} and {@link Type#getArgumentsAndReturnSizes()}
+     * @return the size of the return value
+     */
+    public static int extractReturnSize(int argumentsAndReturnSizes) {
+        return argumentsAndReturnSizes & 0x3;
     }
 }
