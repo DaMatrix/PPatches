@@ -44,16 +44,17 @@ public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer>
             boolean optimization = this instanceof OptimizationPass;
 
             for (MethodNode methodNode : classNode.methods) {
+                if (optimization && !methodNode.tryCatchBlocks.isEmpty()) { //TODO: this is a gross hack
+                    //optimization passes don't need to worry about stuff failing
+                    continue;
+                }
+
                 try (AnalyzedInsnList analyzedList = new AnalyzedInsnList(classNode.name, methodNode)) {
                     int transformResult;
                     do {
                         transformResult = this.transformMethod(name, classNode, methodNode, analyzedList);
                         changedFlags |= transformResult;
                     } while (optimization && transformResult != 0); //if this is an optimization pass, loop until no more changes can be applied
-                } catch (UnsupportedOperationException e) { //TODO: this is a gross hack
-                    if (!optimization) { //optimization passes don't need to worry about stuff failing
-                        throw e;
-                    }
                 }
             }
             return changedFlags;

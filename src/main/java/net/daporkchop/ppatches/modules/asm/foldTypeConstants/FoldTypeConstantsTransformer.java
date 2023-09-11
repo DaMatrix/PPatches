@@ -3,18 +3,22 @@ package net.daporkchop.ppatches.modules.asm.foldTypeConstants;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
-import net.daporkchop.ppatches.util.asm.TypeUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
+import net.daporkchop.ppatches.util.asm.ConcatGenerator;
+import net.daporkchop.ppatches.util.asm.TypeUtils;
+import net.daporkchop.ppatches.util.asm.VarargsParameterDecoder;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
+import net.daporkchop.ppatches.util.asm.analysis.IReverseDataflowProvider;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
-import org.objectweb.asm.tree.analysis.Frame;
-import org.objectweb.asm.tree.analysis.SourceValue;
 
 import java.lang.invoke.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -35,11 +39,7 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
             }
 
             MethodInsnNode methodInsn = (MethodInsnNode) insn;
-            if (!"org/objectweb/asm/Type".equals(methodInsn.owner)) {
-                continue;
-            }
-
-            if (instructions.isUnreachable(methodInsn)) { //unreachable instruction, ignore
+            if (!"org/objectweb/asm/Type".equals(methodInsn.owner) || instructions.isUnreachable(methodInsn)) {
                 continue;
             }
 
@@ -47,11 +47,17 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                 case "getDescriptor":
                 case "getInternalName":
                     if ("(Ljava/lang/Class;)Ljava/lang/String;".equals(methodInsn.desc)) {
-                        AbstractInsnNode src = instructions.singleStackSourceAtTop(methodInsn, Type.getType(Class.class));
+                        AbstractInsnNode src = instructions.getSingleStackOperandSourceFromBottom(methodInsn, 0);
                         if (src instanceof LdcInsnNode) {
+                            Type constantClass = (Type) ((LdcInsnNode) src).cst;
+                            String replacement = "getDescriptor".equals(methodInsn.name) ? constantClass.getDescriptor() : constantClass.getInternalName();
+
+                            PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.{}({}.class) to \"{}\"",
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn),
+                                methodInsn.name, constantClass.getInternalName().replace('/', '.'), replacement);
+
                             try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
-                                Type arg = (Type) ((LdcInsnNode) src).cst;
-                                batch.set(src, new LdcInsnNode("getDescriptor".equals(methodInsn.name) ? arg.getDescriptor() : arg.getInternalName()));
+                                batch.set(src, new LdcInsnNode(replacement));
                                 batch.remove(methodInsn);
                             }
                             changedFlags = CHANGED;
@@ -60,12 +66,17 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                     continue;
                 case "getType":
                     if ("(Ljava/lang/Class;)Lorg/objectweb/asm/Type;".equals(methodInsn.desc)) {
-                        AbstractInsnNode src = instructions.singleStackSourceAtTop(methodInsn, Type.getType(Class.class));
+                        AbstractInsnNode src = instructions.getSingleStackOperandSourceFromBottom(methodInsn, 0);
                         if (src instanceof LdcInsnNode) {
                             //getType() on a constant class, redirect to a constant string to avoid loading classes
+                            Type constantClass = (Type) ((LdcInsnNode) src).cst;
+
+                            PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.getType({}.class) to Type.getType(\"{}\")",
+                                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn),
+                                    constantClass.getInternalName().replace('/', '.'), constantClass.getDescriptor());
+
                             try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
-                                LdcInsnNode ldcSrc = (LdcInsnNode) src;
-                                batch.set(ldcSrc, new LdcInsnNode(((Type) ldcSrc.cst).getDescriptor()));
+                                batch.set(src, new LdcInsnNode(constantClass.getDescriptor()));
                                 batch.set(methodInsn, methodInsn = new MethodInsnNode(INVOKESTATIC, "org/objectweb/asm/Type", "getType", "(Ljava/lang/String;)Lorg/objectweb/asm/Type;", false));
                             }
                             changedFlags = CHANGED;
@@ -75,6 +86,11 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                             if ("TYPE".equals(fieldSrc.name) && "Ljava/lang/Class;".equals(fieldSrc.desc)
                                 && (primitiveType = BytecodeHelper.unboxedPrimitiveType(fieldSrc.owner).orElse(null)) != null) {
                                 //getType() on a constant primitive field, redirect to the static fields in Type
+
+                                PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.getType({}.class) to Type.{}_TYPE",
+                                        classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn),
+                                        primitiveType.getClassName(), primitiveType.getClassName().toUpperCase(Locale.ROOT));
+
                                 try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
                                     batch.set(fieldSrc, new FieldInsnNode(GETSTATIC, "org/objectweb/asm/Type", primitiveType.getClassName().toUpperCase(Locale.ROOT) + "_TYPE", "Lorg/objectweb/asm/Type;"));
                                     batch.remove(methodInsn);
@@ -84,17 +100,21 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         }
                     }
                     if ("(Ljava/lang/String;)Lorg/objectweb/asm/Type;".equals(methodInsn.desc)) {
-                        AbstractInsnNode src = instructions.singleStackSourceAtTop(methodInsn, Type.getType(String.class));
+                        AbstractInsnNode src = instructions.getSingleStackOperandSourceFromBottom(methodInsn, 0);
                         if (src instanceof LdcInsnNode) {
                             //getType() on a constant string, turn it into an INVOKEDYNAMIC to avoid repeatedly allocating the same type
                             //TODO: this could be CONSTANT_DYNAMIC when available
+                            String desc = (String) ((LdcInsnNode) src).cst;
+
+                            PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.getType(\"{}\") into an INVOKEDYNAMIC",
+                                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn), desc);
 
                             try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
                                 batch.remove(src);
                                 batch.set(methodInsn, new InvokeDynamicInsnNode("$ppatches_getType", "()Lorg/objectweb/asm/Type;",
                                         new Handle(H_INVOKESTATIC, "net/daporkchop/ppatches/modules/asm/foldTypeConstants/FoldTypeConstantsTransformer",
                                                 "bootstrapConstantType", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;)Ljava/lang/invoke/CallSite;", false),
-                                        ((LdcInsnNode) src).cst));
+                                        desc));
                             }
                             changedFlags = CHANGED;
                         }
@@ -105,66 +125,70 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         continue;
                     }
 
-                    /*AbstractInsnNode returnTypeExprFirstInsn = BytecodeHelper.tryFindExpressionStart(methodNode, sourceFrames, methodInsn, 1).orElse(null);
+                    AbstractInsnNode returnTypeExprFirstInsn = BytecodeHelper.tryFindExpressionStart(methodNode, instructions, methodInsn, 1).orElse(null);
                     if (returnTypeExprFirstInsn == null) {
                         continue;
                     }
 
-                    VarargsParameterDecoder.Result varargs = VarargsParameterDecoder.tryDecode(classNode.name, methodNode, methodInsn, sourceFrames).orElse(null);
+                    VarargsParameterDecoder.Result varargs = VarargsParameterDecoder.tryDecode(methodInsn, instructions).orElse(null);
                     if (varargs != null) {
-                        //convert into a StringBuilder chain
+                        //convert into a string concatenation
 
                         //inspect the code for constant strings before modifying the code structure
                         List<AbstractInsnNode> toRemove = new ArrayList<>();
-                        String returnTypeConstantString = tryExtractConstantTypeDesc(methodNode, sourceFrames, methodInsn, 1, toRemove);
+                        String returnTypeConstantString = tryExtractConstantTypeDesc(instructions, methodInsn, 0, toRemove);
                         String[] elementConstantStrings = new String[varargs.elements.size()];
                         for (int i = 0; i < elementConstantStrings.length; i++) {
-                            elementConstantStrings[i] = tryExtractConstantTypeDesc(methodNode, sourceFrames, varargs.elements.get(i).astoreInsn, 0, toRemove);
+                            elementConstantStrings[i] = tryExtractConstantTypeDesc(instructions, varargs.elements.get(i).astoreInsn, 2, toRemove);
                         }
 
-                        ConcatGenerator concat = new ConcatGenerator();
-                        methodNode.instructions.insertBefore(returnTypeExprFirstInsn, concat.begin());
-                        methodNode.instructions.insertBefore(returnTypeExprFirstInsn, concat.appendConstant("("));
+                        PPatchesMod.LOGGER.info("Folding Type.getMethodDescriptor() call with constant argument type count at L{};{}{} (line {}) into string concatenation",
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn));
 
-                        if (returnTypeConstantString == null) {
-                            //swap the return type with the StringBuilder instance immediately before the varargs parameter array is created
-                            methodNode.instructions.set(varargs.loadLengthInsn, new InsnNode(SWAP));
-                        } else {
-                            methodNode.instructions.remove(varargs.loadLengthInsn);
+                        try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
+                            ConcatGenerator concat = new ConcatGenerator();
+                            batch.insertBefore(returnTypeExprFirstInsn, concat.begin());
+                            batch.insertBefore(returnTypeExprFirstInsn, concat.appendConstant("("));
+
+                            if (returnTypeConstantString == null) {
+                                //swap the return type with the StringBuilder instance immediately before the varargs parameter array is created
+                                batch.set(varargs.loadLengthInsn, new InsnNode(SWAP));
+                            } else {
+                                batch.remove(varargs.loadLengthInsn);
+                            }
+                            batch.remove(varargs.newArrayInsn);
+
+                            //append each parameter type to the StringBuilder instead of inserting them into the generic array
+                            for (int i = 0; i < elementConstantStrings.length; i++) {
+                                VarargsParameterDecoder.Element element = varargs.elements.get(i);
+
+                                batch.remove(element.dupInsn);
+                                batch.remove(element.loadIndexInsn);
+
+                                batch.insertBefore(element.astoreInsn, elementConstantStrings[i] == null
+                                        ? concat.append(Type.getObjectType("java/lang/Object"))
+                                        : concat.appendConstant(elementConstantStrings[i]));
+
+                                batch.remove(element.astoreInsn);
+                            }
+
+                            batch.insertBefore(methodInsn, concat.appendConstant(")"));
+                            if (returnTypeConstantString == null) {
+                                //swap the return type with the StringBuilder instance, append it and then build the final string instead of calling getMethodDescriptor()
+                                batch.insertBefore(methodInsn, new InsnNode(SWAP));
+                                batch.insertBefore(methodInsn, concat.append(Type.getObjectType("java/lang/Object")));
+                            } else {
+                                batch.insertBefore(methodInsn, concat.appendConstant(returnTypeConstantString));
+                            }
+                            batch.insertBefore(methodInsn, concat.finish());
+                            batch.remove(methodInsn);
+
+                            for (AbstractInsnNode removeInsn : toRemove) {
+                                batch.remove(removeInsn);
+                            }
                         }
-                        methodNode.instructions.remove(varargs.newArrayInsn);
-
-                        //append each parameter type to the StringBuilder instead of inserting them into the generic array
-                        for (int i = 0; i < elementConstantStrings.length; i++) {
-                            VarargsParameterDecoder.Element element = varargs.elements.get(i);
-
-                            methodNode.instructions.remove(element.dupInsn);
-                            methodNode.instructions.remove(element.loadIndexInsn);
-
-                            methodNode.instructions.insertBefore(element.astoreInsn, elementConstantStrings[i] == null
-                                    ? concat.append(Type.getObjectType("java/lang/Object"))
-                                    : concat.appendConstant(elementConstantStrings[i]));
-
-                            methodNode.instructions.remove(element.astoreInsn);
-                        }
-
-                        methodNode.instructions.insertBefore(methodInsn, concat.appendConstant(")"));
-                        if (returnTypeConstantString == null) {
-                            //swap the return type with the StringBuilder instance, append it and then build the final string instead of calling getMethodDescriptor()
-                            methodNode.instructions.insertBefore(methodInsn, new InsnNode(SWAP));
-                            methodNode.instructions.insertBefore(methodInsn, concat.append(Type.getObjectType("java/lang/Object")));
-                        } else {
-                            methodNode.instructions.insertBefore(methodInsn, concat.appendConstant(returnTypeConstantString));
-                        }
-                        methodNode.instructions.insertBefore(methodInsn, concat.finish());
-                        methodNode.instructions.remove(methodInsn);
-
-                        for (AbstractInsnNode removeInsn : toRemove) {
-                            methodNode.instructions.remove(removeInsn);
-                        }
-
-                        return CHANGED;
-                    }*/
+                        changedFlags = CHANGED;
+                    }
                     continue;
                 }
             }
@@ -173,8 +197,8 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
         return changedFlags;
     }
 
-    private static String tryExtractConstantTypeDesc(MethodNode methodNode, Frame<SourceValue>[] sourceFrames, AbstractInsnNode consumingInsn, int indexFromTop, List<AbstractInsnNode> toRemove) {
-        AbstractInsnNode source = BytecodeHelper.getSingleSourceInsnFromTop(methodNode, sourceFrames, consumingInsn, indexFromTop);
+    private static String tryExtractConstantTypeDesc(IReverseDataflowProvider dataflowProvider, AbstractInsnNode consumingInsn, int indexFromBottom, List<AbstractInsnNode> toRemove) {
+        AbstractInsnNode source = dataflowProvider.getSingleStackOperandSourceFromBottom(consumingInsn, indexFromBottom);
         if (source instanceof InvokeDynamicInsnNode) {
             InvokeDynamicInsnNode invokedynamic = (InvokeDynamicInsnNode) source;
             if ("$ppatches_getType".equals(invokedynamic.name)) {

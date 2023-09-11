@@ -80,7 +80,7 @@ public class TypeUtils {
      * @return the size of the method arguments
      */
     public static int extractArgumentsSizes(int argumentsAndReturnSizes) {
-        return argumentsAndReturnSizes >> 2;
+        return (argumentsAndReturnSizes >> 2) - 1;
     }
 
     /**

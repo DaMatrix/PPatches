@@ -1107,48 +1107,12 @@ public class BytecodeHelper {
         return consumedStackOperands;
     }
 
-    public static Optional<AbstractInsnNode> tryFindExpressionStart(MethodNode methodNode, Frame<SourceValue>[] sourceFrames, AbstractInsnNode expressionConsumer, int expressionIndexFromTop) {
-        //BFS through instructions producing stack operands until we find the first one. we assume the first one of them
-        AbstractInsnNode firstInsn = expressionConsumer;
-        int firstInsnIndex = methodNode.instructions.indexOf(firstInsn);
-
-        Queue<AbstractInsnNode> queue = new ArrayDeque<>(getStackValueFromTop(sourceFrames[firstInsnIndex], expressionIndexFromTop).insns);
-        if (queue.size() != 1) {
-            //TODO: this code can't work for conditionals...
-            return Optional.empty();
-        }
-
-        Set<AbstractInsnNode> visitedExprs = new HashSet<>();
-
-        for (AbstractInsnNode curr; (curr = queue.poll()) != null; ) {
-            if (visitedExprs.add(curr)) {
-                int currInsnIndex = methodNode.instructions.indexOf(curr);
-
-                if (currInsnIndex < firstInsnIndex) {
-                    firstInsn = curr;
-                    firstInsnIndex = currInsnIndex;
-                }
-
-                Frame<SourceValue> currInsnFrame = sourceFrames[currInsnIndex];
-                for (int operand = getConsumedStackOperandCount(curr, currInsnFrame) - 1; operand >= 0; operand--) {
-                    if (getStackValueFromTop(currInsnFrame, operand).insns.size() > 1) {
-                        //TODO: this code can't work for conditionals...
-                        return Optional.empty();
-                    }
-                    queue.addAll(getStackValueFromTop(currInsnFrame, operand).insns);
-                }
-            }
-        }
-        Preconditions.checkState(firstInsn != expressionConsumer, "stack operand has no source instructions?");
-        return Optional.of(firstInsn);
-    }
-
     public static Optional<AbstractInsnNode> tryFindExpressionStart(MethodNode methodNode, IReverseDataflowProvider dataflowProvider, AbstractInsnNode expressionConsumer, int expressionIndexFromTop) {
         //BFS through instructions producing stack operands until we find the first one. we assume the first one of them
         AbstractInsnNode firstInsn = expressionConsumer;
         int firstInsnIndex = methodNode.instructions.indexOf(firstInsn);
 
-        Queue<AbstractInsnNode> queue = new ArrayDeque<>(dataflowProvider.getConsumedStackOperandFromTop(expressionConsumer, expressionIndexFromTop).insns);
+        Queue<AbstractInsnNode> queue = new ArrayDeque<>(dataflowProvider.getStackOperandSourcesFromTop(expressionConsumer, expressionIndexFromTop).insns);
         if (queue.size() != 1) {
             //TODO: this code can't work for conditionals...
             return Optional.empty();
@@ -1165,7 +1129,7 @@ public class BytecodeHelper {
                     firstInsnIndex = currInsnIndex;
                 }
 
-                for (SourceValue consumedOperandValue : dataflowProvider.getConsumedStackOperands(curr)) {
+                for (SourceValue consumedOperandValue : dataflowProvider.getStackOperandSources(curr)) {
                     if (consumedOperandValue.insns.size() > 1) {
                         //TODO: this code can't work for conditionals...
                         return Optional.empty();
