@@ -274,24 +274,24 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
     @Override
     @SneakyThrows
     public int transformClass(String name, String transformedName, ClassNode classNode) {
-        int changedFlags = 0;
+        int changeFlags = 0;
 
         if (this.rootClasses.contains(classNode.name)) {
-            changedFlags |= this.transformRootClass(classNode);
+            changeFlags |= this.transformRootClass(classNode);
         } else {
             String rootClassName = this.getParentRootClass(classNode.name);
             if (rootClassName != null) {
-                changedFlags |= this.transformDerivedClass(classNode, rootClassName);
+                changeFlags |= this.transformDerivedClass(classNode, rootClassName);
             }
         }
 
-        return changedFlags;
+        return changeFlags;
     }
 
     private final Map<String, Map<String, String>> replacedWithFieldFMAFields = new Object2ObjectAVLTreeMap<>();
 
     private synchronized int transformRootClass(ClassNode classNode) {
-        int changedFlags = 0;
+        int changeFlags = 0;
 
         Set<String> canBeReplacedWithFieldMethods = this.canBeReplacedWithFieldMethods.getOrDefault(classNode.name, Collections.emptySet());
         Set<String> canBeReplacedWithFMAFieldMethods = this.canBeReplacedWithFMAFieldMethods.getOrDefault(classNode.name, Collections.emptySet());
@@ -338,7 +338,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
                             new VarInsnNode(ALOAD, 0),
                             new FieldInsnNode(GETFIELD, classNode.name, fieldName, returnTypeDesc));
 
-                    changedFlags |= CHANGED_MANDATORY;
+                    changeFlags |= CHANGED_MANDATORY;
                 } else {
                     PPatchesMod.LOGGER.error("Expected method L{};{}{} to return a constant value, but it doesn't! Trivial overrides won't be optimized away.",
                             classNode.name, methodNode.name, methodNode.desc);
@@ -406,7 +406,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
 
                     replacedWithFieldFMAFields.put((methodNode.name + methodNode.desc).intern(), (fieldFMAInfo.field.name + ':' + fieldFMAInfo.field.desc).intern());
 
-                    changedFlags |= CHANGED_MANDATORY;
+                    changeFlags |= CHANGED_MANDATORY;
                 } else {
                     PPatchesMod.LOGGER.error("Expected method L{};{}{} to return an FMA transform of a field, but it doesn't! Trivial overrides won't be optimized away.",
                             classNode.name, methodNode.name, methodNode.desc);
@@ -424,7 +424,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
             this.replacedWithFieldFMAFields.put(classNode.name.intern(), ImmutableMap.copyOf(replacedWithFieldFMAFields));
         }
 
-        return changedFlags;
+        return changeFlags;
     }
 
     private final Map<String, Set<String>> notRemovedMethods = new Object2ObjectAVLTreeMap<>();
@@ -450,7 +450,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
         //load the superclass to ensure that the NOT_REMOVED_METHODS array is populated and that un-optimizable methods have been removed from the canBeReplacedWithFieldMethods set
         UseFieldsForSimpleConstantGettersTransformer.class.getClassLoader().loadClass(classNode.superName.replace('/', '.'));
 
-        int changedFlags = 0;
+        int changeFlags = 0;
 
         Set<String> canBeReplacedWithFieldMethods = this.canBeReplacedWithFieldMethods.getOrDefault(rootClassName, Collections.emptySet());
         Set<String> canBeReplacedWithFMAFieldMethods = this.canBeReplacedWithFMAFieldMethods.getOrDefault(rootClassName, Collections.emptySet());
@@ -478,7 +478,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
                         methodNode.name = "$ppatches_constant_" + methodNode.name;
                         methodNode.desc = Type.getMethodDescriptor(Type.getReturnType(methodNode.desc));
 
-                        changedFlags |= CHANGED_MANDATORY;
+                        changeFlags |= CHANGED_MANDATORY;
                     } else {
                         PPatchesMod.LOGGER.info("not removing override of {}{} from class {} (it wouldn't inherit the implementation from {})", methodNode.name, methodNode.desc, classNode.name, rootClassName);
                         notRemovedMethods.add(combinedDesc.intern());
@@ -514,7 +514,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
                             constantOffsetMethodNode.instructions.add(new LdcInsnNode(returnType.getSort() == Type.FLOAT ? (Object) fieldFMAInfo.offset.floatValue() : (Object) fieldFMAInfo.offset.doubleValue()));
                             constantOffsetMethodNode.instructions.add(new InsnNode(returnType.getOpcode(IRETURN)));
 
-                            changedFlags |= CHANGED_MANDATORY;
+                            changeFlags |= CHANGED_MANDATORY;
                         } else {
                             PPatchesMod.LOGGER.info("not removing override of {}{} from class {} (it wouldn't inherit the implementation from {})", methodNode.name, methodNode.desc, classNode.name, rootClassName);
                             notRemovedMethods.add(combinedDesc.intern());
@@ -534,7 +534,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
 
         this.notRemovedMethods.put(classNode.name.intern(), notRemovedMethods.build());
 
-        return changedFlags;
+        return changeFlags;
     }
 
     private static Optional<AbstractInsnNode> getConstantReturnValue(MethodNode methodNode) {

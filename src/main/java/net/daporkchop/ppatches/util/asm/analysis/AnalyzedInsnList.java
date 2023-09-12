@@ -1,6 +1,7 @@
 package net.daporkchop.ppatches.util.asm.analysis;
 
 import com.google.common.base.Preconditions;
+import net.daporkchop.ppatches.util.COWArrayUtils;
 import net.daporkchop.ppatches.util.asm.TypeUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.CheckedInsnList;
@@ -19,6 +20,9 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public final class AnalyzedInsnList extends CheckedInsnList implements IDataflowProvider, AutoCloseable {
     private static final LabelNode NULL_SOURCE = new LabelNode();
+    private static final LabelNode EXCEPTION_SOURCE = new LabelNode();
+
+    private static final SourceValue EXCEPTION_SOURCE_VALUE = new SourceValue(1, EXCEPTION_SOURCE);
 
     static final SourceInterpreter SOURCE_INTERPRETER = new SourceInterpreter() {
         @Override
@@ -54,13 +58,11 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
     protected final IdentityHashMap<LabelNode, Set<AbstractInsnNode>> incomingJumps = new IdentityHashMap<>();
     protected final IdentityHashMap<AbstractInsnNode, DynamicSourceFrame> dynamicFrames;
 
+    protected final IdentityHashMap<LabelNode, TryCatchBlockNode> tryCatchBlocksByHandlers = new IdentityHashMap<>();
+
     public AnalyzedInsnList(String ownerName, MethodNode methodNode) {
         this.ownerName = ownerName;
         this.methodNode = methodNode;
-
-        if (!methodNode.tryCatchBlocks.isEmpty()) { //TODO: deal with try-catch blocks
-            throw new UnsupportedOperationException("try-catch blocks are not supported!");
-        }
 
         //move all instructions from the MethodNode's instruction list to this list
         super.add(methodNode.instructions);
@@ -73,14 +75,16 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
     private void recompute() {
         this.incomingJumps.clear();
         this.dynamicFrames.clear();
-
-        if (!this.methodNode.tryCatchBlocks.isEmpty()) { //TODO: deal with try-catch blocks
-            throw new UnsupportedOperationException("try-catch blocks are not supported!");
-        }
+        this.tryCatchBlocksByHandlers.clear();
 
         //ensure the method starts with a label
         if (super.getFirst() != null && !(super.getFirst() instanceof LabelNode)) {
             super.insert(new LabelNode());
+        }
+
+        //index all the try-catch block handlers
+        for (TryCatchBlockNode tryCatchBlockNode : this.methodNode.tryCatchBlocks) {
+            Preconditions.checkState(this.tryCatchBlocksByHandlers.put(tryCatchBlockNode.handler, tryCatchBlockNode) == null, "method contains multiple try-catch blocks with the same handler?!?");
         }
 
         //initialize local state for each instruction
@@ -115,8 +119,12 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
     }
 
     private void trackOutgoingJumps(AbstractInsnNode insn) {
+        if (BytecodeHelper.canAdvanceNormallyToNextInstruction(insn) && insn.getNext() instanceof LabelNode) {
+            Preconditions.checkState(!this.tryCatchBlocksByHandlers.containsKey((LabelNode) insn.getNext()), "instruction advances normally to a try-catch block handler?!?");
+        }
         if (BytecodeHelper.canAdvanceJumpingToLabel(insn)) {
             for (LabelNode possibleNextLabel : BytecodeHelper.possibleNextLabels(insn)) {
+                Preconditions.checkState(!this.tryCatchBlocksByHandlers.containsKey(possibleNextLabel), "instruction jumps to a try-catch block handler?!?");
                 this.incomingJumps.get(possibleNextLabel).add(insn);
             }
         }
@@ -134,6 +142,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
     public void close() {
         this.incomingJumps.clear();
         this.dynamicFrames.clear();
+        this.tryCatchBlocksByHandlers.clear();
 
         //move all instructions back to a simple InsnList
         InsnList simpleList = BytecodeHelper.makeInsnList();
@@ -147,42 +156,97 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
     }
 
     @Override
-    public void remove(AbstractInsnNode insn) {
-        super.remove(insn);
-        this.dynamicFrames.remove(insn);
+    public void set(AbstractInsnNode location, AbstractInsnNode insn) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
     }
 
-    private AbstractInsnNode anyIncomingInsn(LabelNode insn) {
-        AbstractInsnNode prev = insn.getPrevious();
-        if (prev != null && BytecodeHelper.canAdvanceNormallyToNextInstruction(prev)) {
-            return prev;
-        }
+    @Override
+    public void add(AbstractInsnNode insn) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
 
-        return this.incomingJumps.get(insn).iterator().next();
+    @Override
+    public void add(InsnList insns) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
+
+    @Override
+    public void insert(AbstractInsnNode insn) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
+
+    @Override
+    public void insert(InsnList insns) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
+
+    @Override
+    public void insert(AbstractInsnNode location, AbstractInsnNode insn) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
+
+    @Override
+    public void insert(AbstractInsnNode location, InsnList insns) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
+
+    @Override
+    public void insertBefore(AbstractInsnNode location, AbstractInsnNode insn) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
+
+    @Override
+    public void insertBefore(AbstractInsnNode location, InsnList insns) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
+
+    @Override
+    public void remove(AbstractInsnNode insn) {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
+    }
+
+    @Override
+    public void clear() {
+        throw new UnsupportedOperationException("AnalyzedInsnList only allows changes through a ChangeBatch");
     }
 
     private Stream<AbstractInsnNode> incomingInsns(LabelNode insn) {
-        Stream<AbstractInsnNode> stream = this.incomingJumps.get(insn).stream();
+        Stream.Builder<AbstractInsnNode> builder = Stream.builder();
+
+        for (AbstractInsnNode incomingJump : this.incomingJumps.get(insn)) {
+            builder.add(incomingJump);
+        }
 
         AbstractInsnNode prev = insn.getPrevious();
         if (prev != null && BytecodeHelper.canAdvanceNormallyToNextInstruction(prev)) {
-            stream = Stream.concat(Stream.of(prev), stream);
+            builder.add(prev);
         }
 
-        return stream;
+        return builder.build();
     }
 
-    private Stream<DynamicSourceFrame> getNextFrames(AbstractInsnNode insn) {
-        Stream.Builder<DynamicSourceFrame> builder = Stream.builder();
-        if (BytecodeHelper.canAdvanceNormallyToNextInstruction(insn)) {
-            builder.add(this.getDynamicFrame(insn.getNext()));
-        }
-        if (BytecodeHelper.canAdvanceJumpingToLabel(insn)) {
-            for (LabelNode nextLabel : BytecodeHelper.possibleNextLabels(insn)) {
-                builder.add(this.getDynamicFrame(nextLabel));
-            }
+    private Stream<AbstractInsnNode> tryBlockInsns(TryCatchBlockNode tryCatchBlock) {
+        Stream.Builder<AbstractInsnNode> builder = Stream.builder();
+        for (AbstractInsnNode insn = tryCatchBlock.start; insn != tryCatchBlock.end; insn = insn.getNext()) {
+            builder.add(insn);
         }
         return builder.build();
+    }
+
+    private static final LabelNode[] EMPTY_LABELNODE_ARRAY = {};
+
+    private LabelNode[] getExceptionHandlers(AbstractInsnNode insn) {
+        List<TryCatchBlockNode> tryCatchBlocks = this.methodNode.tryCatchBlocks;
+        LabelNode[] labels = EMPTY_LABELNODE_ARRAY;
+        if (!tryCatchBlocks.isEmpty()) {
+            int insnIndex = super.indexOf(insn);
+            for (TryCatchBlockNode tryCatchBlock : tryCatchBlocks) {
+                if (super.indexOf(tryCatchBlock.start) <= insnIndex && insnIndex < super.indexOf(tryCatchBlock.end)) {
+                    labels = COWArrayUtils.append(labels, tryCatchBlock.handler);
+                }
+            }
+        }
+        return labels;
     }
 
     private DynamicSourceFrame getDynamicFrame(AbstractInsnNode insn) {
@@ -215,7 +279,8 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
 
     @Override
     public SourceValue getLocalSources(AbstractInsnNode insn, int localIndex) {
-        return this.getDynamicFrame(insn).getPrevious().getLocalSources(localIndex);
+        DynamicSourceFrame dynamicFrame = this.getDynamicFrame(insn);
+        return (insn instanceof LabelNode ? dynamicFrame : dynamicFrame.getPrevious()).getLocalSources(localIndex);
     }
 
     @Override
@@ -239,6 +304,16 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
         private void checkNotPendingRemoval(AbstractInsnNode insn) {
             AnalyzedInsnList.super.checkContains(insn);
             Preconditions.checkState(!this.removedInsns.contains(insn), "instruction already pending removal: %s", insn);
+        }
+        
+        private void checkNotTryCatchBlockLabel(AbstractInsnNode insn) {
+            if (insn instanceof LabelNode) {
+                for (TryCatchBlockNode tryCatchBlock : AnalyzedInsnList.this.methodNode.tryCatchBlocks) {
+                    Preconditions.checkState(insn != tryCatchBlock.start, "tried to remove a try-catch block start label?!?", insn);
+                    Preconditions.checkState(insn != tryCatchBlock.end, "tried to remove a try-catch block end label?!?", insn);
+                    Preconditions.checkState(insn != tryCatchBlock.handler, "tried to remove a try-catch block handler label?!?", insn);
+                }
+            }
         }
 
         private InsnList findInsertionBuffer(AbstractInsnNode location) {
@@ -275,6 +350,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
 
         public void remove(AbstractInsnNode insn) {
             this.checkNotPendingRemoval(insn);
+            this.checkNotTryCatchBlockLabel(insn);
             this.removedInsns.add(insn);
         }
 
@@ -349,9 +425,100 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
 
     private static final int FLAG_2ND = 1 << 22;
 
-    private static final int[] PUSHED_STACK_OPS_NOTHING = new int[0];
-    private static final int[] PUSHED_STACK_OPS_NEW_SINGLE = { SOURCE_FLAG_NEW | (SIZE_VALUE_1 << SIZE_SHIFT) };
-    private static final int[] PUSHED_STACK_OPS_NEW_DOUBLE = { SOURCE_FLAG_NEW | (SIZE_VALUE_2 << SIZE_SHIFT), SOURCE_FLAG_NEW | (SIZE_VALUE_2 << SIZE_SHIFT) | FLAG_2ND };
+    private static final int[] PUSHED_STACK_OPS_NOTHING = {};
+    private static final int[] PUSHED_STACK_OPS_NEW_SINGLE = {SOURCE_FLAG_NEW | (SIZE_VALUE_1 << SIZE_SHIFT)};
+    private static final int[] PUSHED_STACK_OPS_NEW_DOUBLE = {SOURCE_FLAG_NEW | (SIZE_VALUE_2 << SIZE_SHIFT), SOURCE_FLAG_NEW | (SIZE_VALUE_2 << SIZE_SHIFT) | FLAG_2ND};
+    private static final int[][] PUSHED_STACK_OPS_NEW_BY_SIZE = {PUSHED_STACK_OPS_NOTHING, PUSHED_STACK_OPS_NEW_SINGLE, PUSHED_STACK_OPS_NEW_DOUBLE};
+
+    private static final int[] PUSHED_STACK_OPS_STORE_SINGLE = {
+            FLAGS_STACK_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | 0
+    };
+    private static final int[] PUSHED_STACK_OPS_STORE_DOUBLE = {
+            FLAGS_STACK_COPIED | (SIZE_VALUE_2 << SIZE_SHIFT) | 0,
+            FLAGS_STACK_COPIED | (SIZE_VALUE_2 << SIZE_SHIFT) | FLAG_2ND | 1
+    };
+    private static final int[] PUSHED_STACK_OPS_DUP = {
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
+            FLAGS_STACK_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | 0
+    };
+    private static final int[] PUSHED_STACK_OPS_DUP_X1 = {
+            FLAGS_STACK_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | 1,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 1
+    };
+    private static final int[] PUSHED_STACK_OPS_DUP_X2 = {
+            FLAGS_STACK_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | 2,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 0,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 2
+    };
+    private static final int[] PUSHED_STACK_OPS_DUP2 = {
+            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 0,
+            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 0,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1
+    };
+    private static final int[] PUSHED_STACK_OPS_DUP2_X1 = {
+            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
+            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 2,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 2
+    };
+    private static final int[] PUSHED_STACK_OPS_DUP2_X2 = {
+            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 2,
+            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 3,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 0,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 2,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 3
+    };
+    private static final int[] PUSHED_STACK_OPS_SWAP = {
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 1,
+            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 0
+    };
+
+    private static int[] makePushedStackOpsLoadSingle(int var) {
+        return new int[]{
+                FLAGS_LOCAL_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | var,
+        };
+    }
+
+    private static int[] makePushedStackOpsLoadDouble(int var) {
+        return new int[]{
+                FLAGS_LOCAL_COPIED | (SIZE_VALUE_2 << SIZE_SHIFT) | var,
+                FLAGS_LOCAL_COPIED | (SIZE_VALUE_2 << SIZE_SHIFT) | FLAG_2ND | (var + 1),
+        };
+    }
+    
+    private static final int[][] PUSHED_STACK_OPS_LOAD_CACHE_SINGLE;
+    private static final int[][] PUSHED_STACK_OPS_LOAD_CACHE_DOUBLE;
+    
+    static {
+        final int cacheSize = 40;
+
+        PUSHED_STACK_OPS_LOAD_CACHE_SINGLE = new int[cacheSize][];
+        for (int var = 0; var < cacheSize; var++) {
+            PUSHED_STACK_OPS_LOAD_CACHE_SINGLE[var] = makePushedStackOpsLoadSingle(var);
+        }
+
+        PUSHED_STACK_OPS_LOAD_CACHE_DOUBLE = new int[cacheSize][];
+        for (int var = 0; var < cacheSize; var++) {
+            PUSHED_STACK_OPS_LOAD_CACHE_DOUBLE[var] = makePushedStackOpsLoadDouble(var);
+        }
+    }
+
+    private static int[] PUSHED_STACK_OPS_LOAD_SINGLE(int var) {
+        return var <= PUSHED_STACK_OPS_LOAD_CACHE_SINGLE.length
+                ? PUSHED_STACK_OPS_LOAD_CACHE_SINGLE[var]
+                : makePushedStackOpsLoadSingle(var);
+    }
+
+    private static int[] PUSHED_STACK_OPS_LOAD_DOUBLE(int var) {
+        return var <= PUSHED_STACK_OPS_LOAD_CACHE_DOUBLE.length
+                ? PUSHED_STACK_OPS_LOAD_CACHE_DOUBLE[var]
+                : makePushedStackOpsLoadDouble(var);
+    }
 
     private static boolean validateFlags(int flags) {
         switch (extractSize(flags)) {
@@ -456,7 +623,6 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
 
         private final boolean visible;
 
-        @SuppressWarnings("PointlessBitwiseExpression")
         public DynamicSourceFrame(AbstractInsnNode insn) {
             this.insn = insn;
 
@@ -510,9 +676,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                     int var = ((VarInsnNode) insn).var;
                     readFromLocalBase = var;
                     readFromLocalCount = 1;
-                    pushedStackOperands = new int[]{
-                            FLAGS_LOCAL_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | var,
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_LOAD_SINGLE(var);
                     break;
                 }
                 case LLOAD:
@@ -520,10 +684,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                     int var = ((VarInsnNode) insn).var;
                     readFromLocalBase = var;
                     readFromLocalCount = 2;
-                    pushedStackOperands = new int[]{
-                            FLAGS_LOCAL_COPIED | (SIZE_VALUE_2 << SIZE_SHIFT) | var,
-                            FLAGS_LOCAL_COPIED | (SIZE_VALUE_2 << SIZE_SHIFT) | FLAG_2ND | (var + 1),
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_LOAD_DOUBLE(var);
                     break;
                 }
                 case ISTORE:
@@ -531,18 +692,13 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                 case ASTORE:
                     poppedStackOperandCount = 1;
                     storedToLocalBase = ((VarInsnNode) insn).var;
-                    storedToLocalValues = new int[]{
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
-                    };
+                    storedToLocalValues = PUSHED_STACK_OPS_STORE_SINGLE;
                     break;
                 case LSTORE:
                 case DSTORE:
                     poppedStackOperandCount = 2;
                     storedToLocalBase = ((VarInsnNode) insn).var;
-                    storedToLocalValues = new int[]{
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_2 << SIZE_SHIFT) | 0,
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_2 << SIZE_SHIFT) | FLAG_2ND | 1,
-                    };
+                    storedToLocalValues = PUSHED_STACK_OPS_STORE_DOUBLE;
                     break;
                 case IALOAD:
                 case FALOAD:
@@ -580,64 +736,31 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                     break;
                 case DUP: //value -> value, value
                     poppedStackOperandCount = 1;
-                    pushedStackOperands = new int[]{
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_DUP;
                     break;
                 case DUP_X1: //value2, value1 -> value1, value2, value1
                     poppedStackOperandCount = 2;
-                    pushedStackOperands = new int[]{
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | 1, //duplicated value
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 1,
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_DUP_X1;
                     break;
                 case DUP_X2: //value3, value2, value1 -> value1, value3, value2, value1
                     poppedStackOperandCount = 3;
-                    pushedStackOperands = new int[]{
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_1 << SIZE_SHIFT) | 2,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 0,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 2,
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_DUP_X2;
                     break;
                 case DUP2:
                     poppedStackOperandCount = 2;
-                    pushedStackOperands = new int[]{
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 0,
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 0,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_DUP2;
                     break;
                 case DUP2_X1:
                     poppedStackOperandCount = 3;
-                    pushedStackOperands = new int[]{
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 2,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 2,
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_DUP2_X1;
                     break;
                 case DUP2_X2:
                     poppedStackOperandCount = 4;
-                    pushedStackOperands = new int[]{
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 2,
-                            FLAGS_STACK_COPIED | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 3,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 0,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 1,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 2,
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_UNKNOWN << SIZE_SHIFT) | 3,
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_DUP2_X2;
                     break;
                 case SWAP: //TODO: decide if i want this to be visible
                     poppedStackOperandCount = 2;
-                    pushedStackOperands = new int[]{
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 1, 
-                            FLAGS_STACK_PASSEDTHROUGH | (SIZE_VALUE_1 << SIZE_SHIFT) | 0,
-                    };
+                    pushedStackOperands = PUSHED_STACK_OPS_SWAP;
                     break;
                 case IADD:
                 case FADD:
@@ -787,7 +910,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                             poppedStackOperandCount = 1;
                             //fallthrough
                         case GETSTATIC:
-                            pushedStackOperands = typeSize == 2 ? PUSHED_STACK_OPS_NEW_DOUBLE : PUSHED_STACK_OPS_NEW_SINGLE;
+                            pushedStackOperands = PUSHED_STACK_OPS_NEW_BY_SIZE[typeSize];
                             break;
                         case PUTSTATIC:
                             poppedStackOperandCount = typeSize;
@@ -805,13 +928,13 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                     int argumentsAndReturnSizes = Type.getArgumentsAndReturnSizes(((MethodInsnNode) insn).desc);
                     int argumentsSizes = TypeUtils.extractArgumentsSizes(argumentsAndReturnSizes);
                     poppedStackOperandCount = opcode == INVOKESTATIC ? argumentsSizes : argumentsSizes + 1;
-                    pushedStackOperands = TypeUtils.extractReturnSize(argumentsAndReturnSizes) == 2 ? PUSHED_STACK_OPS_NEW_DOUBLE : PUSHED_STACK_OPS_NEW_SINGLE;
+                    pushedStackOperands = PUSHED_STACK_OPS_NEW_BY_SIZE[TypeUtils.extractReturnSize(argumentsAndReturnSizes)];
                     break;
                 }
                 case INVOKEDYNAMIC: {
                     int argumentsAndReturnSizes = Type.getArgumentsAndReturnSizes(((InvokeDynamicInsnNode) insn).desc);
                     poppedStackOperandCount = TypeUtils.extractArgumentsSizes(argumentsAndReturnSizes);
-                    pushedStackOperands = TypeUtils.extractReturnSize(argumentsAndReturnSizes) == 2 ? PUSHED_STACK_OPS_NEW_DOUBLE : PUSHED_STACK_OPS_NEW_SINGLE;
+                    pushedStackOperands = PUSHED_STACK_OPS_NEW_BY_SIZE[TypeUtils.extractReturnSize(argumentsAndReturnSizes)];
                     break;
                 }
                 case NEW:
@@ -917,6 +1040,17 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
             }
 
             if (this.insn instanceof LabelNode) { //we've reached the start of the current block, so we want to recurse into the incoming instructions
+                TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(this.insn);
+                if (tryCatchBlock != null) { //this label is a try-catch block handler
+                    //we want to merge all of the possible sources which the local variable may have, which means we'll have to merge the sources for every
+                    // instruction in the try block.
+
+                    //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
+                    return AnalyzedInsnList.this.tryBlockInsns(tryCatchBlock)
+                            .map(incomingInsn -> AnalyzedInsnList.this.getDynamicFrame(incomingInsn).getLocalSources(localIndex))
+                            .reduce(SOURCE_INTERPRETER::merge).get();
+                }
+
                 if (this.insn.getPrevious() == null) { //this is the method start label, so any local variable sources must be method arguments
                     MethodNode methodNode = AnalyzedInsnList.this.methodNode;
 
@@ -987,11 +1121,20 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
             }
 
             if (this.insn instanceof LabelNode) { //merge the results from all the incoming instructions
+                TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(this.insn);
+                if (tryCatchBlock != null) { //this label is a try-catch block handler
+                    if (indexFromThis == -1) { //the caught exception is being queried
+                        return EXCEPTION_SOURCE_VALUE;
+                    } else {
+                        throw new IndexOutOfBoundsException("try-catch block handler only has a single stack operand!");
+                    }
+                }
+
                 //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
+                int indexBefore = this.convertIndexFromThisToIndexBefore(indexFromThis);
                 return AnalyzedInsnList.this.incomingInsns((LabelNode) this.insn)
                         .map(incomingInsn -> {
                             DynamicSourceFrame incomingFrame = AnalyzedInsnList.this.getDynamicFrame(incomingInsn);
-                            int indexBefore = this.convertIndexFromThisToIndexBefore(indexFromThis);
                             int incomingIndexFromThis = incomingFrame.convertIndexAfterToIndexFromThis(indexBefore);
                             return incomingFrame.getStackSources0(incomingIndexFromThis);
                         })
@@ -1026,6 +1169,15 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
             }
 
             if (this.insn instanceof LabelNode) { //find the first result from one of the the incoming instructions
+                TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(this.insn);
+                if (tryCatchBlock != null) { //this label is a try-catch block handler
+                    if (indexFromThis == -1) { //the caught exception is being queried
+                        return 1;
+                    } else {
+                        throw new IndexOutOfBoundsException("try-catch block handler only has a single stack operand!");
+                    }
+                }
+
                 //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
                 return AnalyzedInsnList.this.incomingInsns((LabelNode) this.insn)
                         .mapToInt(incomingInsn -> {
@@ -1043,13 +1195,31 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
             return prev.getStackSourceSize0(prevIndexFromThis);
         }
 
+        private Stream<DynamicSourceFrame> getNextFrames(boolean visitExceptionHandlers) {
+            Stream.Builder<DynamicSourceFrame> builder = Stream.builder();
+            if (BytecodeHelper.canAdvanceNormallyToNextInstruction(this.insn)) {
+                builder.add(AnalyzedInsnList.this.getDynamicFrame(this.insn.getNext()));
+            }
+            if (BytecodeHelper.canAdvanceJumpingToLabel(this.insn)) {
+                for (LabelNode nextLabel : BytecodeHelper.possibleNextLabels(this.insn)) {
+                    builder.add(AnalyzedInsnList.this.getDynamicFrame(nextLabel));
+                }
+            }
+            if (visitExceptionHandlers) {
+                for (LabelNode exceptionHandler : AnalyzedInsnList.this.getExceptionHandlers(this.insn)) {
+                    builder.add(AnalyzedInsnList.this.getDynamicFrame(exceptionHandler));
+                }
+            }
+            return builder.build();
+        }
+
         public UsageValue getLocalUsages() {
             if (this.storedToLocalBase < 0) { //this instruction doesn't store any local variables
                 return null;
             }
 
             Set<AbstractInsnNode> usages = BytecodeHelper.makeInsnSet();
-            AnalyzedInsnList.this.getNextFrames(this.insn).forEach(nextFrame -> nextFrame.getLocalUsages0(usages, this.storedToLocalBase));
+            this.getNextFrames(true).forEach(nextFrame -> nextFrame.getLocalUsages0(usages, this.storedToLocalBase));
             return new UsageValue(this.storedToLocalValues.length, usages);
         }
 
@@ -1064,7 +1234,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
             }
 
             //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
-
+            //this code is equivalent to this.getNextFrames(true), but inlined to deal with recursion depth
             if (BytecodeHelper.canAdvanceNormallyToNextInstruction(this.insn)) {
                 AnalyzedInsnList.this.getDynamicFrame(this.insn.getNext()).getLocalUsages0(usages, localIndex);
             }
@@ -1072,6 +1242,9 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                 for (LabelNode label : BytecodeHelper.possibleNextLabels(this.insn)) {
                     AnalyzedInsnList.this.getDynamicFrame(label).getLocalUsages0(usages, localIndex);
                 }
+            }
+            for (LabelNode exceptionHandler : AnalyzedInsnList.this.getExceptionHandlers(this.insn)) {
+                AnalyzedInsnList.this.getDynamicFrame(exceptionHandler).getLocalUsages0(usages, localIndex);
             }
         }
 
@@ -1093,7 +1266,8 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                 //compute the size of the pushed value
                 int valueSize = this.getStackSourceSize0(indexFromThis);
 
-                UsageValue usageValue = AnalyzedInsnList.this.getNextFrames(this.insn)
+                //we don't want to visit exception handlers, as the stack will be cleared if an exception is thrown (we assume exception handlers are otherwise unreachable)
+                UsageValue usageValue = this.getNextFrames(false)
                         .map(nextFrame -> {
                             int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
                             return nextFrame.getStackUsages0(nextIndexFromThis, valueSize);
@@ -1124,7 +1298,8 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                         assert (pushedOperandFlags & FLAG_2ND) == 0;
 
                         int indexAfter = this.convertIndexFromThisToIndexAfter(pushedIndexFromThis);
-                        usageValue = UsageValue.mergeNullable(usageValue, AnalyzedInsnList.this.getNextFrames(this.insn)
+                        //we don't want to visit exception handlers, as the stack will be cleared if an exception is thrown (we assume exception handlers are otherwise unreachable)
+                        usageValue = UsageValue.mergeNullable(usageValue, this.getNextFrames(false)
                                 .map(nextFrame -> {
                                     int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
                                     return nextFrame.getStackUsages0(nextIndexFromThis, valueSize);
@@ -1140,7 +1315,8 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
 
             int indexAfter = this.convertIndexFromThisToIndexAfter(indexFromThis);
             if (BytecodeHelper.canAdvanceJumpingToLabel(this.insn)) {
-                return AnalyzedInsnList.this.getNextFrames(this.insn)
+                //we don't want to visit exception handlers, as the stack will be cleared if an exception is thrown (we assume exception handlers are otherwise unreachable)
+                return this.getNextFrames(false)
                         .map(nextFrame -> {
                             int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
                             return nextFrame.getStackUsages0(nextIndexFromThis, valueSize);

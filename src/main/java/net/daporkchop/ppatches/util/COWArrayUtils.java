@@ -2,7 +2,10 @@ package net.daporkchop.ppatches.util;
 
 import lombok.experimental.UtilityClass;
 
+import javax.annotation.Nullable;
+import java.lang.reflect.Array;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Copy-on-write array update methods which always return a copy of the original array contents.
@@ -64,5 +67,50 @@ public class COWArrayUtils {
             System.arraycopy(arrays[i], 0, result, writerIndex, arrays[i].length);
         }
         return result;
+    }
+
+    //
+    // inlined COWArrayList
+    //
+
+    public static <T> boolean listIsEmpty(@Nullable T[] list) {
+        return list == null;
+    }
+
+    public static <T> boolean listContains(@Nullable T[] list, T element) {
+        return listIndexOf(list, element) >= 0;
+    }
+
+    public static <T> int listIndexOf(@Nullable T[] list, T element) {
+        if (!listIsEmpty(list)) {
+            for (int i = 0; i < list.length; i++) {
+                if (Objects.equals(element, list[i])) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    public static <T> T[] listAdd(Class<T> componentType, @Nullable T[] list, T element) {
+        if (listIsEmpty(list)) {
+            @SuppressWarnings("unchecked")
+            T[] arr = (T[]) Array.newInstance(componentType, 1);
+            arr[0] = element;
+            return arr;
+        } else {
+            return append(list, element);
+        }
+    }
+
+    public static <T> T[] listRemove(@Nullable T[] list, T element) {
+        int index = listIndexOf(list, element);
+        if (index < 0) { //element isn't in the list, do nothing
+            return list;
+        } else if (list.length == 1) { //element is the only element in the list, return empty list
+            return null;
+        } else {
+            return remove(list, index);
+        }
     }
 }

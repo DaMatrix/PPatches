@@ -411,7 +411,7 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
 
     @Override
     public int transformClass(String name, String transformedName, ClassNode classNode) {
-        int changedFlags = 0;
+        int changeFlags = 0;
         for (MethodNode methodNode : classNode.methods) {
             for (ListIterator<AbstractInsnNode> itr = methodNode.instructions.iterator(); itr.hasNext(); ) {
                 AbstractInsnNode insn = itr.next();
@@ -420,10 +420,10 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                     continue;
                 }
 
-                changedFlags |= transformStreamCall(classNode, methodNode, terminalOp);
+                changeFlags |= transformStreamCall(classNode, methodNode, terminalOp);
             }
         }
-        return changedFlags;
+        return changeFlags;
     }
 
     private static int transformStreamCall(ClassNode classNode, MethodNode methodNode, TerminalOp terminalOp) {

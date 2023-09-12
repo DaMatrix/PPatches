@@ -17,14 +17,20 @@ public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer>
 
     @Override
     default int compareTo(ITreeClassTransformer o) {
-        return Integer.compare(this.priority(), o.priority());
+        int d = Integer.compare(this.priority(), o.priority());
+        if (d == 0) {
+            d = Boolean.compare(this instanceof IndividualMethod, o instanceof IndividualMethod);
+            if (d == 0) {
+                d = Boolean.compare(this instanceof OptimizationPass, o instanceof OptimizationPass);
+            }
+        }
+        return d;
     }
 
     default boolean interestedInClass(String name, String transformedName) {
         return true;
     }
 
-    //TODO: removed transformedName
     int transformClass(String name, String transformedName, ClassNode classNode);
 
     /**
@@ -38,28 +44,31 @@ public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer>
     }
 
     interface IndividualMethod extends ITreeClassTransformer {
+        default boolean interestedInMethod(String className, String classTransformedName, MethodNode method) {
+            return true;
+        }
+
         @Override
         default int transformClass(String name, String transformedName, ClassNode classNode) {
-            int changedFlags = 0;
+            int changeFlags = 0;
             boolean optimization = this instanceof OptimizationPass;
 
             for (MethodNode methodNode : classNode.methods) {
-                if (optimization && !methodNode.tryCatchBlocks.isEmpty()) { //TODO: this is a gross hack
-                    //optimization passes don't need to worry about stuff failing
+                if (!this.interestedInMethod(name, transformedName, methodNode)) {
                     continue;
                 }
 
                 try (AnalyzedInsnList analyzedList = new AnalyzedInsnList(classNode.name, methodNode)) {
                     int transformResult;
                     do {
-                        transformResult = this.transformMethod(name, classNode, methodNode, analyzedList);
-                        changedFlags |= transformResult;
+                        transformResult = this.transformMethod(name, transformedName, classNode, methodNode, analyzedList);
+                        changeFlags |= transformResult;
                     } while (optimization && transformResult != 0); //if this is an optimization pass, loop until no more changes can be applied
                 }
             }
-            return changedFlags;
+            return changeFlags;
         }
 
-        int transformMethod(String name, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions);
+        int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions);
     }
 }

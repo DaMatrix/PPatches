@@ -36,6 +36,10 @@ public class CheckedInsnList extends InsnList implements Iterable<AbstractInsnNo
     protected final void checkNotInList(AbstractInsnNode insn) {
         Preconditions.checkArgument(!belongsToAnyList(insn), "instruction already belongs to a list: %s", insn);
     }
+
+    protected final void checkDifferentList(InsnList insns) {
+        Preconditions.checkArgument(this != insns, "given list is the same as this list: %s", this);
+    }
     
     protected final void checkContains(AbstractInsnNode insn) {
         Preconditions.checkArgument(this.contains(insn), "instruction not found: %s", insn);
@@ -55,9 +59,21 @@ public class CheckedInsnList extends InsnList implements Iterable<AbstractInsnNo
     }
 
     @Override
+    public void add(InsnList insns) {
+        this.checkDifferentList(insns);
+        super.add(insns);
+    }
+
+    @Override
     public void insert(AbstractInsnNode insn) {
         this.checkNotInList(insn);
         super.insert(insn);
+    }
+
+    @Override
+    public void insert(InsnList insns) {
+        this.checkDifferentList(insns);
+        super.insert(insns);
     }
 
     @Override
@@ -70,6 +86,7 @@ public class CheckedInsnList extends InsnList implements Iterable<AbstractInsnNo
     @Override
     public void insert(AbstractInsnNode location, InsnList insns) {
         this.checkContains(location);
+        this.checkDifferentList(insns);
         super.insert(location, insns);
     }
 
@@ -83,6 +100,7 @@ public class CheckedInsnList extends InsnList implements Iterable<AbstractInsnNo
     @Override
     public void insertBefore(AbstractInsnNode location, InsnList insns) {
         this.checkContains(location);
+        this.checkDifferentList(insns);
         super.insertBefore(location, insns);
     }
 

@@ -1144,15 +1144,16 @@ public class BytecodeHelper {
 
     public static List<? extends AbstractInsnNode> possibleNextInstructions(AbstractInsnNode insn) {
         switch (insn.getOpcode()) {
-            case RETURN:
+            case RETURN: //return instructions can't advance to any instruction, as they're at the end of a control flow chain
             case ARETURN:
             case IRETURN:
             case LRETURN:
             case FRETURN:
             case DRETURN:
-                return ImmutableList.of(); //return instructions can't advance to any instruction, as they're at the end of a control flow chain
-            case GOTO:
-                return ImmutableList.of(((JumpInsnNode) insn).label); //unlike other jump instructions, GOTO can only advance to the label
+            case ATHROW: //ATHROW instructions can't advance to any instruction, as they're at the end of a control flow chain
+                return ImmutableList.of();
+            case GOTO: //unlike other jump instructions, GOTO can only advance to the label
+                return ImmutableList.of(((JumpInsnNode) insn).label);
 
             //TABLESWITCH and LOOKUPSWITCH can advance to any of the target labels or to the default label
             case TABLESWITCH: {
@@ -1201,6 +1202,7 @@ public class BytecodeHelper {
             case LRETURN:
             case FRETURN:
             case DRETURN:
+            case ATHROW: //ATHROW instructions can't advance to any instruction, as they're at the end of a control flow chain
             case GOTO: //unlike other jump instructions, GOTO can only advance to the label
             case TABLESWITCH: //TABLESWITCH and LOOKUPSWITCH can advance to any of the target labels or to the default label
             case LOOKUPSWITCH:
