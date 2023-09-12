@@ -2,6 +2,7 @@ package net.daporkchop.ppatches.util.asm.analysis;
 
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.analysis.Frame;
 import org.objectweb.asm.tree.analysis.SourceValue;
@@ -15,6 +16,9 @@ import java.util.Set;
  * @author DaPorkchop_
  */
 public interface IReverseDataflowProvider {
+    LabelNode ARGUMENT_SOURCE = new LabelNode();
+    LabelNode EXCEPTION_SOURCE = new LabelNode();
+
     static IReverseDataflowProvider fromSourceAnalyzer(MethodNode methodNode, Frame<SourceValue>[] sourceFrames) {
         return new IReverseDataflowProvider() {
             @Override
