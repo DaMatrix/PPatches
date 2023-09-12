@@ -1,6 +1,8 @@
 package net.daporkchop.ppatches.util.asm.analysis;
 
 import com.google.common.base.Preconditions;
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
 import net.daporkchop.ppatches.util.COWArrayUtils;
 import net.daporkchop.ppatches.util.asm.TypeUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
@@ -20,8 +22,11 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public final class AnalyzedInsnList extends CheckedInsnList implements IDataflowProvider, AutoCloseable {
     private static final LabelNode NULL_SOURCE = new LabelNode();
+
+    private static final LabelNode ARGUMENT_SOURCE = new LabelNode();
     private static final LabelNode EXCEPTION_SOURCE = new LabelNode();
 
+    private static final SourceValue[] ARGUMENT_SOURCE_VALUE_BY_SIZE = {null, new SourceValue(1, ARGUMENT_SOURCE), new SourceValue(2, ARGUMENT_SOURCE)};
     private static final SourceValue EXCEPTION_SOURCE_VALUE = new SourceValue(1, EXCEPTION_SOURCE);
 
     static final SourceInterpreter SOURCE_INTERPRETER = new SourceInterpreter() {
@@ -51,6 +56,10 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
             return super.copyOperation(insn, value);
         }
     };
+
+    private static SourceValue mergeNullable(SourceValue a, SourceValue b) {
+        return a != null ? (b != null ? SOURCE_INTERPRETER.merge(a, b) : a) : b;
+    }
 
     protected final String ownerName;
     protected final MethodNode methodNode;
@@ -225,12 +234,44 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
         return builder.build();
     }
 
+    private void incomingInsns(DynamicSourceFrame frame, LabelNode insn, ArrayDeque<DynamicSourceFrame> dfsStack) {
+        for (AbstractInsnNode incomingJump : this.incomingJumps.get(insn)) {
+            dfsStack.push(AnalyzedInsnList.this.getDynamicFrame(incomingJump));
+        }
+
+        AbstractInsnNode prev = insn.getPrevious();
+        if (prev != null && BytecodeHelper.canAdvanceNormallyToNextInstruction(prev)) {
+            dfsStack.push(AnalyzedInsnList.this.getDynamicFrame(prev));
+        }
+    }
+
+    private void incomingInsnsDFS(DynamicSourceFrame frame, LabelNode insn, ArrayDeque<DFSItem> dfsStack, int indexBefore) {
+        for (AbstractInsnNode incomingJump : this.incomingJumps.get(insn)) {
+            DynamicSourceFrame incomingFrame = AnalyzedInsnList.this.getDynamicFrame(incomingJump);
+            int incomingIndexFromThis = incomingFrame.convertIndexAfterToIndexFromThis(indexBefore);
+            dfsStack.push(new DFSItem(incomingFrame, incomingIndexFromThis));
+        }
+
+        AbstractInsnNode prev = insn.getPrevious();
+        if (prev != null && BytecodeHelper.canAdvanceNormallyToNextInstruction(prev)) {
+            DynamicSourceFrame prevFrame = AnalyzedInsnList.this.getDynamicFrame(prev);
+            int prevIndexFromThis = prevFrame.convertIndexAfterToIndexFromThis(indexBefore);
+            dfsStack.push(new DFSItem(prevFrame, prevIndexFromThis));
+        }
+    }
+
     private Stream<AbstractInsnNode> tryBlockInsns(TryCatchBlockNode tryCatchBlock) {
         Stream.Builder<AbstractInsnNode> builder = Stream.builder();
         for (AbstractInsnNode insn = tryCatchBlock.start; insn != tryCatchBlock.end; insn = insn.getNext()) {
             builder.add(insn);
         }
         return builder.build();
+    }
+
+    private void tryBlockInsns(TryCatchBlockNode tryCatchBlock, ArrayDeque<DynamicSourceFrame> dfsStack) {
+        for (AbstractInsnNode insn = tryCatchBlock.start; insn != tryCatchBlock.end; insn = insn.getNext()) {
+            dfsStack.push(this.getDynamicFrame(insn));
+        }
     }
 
     private static final LabelNode[] EMPTY_LABELNODE_ARRAY = {};
@@ -263,16 +304,18 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
     @Override
     public List<SourceValue> getStackOperandSources(AbstractInsnNode insn) {
         DynamicSourceFrame dynamicFrame = this.getDynamicFrame(insn);
-        DynamicSourceFrame prevDynamicFrame = dynamicFrame.getPrevious();
 
         List<SourceValue> sources = new ArrayList<>(dynamicFrame.poppedStackOperandCount);
-        for (int indexFromCurr = 0; indexFromCurr < dynamicFrame.poppedStackOperandCount; ) {
-            int indexBefore = dynamicFrame.convertIndexFromThisToIndexBefore(indexFromCurr);
-            int prevIndexFromThis = prevDynamicFrame.convertIndexAfterToIndexFromThis(indexBefore);
-            SourceValue sourceValue = prevDynamicFrame.getStackSources(prevIndexFromThis);
+        if (!(insn instanceof LabelNode)) {
+            DynamicSourceFrame prevDynamicFrame = dynamicFrame.getPreviousInBlock();
+            for (int indexFromCurr = 0; indexFromCurr < dynamicFrame.poppedStackOperandCount; ) {
+                int indexBefore = dynamicFrame.convertIndexFromThisToIndexBefore(indexFromCurr);
+                int prevIndexFromThis = prevDynamicFrame.convertIndexAfterToIndexFromThis(indexBefore);
+                SourceValue sourceValue = prevDynamicFrame.getStackSources(prevIndexFromThis);
 
-            indexFromCurr += sourceValue.size;
-            sources.add(sourceValue);
+                indexFromCurr += sourceValue.size;
+                sources.add(sourceValue);
+            }
         }
         return sources;
     }
@@ -280,7 +323,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
     @Override
     public SourceValue getLocalSources(AbstractInsnNode insn, int localIndex) {
         DynamicSourceFrame dynamicFrame = this.getDynamicFrame(insn);
-        return (insn instanceof LabelNode ? dynamicFrame : dynamicFrame.getPrevious()).getLocalSources(localIndex);
+        return (insn instanceof LabelNode ? dynamicFrame : dynamicFrame.getPreviousInBlock()).getLocalSources(localIndex);
     }
 
     @Override
@@ -1001,8 +1044,12 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                     : "a stored local value has incorrect flags?!? " + BytecodeHelper.toString(insn);
         }
 
-        private DynamicSourceFrame getPrevious() {
-            Preconditions.checkState(!(this.insn instanceof LabelNode), "getPrevious called on a label", this.insn);
+        private DynamicSourceFrame getPreviousInBlock() {
+            Preconditions.checkState(!(this.insn instanceof LabelNode), "getPreviousInBlock called on a label", this.insn);
+            return this.getPreviousTotal();
+        }
+
+        private DynamicSourceFrame getPreviousTotal() {
             AbstractInsnNode prev = this.insn.getPrevious();
             assert BytecodeHelper.canAdvanceNormallyToNextInstruction(prev) : "previous instruction can't advance normally to this instruction?!?";
             return AnalyzedInsnList.this.getDynamicFrame(prev);
@@ -1025,129 +1072,178 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
         }
 
         public SourceValue getLocalSources(int localIndex) {
-            if (this.storedToLocalBase >= 0 && localIndex >= this.storedToLocalBase && localIndex < this.storedToLocalBase + this.storedToLocalValues.length) {
-                //this instruction wrote to the local variable in question, so it's the only source which should be visible beyond this point
-                int storedValueFlags = this.storedToLocalValues[localIndex - this.storedToLocalBase];
+            ArrayDeque<DynamicSourceFrame> dfsStack = new ArrayDeque<>();
+            Set<AbstractInsnNode> visited = BytecodeHelper.makeInsnSet();
 
-                Preconditions.checkState((storedValueFlags & FLAG_2ND) == 0, "attempted to read from the 2nd part of a category 2 type");
-                assert extractSize(storedValueFlags) == this.storedToLocalValues.length : "flags report a different value size than the stored values array";
+            SourceValue result = null;
 
-                if ((storedValueFlags & SOURCE_MASK) == SOURCE_FLAG_NEW || (storedValueFlags & VALUE_MASK) == VALUE_FLAG_COPIED) {
-                    return new SourceValue(extractSize(storedValueFlags), this.insn);
-                } else {
-                    throw new AssertionError(); //unreachable
-                }
-            }
-
-            if (this.insn instanceof LabelNode) { //we've reached the start of the current block, so we want to recurse into the incoming instructions
-                TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(this.insn);
-                if (tryCatchBlock != null) { //this label is a try-catch block handler
-                    //we want to merge all of the possible sources which the local variable may have, which means we'll have to merge the sources for every
-                    // instruction in the try block.
-
-                    //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
-                    return AnalyzedInsnList.this.tryBlockInsns(tryCatchBlock)
-                            .map(incomingInsn -> AnalyzedInsnList.this.getDynamicFrame(incomingInsn).getLocalSources(localIndex))
-                            .reduce(SOURCE_INTERPRETER::merge).get();
+            DFS_LOOP:
+            for (DynamicSourceFrame currFrame = this; currFrame != null; currFrame = dfsStack.pollFirst()) {
+                if (!visited.add(currFrame.insn)) { //we've already visited this instruction, advance to the next one
+                    continue;
                 }
 
-                if (this.insn.getPrevious() == null) { //this is the method start label, so any local variable sources must be method arguments
-                    MethodNode methodNode = AnalyzedInsnList.this.methodNode;
+                if (currFrame.storedToLocalBase >= 0 && localIndex >= currFrame.storedToLocalBase && localIndex < currFrame.storedToLocalBase + currFrame.storedToLocalValues.length) {
+                    //this instruction wrote to the local variable in question, so it's the only source which should be visible beyond this point
+                    int storedValueFlags = currFrame.storedToLocalValues[localIndex - currFrame.storedToLocalBase];
 
-                    int currentLocalIndex = 0;
-                    if (!BytecodeHelper.isStatic(methodNode)) {
-                        currentLocalIndex++;
-                        if (localIndex == 0) {
-                            return new SourceValue(1, NULL_SOURCE);
-                        }
-                    }
+                    Preconditions.checkState((storedValueFlags & FLAG_2ND) == 0, "attempted to read from the 2nd part of a category 2 type");
+                    assert extractSize(storedValueFlags) == currFrame.storedToLocalValues.length : "flags report a different value size than the stored values array";
 
-                    for (Type argumentType : Type.getArgumentTypes(methodNode.desc)) {
-                        int argumentSize = argumentType.getSize();
-                        if (localIndex >= currentLocalIndex && localIndex < currentLocalIndex + argumentSize) {
-                            return new SourceValue(argumentSize, NULL_SOURCE);
-                        }
-                        currentLocalIndex += argumentSize;
-                    }
-
-                    throw new IndexOutOfBoundsException("invalid method argument LVT index for " + methodNode.desc + ": " + localIndex);
-                }
-
-                //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
-                return AnalyzedInsnList.this.incomingInsns((LabelNode) this.insn)
-                        .map(incomingInsn -> AnalyzedInsnList.this.getDynamicFrame(incomingInsn).getLocalSources(localIndex))
-                        .reduce(SOURCE_INTERPRETER::merge).get();
-            }
-
-            return this.getPrevious().getLocalSources(localIndex);
-        }
-
-        public SourceValue getStackSources(int indexFromThis) {
-            return this.getStackSources0(indexFromThis);
-        }
-
-        private SourceValue getStackSources0(int indexFromThis) {
-            if (indexFromThis >= 0 && indexFromThis < this.pushedStackOperands.length) {
-                //this instruction pushed the stack element in question, so it's the only source which should be visible beyond this point
-                int pushedOperandFlags = this.pushedStackOperands[indexFromThis];
-
-                Preconditions.checkState((pushedOperandFlags & FLAG_2ND) == 0, "attempted to read from the 2nd part of a category 2 type");
-
-                switch ((pushedOperandFlags & SOURCE_MASK)) {
-                    case SOURCE_FLAG_STACK:
-                        if ((pushedOperandFlags & VALUE_MASK) == VALUE_FLAG_PASSEDTHROUGH) {
-                            //the value is being passed through, recurse into the original value
-                            DynamicSourceFrame prev = this.getPrevious();
-                            int originalIndexFromThis = pushedOperandFlags & SOURCE_LOC_MASK;
-                            int indexBefore = this.convertIndexFromThisToIndexBefore(originalIndexFromThis);
-                            int prevIndexFromThis = prev.convertIndexAfterToIndexFromThis(indexBefore);
-                            return prev.getStackSources0(prevIndexFromThis);
-                        } else if (extractSize(pushedOperandFlags) == SIZE_VALUE_UNKNOWN) {
-                            break;
-                        }
-                        //fallthrough
-                    case SOURCE_FLAG_LOCAL:
-                    case SOURCE_FLAG_NEW:
-                        assert extractSize(pushedOperandFlags) != SIZE_VALUE_UNKNOWN;
-                        return new SourceValue(extractSize(pushedOperandFlags), this.insn);
-                    default:
-                        throw new AssertionError(); //unreachable
-                }
-
-                assert extractSize(pushedOperandFlags) == SIZE_VALUE_UNKNOWN;
-
-                //resolve the stack operand's size
-                return new SourceValue(this.getStackSourceSize0(indexFromThis), this.insn); //TODO: go directly to the previous frame once i figure out the index conversion
-            }
-
-            if (this.insn instanceof LabelNode) { //merge the results from all the incoming instructions
-                TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(this.insn);
-                if (tryCatchBlock != null) { //this label is a try-catch block handler
-                    if (indexFromThis == -1) { //the caught exception is being queried
-                        return EXCEPTION_SOURCE_VALUE;
+                    if ((storedValueFlags & SOURCE_MASK) == SOURCE_FLAG_NEW || (storedValueFlags & VALUE_MASK) == VALUE_FLAG_COPIED) {
+                        SourceValue nextResult = new SourceValue(extractSize(storedValueFlags), currFrame.insn);
+                        result = mergeNullable(result, nextResult); //tail return: "return nextResult;"
+                        continue;
                     } else {
-                        throw new IndexOutOfBoundsException("try-catch block handler only has a single stack operand!");
+                        throw new AssertionError(); //unreachable
                     }
                 }
 
-                //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
-                int indexBefore = this.convertIndexFromThisToIndexBefore(indexFromThis);
-                return AnalyzedInsnList.this.incomingInsns((LabelNode) this.insn)
-                        .map(incomingInsn -> {
-                            DynamicSourceFrame incomingFrame = AnalyzedInsnList.this.getDynamicFrame(incomingInsn);
-                            int incomingIndexFromThis = incomingFrame.convertIndexAfterToIndexFromThis(indexBefore);
-                            return incomingFrame.getStackSources0(incomingIndexFromThis);
-                        })
-                        .reduce(SOURCE_INTERPRETER::merge).get();
+                if (currFrame.insn instanceof LabelNode) {
+                    TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(currFrame.insn);
+                    if (tryCatchBlock != null) { //this label is a try-catch block handler
+                        //we want to merge all of the possible sources which the local variable may have, which means we'll have to merge the sources for every
+                        // instruction in the try block.
+
+                        AnalyzedInsnList.this.tryBlockInsns(tryCatchBlock, dfsStack);
+                        continue;
+                    }
+
+                    if (currFrame.insn.getPrevious() == null) { //this is the method start label, so any local variable sources must be method arguments
+                        MethodNode methodNode = AnalyzedInsnList.this.methodNode;
+
+                        int currentLocalIndex = 0;
+                        if (!BytecodeHelper.isStatic(methodNode)) {
+                            currentLocalIndex++;
+                            if (localIndex == 0) {
+                                result = mergeNullable(result, ARGUMENT_SOURCE_VALUE_BY_SIZE[1]); //tail return: "return ARGUMENT_SOURCE_VALUE_BY_SIZE[1];"
+                                continue;
+                            }
+                        }
+
+                        for (Type argumentType : Type.getArgumentTypes(methodNode.desc)) {
+                            int argumentSize = argumentType.getSize();
+                            if (localIndex >= currentLocalIndex && localIndex < currentLocalIndex + argumentSize) {
+                                result = mergeNullable(result, ARGUMENT_SOURCE_VALUE_BY_SIZE[argumentSize]); //tail return: "return ARGUMENT_SOURCE_VALUE_BY_SIZE[argumentSize];"
+                                continue DFS_LOOP;
+                            }
+                            currentLocalIndex += argumentSize;
+                        }
+
+                        throw new IndexOutOfBoundsException("invalid method argument LVT index for " + methodNode.desc + ": " + localIndex);
+                    }
+
+                    //we've reached the start of the current block, so we want to recurse into the incoming instructions
+                    AnalyzedInsnList.this.incomingInsns(currFrame, (LabelNode) currFrame.insn, dfsStack);
+                    continue;
+                }
+
+                dfsStack.push(this.getPreviousInBlock()); //tail recursion: "return currFrame.getPrevious().getLocalSources(localIndex);"
+                continue;
             }
 
-            DynamicSourceFrame prev = this.getPrevious();
-            int indexBefore = this.convertIndexFromThisToIndexBefore(indexFromThis);
-            int prevIndexFromThis = prev.convertIndexAfterToIndexFromThis(indexBefore);
-            return prev.getStackSources0(prevIndexFromThis);
+            visited.clear();
+            return Objects.requireNonNull(result, "result");
         }
 
-        private int getStackSourceSize0(int indexFromThis) {
+        public SourceValue getStackSources(int _indexFromThis) {
+            ArrayDeque<DFSItem> dfsStack = new ArrayDeque<>();
+            Set<AbstractInsnNode> visited = BytecodeHelper.makeInsnSet();
+
+            SourceValue result = null;
+
+            DynamicSourceFrame currFrame = this;
+            int indexFromThis = _indexFromThis;
+            while (true) {
+                if (currFrame == null || !visited.add(currFrame.insn)) { //we've already visited this instruction, advance to the next one
+                    DFSItem nextItem = dfsStack.pollFirst();
+                    if (nextItem == null) { //we've run out of instructions to visit, return the final result
+                        visited.clear();
+                        return Objects.requireNonNull(result, "result");
+                    }
+                    currFrame = nextItem.frame;
+                    indexFromThis = nextItem.indexFromFrame;
+                    nextItem.frame = null;
+                    continue;
+                }
+
+                if (indexFromThis >= 0 && indexFromThis < currFrame.pushedStackOperands.length) {
+                    //this instruction pushed the stack element in question, so it's the only source which should be visible beyond this point
+                    int pushedOperandFlags = currFrame.pushedStackOperands[indexFromThis];
+
+                    Preconditions.checkState((pushedOperandFlags & FLAG_2ND) == 0, "attempted to read from the 2nd part of a category 2 type");
+
+                    switch ((pushedOperandFlags & SOURCE_MASK)) {
+                        case SOURCE_FLAG_STACK:
+                            if ((pushedOperandFlags & VALUE_MASK) == VALUE_FLAG_PASSEDTHROUGH) {
+                                //the value is being passed through, recurse into the original value
+                                DynamicSourceFrame prev = currFrame.getPreviousInBlock();
+                                int originalIndexFromThis = pushedOperandFlags & SOURCE_LOC_MASK;
+                                int indexBefore = currFrame.convertIndexFromThisToIndexBefore(originalIndexFromThis);
+                                int prevIndexFromThis = prev.convertIndexAfterToIndexFromThis(indexBefore);
+
+                                //tail recursion: "return prev.getStackSources(prevIndexFromThis);"
+                                currFrame = prev;
+                                indexFromThis = prevIndexFromThis;
+                                continue;
+                            } else if (extractSize(pushedOperandFlags) == SIZE_VALUE_UNKNOWN) {
+                                break;
+                            }
+                            //fallthrough
+                        case SOURCE_FLAG_LOCAL:
+                        case SOURCE_FLAG_NEW:
+                            assert extractSize(pushedOperandFlags) != SIZE_VALUE_UNKNOWN;
+
+                            SourceValue nextResult = new SourceValue(extractSize(pushedOperandFlags), currFrame.insn);
+                            result = mergeNullable(result, nextResult); //tail return: "return nextResult;"
+                            currFrame = null; //set currFrame to null to forcibly advance to the next DFS item
+                            continue;
+                        default:
+                            throw new AssertionError(); //unreachable
+                    }
+
+                    assert extractSize(pushedOperandFlags) == SIZE_VALUE_UNKNOWN;
+
+                    //resolve the stack operand's size
+                    SourceValue nextResult = new SourceValue(currFrame.getStackSourceSize(indexFromThis), currFrame.insn); //TODO: go directly to the previous frame once i figure out the index conversion
+                    result = mergeNullable(result, nextResult); //tail return: "return nextResult;"
+                    currFrame = null; //set currFrame to null to forcibly advance to the next DFS item
+                    continue;
+                }
+
+                if (currFrame.insn instanceof LabelNode) {
+                    TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(currFrame.insn);
+                    if (tryCatchBlock != null) { //this label is a try-catch block handler
+                        if (indexFromThis == -1) { //the caught exception is being queried
+                            result = mergeNullable(result, EXCEPTION_SOURCE_VALUE); //tail return: "return EXCEPTION_SOURCE_VALUE;"
+                            currFrame = null; //set currFrame to null to forcibly advance to the next DFS item
+                            continue;
+                        } else {
+                            throw new IndexOutOfBoundsException("try-catch block handler only has a single stack operand!");
+                        }
+                    }
+
+                    //merge the results from all the incoming instructions
+                    int indexBefore = currFrame.convertIndexFromThisToIndexBefore(indexFromThis);
+                    AnalyzedInsnList.this.incomingInsnsDFS(currFrame, (LabelNode) currFrame.insn, dfsStack, indexBefore);
+
+                    currFrame = null; //set currFrame to null to forcibly advance to the next DFS item
+                    continue;
+                }
+
+                DynamicSourceFrame prev = currFrame.getPreviousInBlock();
+                int indexBefore = currFrame.convertIndexFromThisToIndexBefore(indexFromThis);
+                int prevIndexFromThis = prev.convertIndexAfterToIndexFromThis(indexBefore);
+
+                //tail recursion: "return prev.getStackSources(prevIndexFromThis);"
+                currFrame = prev;
+                indexFromThis = prevIndexFromThis;
+                continue;
+            }
+        }
+
+        public int getStackSourceSize(int indexFromThis) {
+            //most important part of getStackSourceSize0 is hoisted out here, since it's the most likely part to be reached
             if (indexFromThis >= 0 && indexFromThis < this.pushedStackOperands.length) {
                 //this instruction pushed the stack element in question, so it's the only source which should be visible beyond this point
                 int pushedOperandFlags = this.pushedStackOperands[indexFromThis];
@@ -1157,95 +1253,158 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                 if (extractSize(pushedOperandFlags) != SIZE_VALUE_UNKNOWN) { //the value's size is known, we can return it
                     return extractSize(pushedOperandFlags);
                 }
-
-                Preconditions.checkState((pushedOperandFlags & SOURCE_MASK) == SOURCE_FLAG_STACK && ((pushedOperandFlags & VALUE_MASK) == VALUE_FLAG_COPIED || (pushedOperandFlags & VALUE_MASK) == VALUE_FLAG_PASSEDTHROUGH),
-                        "pushed stack operand has unknown size, but is not the result of a stack copy or passthrough");
-
-                DynamicSourceFrame prev = this.getPrevious();
-                int originalIndexFromThis = pushedOperandFlags & SOURCE_LOC_MASK;
-                int originalIndexBefore = this.convertIndexFromThisToIndexBefore(originalIndexFromThis);
-                int prevOriginalIndexFromThis = prev.convertIndexAfterToIndexFromThis(originalIndexBefore);
-                return prev.getStackSourceSize0(prevOriginalIndexFromThis);
             }
 
-            if (this.insn instanceof LabelNode) { //find the first result from one of the the incoming instructions
-                TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(this.insn);
-                if (tryCatchBlock != null) { //this label is a try-catch block handler
-                    if (indexFromThis == -1) { //the caught exception is being queried
-                        return 1;
-                    } else {
-                        throw new IndexOutOfBoundsException("try-catch block handler only has a single stack operand!");
-                    }
-                }
-
-                //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
-                return AnalyzedInsnList.this.incomingInsns((LabelNode) this.insn)
-                        .mapToInt(incomingInsn -> {
-                            DynamicSourceFrame incomingFrame = AnalyzedInsnList.this.getDynamicFrame(incomingInsn);
-                            int indexBefore = this.convertIndexFromThisToIndexBefore(indexFromThis);
-                            int incomingIndexFromThis = incomingFrame.convertIndexAfterToIndexFromThis(indexBefore);
-                            return incomingFrame.getStackSourceSize0(incomingIndexFromThis);
-                        })
-                        .findAny().getAsInt();
-            }
-
-            DynamicSourceFrame prev = this.getPrevious();
-            int indexBefore = this.convertIndexFromThisToIndexBefore(indexFromThis);
-            int prevIndexFromThis = prev.convertIndexAfterToIndexFromThis(indexBefore);
-            return prev.getStackSourceSize0(prevIndexFromThis);
+            return this.getStackSourceSize0(indexFromThis);
         }
 
-        private Stream<DynamicSourceFrame> getNextFrames(boolean visitExceptionHandlers) {
-            Stream.Builder<DynamicSourceFrame> builder = Stream.builder();
+        private int getStackSourceSize0(int _indexFromThis) {
+            ArrayDeque<DFSItem> dfsStack = new ArrayDeque<>();
+            Set<AbstractInsnNode> visited = BytecodeHelper.makeInsnSet();
+
+            DynamicSourceFrame currFrame = this;
+            int indexFromThis = _indexFromThis;
+            while (true) {
+                if (!visited.add(currFrame.insn)) { //we've already visited this instruction, advance to the next one
+                    DFSItem nextItem = dfsStack.pop();
+                    currFrame = nextItem.frame;
+                    indexFromThis = nextItem.indexFromFrame;
+                    nextItem.frame = null;
+                    continue;
+                }
+
+                if (indexFromThis >= 0 && indexFromThis < currFrame.pushedStackOperands.length) {
+                    //this instruction pushed the stack element in question, so it's the only source which should be visible beyond this point
+                    int pushedOperandFlags = currFrame.pushedStackOperands[indexFromThis];
+
+                    Preconditions.checkState((pushedOperandFlags & FLAG_2ND) == 0, "attempted to read from the 2nd part of a category 2 type");
+
+                    if (extractSize(pushedOperandFlags) != SIZE_VALUE_UNKNOWN) { //the value's size is known, we can return it
+                        visited.clear();
+                        return extractSize(pushedOperandFlags);
+                    }
+
+                    Preconditions.checkState((pushedOperandFlags & SOURCE_MASK) == SOURCE_FLAG_STACK && ((pushedOperandFlags & VALUE_MASK) == VALUE_FLAG_COPIED || (pushedOperandFlags & VALUE_MASK) == VALUE_FLAG_PASSEDTHROUGH),
+                            "pushed stack operand has unknown size, but is not the result of a stack copy or passthrough");
+
+                    DynamicSourceFrame prev = currFrame.getPreviousInBlock();
+                    int originalIndexFromThis = pushedOperandFlags & SOURCE_LOC_MASK;
+                    int originalIndexBefore = currFrame.convertIndexFromThisToIndexBefore(originalIndexFromThis);
+                    int prevOriginalIndexFromThis = prev.convertIndexAfterToIndexFromThis(originalIndexBefore);
+
+                    //tail recursion: "return prev.getStackSourceSize0(prevOriginalIndexFromThis);"
+                    currFrame = prev;
+                    indexFromThis = prevOriginalIndexFromThis;
+                    continue;
+                }
+
+                if (currFrame.insn instanceof LabelNode) {
+                    TryCatchBlockNode tryCatchBlock = AnalyzedInsnList.this.tryCatchBlocksByHandlers.get(currFrame.insn);
+                    if (tryCatchBlock != null) { //this label is a try-catch block handler
+                        if (indexFromThis == -1) { //the caught exception is being queried
+                            visited.clear();
+                            return 1;
+                        } else {
+                            throw new IndexOutOfBoundsException("try-catch block handler only has a single stack operand!");
+                        }
+                    }
+
+                    //find the first result from one of the the incoming instructions
+                    int indexBefore = currFrame.convertIndexFromThisToIndexBefore(indexFromThis);
+                    AnalyzedInsnList.this.incomingInsnsDFS(currFrame, (LabelNode) currFrame.insn, dfsStack, indexBefore);
+
+                    //tail recursion into the first of the incoming instructions we just found (other instructions will be visited on subsequent iterations)
+                    DFSItem nextItem = dfsStack.pop();
+                    currFrame = nextItem.frame;
+                    indexFromThis = nextItem.indexFromFrame;
+                    nextItem.frame = null;
+                    continue;
+                }
+
+                DynamicSourceFrame prev = currFrame.getPreviousInBlock();
+                int indexBefore = currFrame.convertIndexFromThisToIndexBefore(indexFromThis);
+                int prevIndexFromThis = prev.convertIndexAfterToIndexFromThis(indexBefore);
+
+                //tail recursion: "return prev.getStackSourceSize0(prevIndexFromThis);"
+                currFrame = prev;
+                indexFromThis = prevIndexFromThis;
+                continue;
+            }
+        }
+
+        private void getNextFrames(boolean visitExceptionHandlers, ArrayDeque<DynamicSourceFrame> dfsStack) {
             if (BytecodeHelper.canAdvanceNormallyToNextInstruction(this.insn)) {
-                builder.add(AnalyzedInsnList.this.getDynamicFrame(this.insn.getNext()));
+                dfsStack.push(AnalyzedInsnList.this.getDynamicFrame(this.insn.getNext()));
             }
             if (BytecodeHelper.canAdvanceJumpingToLabel(this.insn)) {
                 for (LabelNode nextLabel : BytecodeHelper.possibleNextLabels(this.insn)) {
-                    builder.add(AnalyzedInsnList.this.getDynamicFrame(nextLabel));
+                    dfsStack.push(AnalyzedInsnList.this.getDynamicFrame(nextLabel));
                 }
             }
             if (visitExceptionHandlers) {
                 for (LabelNode exceptionHandler : AnalyzedInsnList.this.getExceptionHandlers(this.insn)) {
-                    builder.add(AnalyzedInsnList.this.getDynamicFrame(exceptionHandler));
+                    dfsStack.push(AnalyzedInsnList.this.getDynamicFrame(exceptionHandler));
                 }
             }
-            return builder.build();
+        }
+
+        private void getNextFramesDFS(boolean visitExceptionHandlers, ArrayDeque<DFSItem> dfsStack, int indexAfter) {
+            if (BytecodeHelper.canAdvanceNormallyToNextInstruction(this.insn)) {
+                DynamicSourceFrame nextFrame = AnalyzedInsnList.this.getDynamicFrame(this.insn.getNext());
+                int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
+                dfsStack.push(new DFSItem(nextFrame, nextIndexFromThis));
+            }
+            if (BytecodeHelper.canAdvanceJumpingToLabel(this.insn)) {
+                for (LabelNode nextLabel : BytecodeHelper.possibleNextLabels(this.insn)) {
+                    DynamicSourceFrame nextFrame = AnalyzedInsnList.this.getDynamicFrame(nextLabel);
+                    int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
+                    dfsStack.push(new DFSItem(nextFrame, nextIndexFromThis));
+                }
+            }
+            if (visitExceptionHandlers) {
+                for (LabelNode exceptionHandler : AnalyzedInsnList.this.getExceptionHandlers(this.insn)) {
+                    DynamicSourceFrame nextFrame = AnalyzedInsnList.this.getDynamicFrame(exceptionHandler);
+                    int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
+                    dfsStack.push(new DFSItem(nextFrame, nextIndexFromThis));
+                }
+            }
         }
 
         public UsageValue getLocalUsages() {
-            if (this.storedToLocalBase < 0) { //this instruction doesn't store any local variables
+            int localIndex = this.storedToLocalBase;
+            if (localIndex < 0) { //this instruction doesn't store any local variables
                 return null;
             }
 
+            ArrayDeque<DynamicSourceFrame> dfsStack = new ArrayDeque<>();
+            Set<AbstractInsnNode> visited = BytecodeHelper.makeInsnSet();
+
+            this.getNextFrames(true, dfsStack);
+
             Set<AbstractInsnNode> usages = BytecodeHelper.makeInsnSet();
-            this.getNextFrames(true).forEach(nextFrame -> nextFrame.getLocalUsages0(usages, this.storedToLocalBase));
-            return new UsageValue(this.storedToLocalValues.length, usages);
-        }
 
-        private void getLocalUsages0(Set<AbstractInsnNode> usages, int localIndex) {
-            if (this.readFromLocalBase >= 0 && localIndex >= this.readFromLocalBase && localIndex < this.readFromLocalBase + this.readFromLocalCount) {
-                //this instruction reads the given local variable
-                usages.add(this.insn);
-            }
-            if (this.storedToLocalBase >= 0 && localIndex >= this.storedToLocalBase && localIndex < this.storedToLocalBase + this.storedToLocalValues.length) {
-                //this instruction writes to the given local variable, so we can stop recursing
-                return;
-            }
-
-            //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
-            //this code is equivalent to this.getNextFrames(true), but inlined to deal with recursion depth
-            if (BytecodeHelper.canAdvanceNormallyToNextInstruction(this.insn)) {
-                AnalyzedInsnList.this.getDynamicFrame(this.insn.getNext()).getLocalUsages0(usages, localIndex);
-            }
-            if (BytecodeHelper.canAdvanceJumpingToLabel(this.insn)) {
-                for (LabelNode label : BytecodeHelper.possibleNextLabels(this.insn)) {
-                    AnalyzedInsnList.this.getDynamicFrame(label).getLocalUsages0(usages, localIndex);
+            for (DynamicSourceFrame currFrame; (currFrame = dfsStack.pollFirst()) != null; ) {
+                if (!visited.add(currFrame.insn)) { //we've already visited this instruction, advance to the next one
+                    continue;
                 }
+
+                if (currFrame.readFromLocalBase >= 0 && localIndex >= currFrame.readFromLocalBase && localIndex < currFrame.readFromLocalBase + currFrame.readFromLocalCount) {
+                    //this instruction reads the given local variable
+                    usages.add(currFrame.insn);
+                }
+                if (currFrame.storedToLocalBase >= 0 && localIndex >= currFrame.storedToLocalBase && localIndex < currFrame.storedToLocalBase + currFrame.storedToLocalValues.length) {
+                    //this instruction writes to the given local variable, so we can stop recursing
+                    continue;
+                }
+
+                //advance to all of the next instructions
+                currFrame.getNextFrames(true, dfsStack);
             }
-            for (LabelNode exceptionHandler : AnalyzedInsnList.this.getExceptionHandlers(this.insn)) {
-                AnalyzedInsnList.this.getDynamicFrame(exceptionHandler).getLocalUsages0(usages, localIndex);
-            }
+
+            //we've run out of instructions to visit, return the final result
+            visited.clear();
+
+            return new UsageValue(this.storedToLocalValues.length, usages);
         }
 
         public List<UsageValue> getStackUsages() {
@@ -1264,70 +1423,69 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                 int indexAfter = this.convertIndexFromThisToIndexAfter(indexFromThis);
 
                 //compute the size of the pushed value
-                int valueSize = this.getStackSourceSize0(indexFromThis);
+                int valueSize = this.getStackSourceSize(indexFromThis);
 
-                //we don't want to visit exception handlers, as the stack will be cleared if an exception is thrown (we assume exception handlers are otherwise unreachable)
-                UsageValue usageValue = this.getNextFrames(false)
-                        .map(nextFrame -> {
-                            int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
-                            return nextFrame.getStackUsages0(nextIndexFromThis, valueSize);
-                        })
-                        .filter(Objects::nonNull).reduce(UsageValue::merge).orElse(null);
-
-                if (usageValue == null) { //the stack value is never used, so we need to determine its size
-                    usageValue = new UsageValue(valueSize);
-                }
-
-                indexFromThis += usageValue.size;
-                usages.add(usageValue);
+                indexFromThis += valueSize;
+                usages.add(this.getStackUsages0(indexAfter, valueSize));
             }
             return usages;
         }
 
-        private UsageValue getStackUsages0(int indexFromThis, int valueSize) {
-            if (indexFromThis >= 0 && indexFromThis < this.poppedStackOperandCount) {
-                //this instruction popped the stack element in question, so it's the only source which should be visible beyond this point
+        private UsageValue getStackUsages0(int _indexAfter, int valueSize) {
+            ArrayDeque<DFSItem> dfsStack = new ArrayDeque<>();
+            Set<AbstractInsnNode> visited = BytecodeHelper.makeInsnSet();
 
-                UsageValue usageValue = this.visible ? new UsageValue(valueSize, this.insn) : null;
+            //we don't want to visit exception handlers, as the stack will be cleared if an exception is thrown (we assume exception handlers are otherwise unreachable)
+            this.getNextFramesDFS(false, dfsStack, _indexAfter);
 
-                for (int pushedIndexFromThis = 0; pushedIndexFromThis < this.pushedStackOperands.length; pushedIndexFromThis++) {
-                    int pushedOperandFlags = this.pushedStackOperands[pushedIndexFromThis];
-                    if ((pushedOperandFlags & VALUE_MASK) == VALUE_FLAG_PASSEDTHROUGH && (pushedOperandFlags & SOURCE_MASK) == indexFromThis) {
-                        //the value is being transparently passed through to the next instruction, we should include the usages of the passed-down value as well
+            UsageValue result = null;
 
-                        assert (pushedOperandFlags & FLAG_2ND) == 0;
-
-                        int indexAfter = this.convertIndexFromThisToIndexAfter(pushedIndexFromThis);
-                        //we don't want to visit exception handlers, as the stack will be cleared if an exception is thrown (we assume exception handlers are otherwise unreachable)
-                        usageValue = UsageValue.mergeNullable(usageValue, this.getNextFrames(false)
-                                .map(nextFrame -> {
-                                    int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
-                                    return nextFrame.getStackUsages0(nextIndexFromThis, valueSize);
-                                })
-                                .filter(Objects::nonNull).reduce(UsageValue::merge).orElse(null));
-                        break;
+            DynamicSourceFrame currFrame = null;
+            int indexFromThis = 0;
+            while (true) {
+                if (currFrame == null || !visited.add(currFrame.insn)) { //we've already visited this instruction, advance to the next one
+                    DFSItem nextItem = dfsStack.pollFirst();
+                    if (nextItem == null) { //we've run out of instructions to visit, return the final result
+                        visited.clear();
+                        return result != null ? result : new UsageValue(valueSize);
                     }
+                    currFrame = nextItem.frame;
+                    indexFromThis = nextItem.indexFromFrame;
+                    nextItem.frame = null;
+                    continue;
                 }
-                return usageValue;
-            }
 
-            //TODO: i think we need to do a BFS/DFS here, because loops would probably make this keep recursing forever
+                if (indexFromThis >= 0 && indexFromThis < currFrame.poppedStackOperandCount) {
+                    //this instruction popped the stack element in question, so it's the only source which should be visible beyond this point
 
-            int indexAfter = this.convertIndexFromThisToIndexAfter(indexFromThis);
-            if (BytecodeHelper.canAdvanceJumpingToLabel(this.insn)) {
+                    if (currFrame.visible) {
+                        result = UsageValue.mergeNullable(result, new UsageValue(valueSize, currFrame.insn));
+                    }
+
+                    for (int pushedIndexFromThis = 0; pushedIndexFromThis < currFrame.pushedStackOperands.length; pushedIndexFromThis++) {
+                        int pushedOperandFlags = currFrame.pushedStackOperands[pushedIndexFromThis];
+                        if ((pushedOperandFlags & VALUE_MASK) == VALUE_FLAG_PASSEDTHROUGH && (pushedOperandFlags & SOURCE_LOC_MASK) == indexFromThis) {
+                            //the value is being transparently passed through to the next instruction, we should include the usages of the passed-down value as well
+
+                            assert (pushedOperandFlags & FLAG_2ND) == 0;
+
+                            int indexAfter = currFrame.convertIndexFromThisToIndexAfter(pushedIndexFromThis);
+                            //we don't want to visit exception handlers, as the stack will be cleared if an exception is thrown (we assume exception handlers are otherwise unreachable)
+                            currFrame.getNextFramesDFS(false, dfsStack, indexAfter);
+                            break;
+                        }
+                    }
+
+                    currFrame = null; //set currFrame to null to forcibly advance to the next DFS item
+                    continue;
+                }
+
+                int indexAfter = currFrame.convertIndexFromThisToIndexAfter(indexFromThis);
                 //we don't want to visit exception handlers, as the stack will be cleared if an exception is thrown (we assume exception handlers are otherwise unreachable)
-                return this.getNextFrames(false)
-                        .map(nextFrame -> {
-                            int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
-                            return nextFrame.getStackUsages0(nextIndexFromThis, valueSize);
-                        })
-                        .filter(Objects::nonNull).reduce(UsageValue::merge).orElse(null);
-            } else if (BytecodeHelper.canAdvanceNormallyToNextInstruction(this.insn)) {
-                DynamicSourceFrame nextFrame = AnalyzedInsnList.this.getDynamicFrame(this.insn.getNext());
-                int nextIndexFromThis = nextFrame.convertIndexBeforeToIndexFromThis(indexAfter);
-                return nextFrame.getStackUsages0(nextIndexFromThis, valueSize);
-            } else {
-                return null;
+                currFrame.getNextFramesDFS(false, dfsStack, indexAfter);
+
+                currFrame = null; //set currFrame to null to forcibly advance to the next DFS item
+                continue;
             }
         }
 
@@ -1337,5 +1495,12 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                    + " pushed=" + Arrays.stream(this.pushedStackOperands).mapToObj(AnalyzedInsnList::flagsToString).collect(Collectors.joining(", ", "[", "]"))
                    + " visible=" + this.visible;
         }
+    }
+
+    @AllArgsConstructor
+    @NoArgsConstructor
+    private static final class DFSItem {
+        public DynamicSourceFrame frame;
+        public int indexFromFrame;
     }
 }
