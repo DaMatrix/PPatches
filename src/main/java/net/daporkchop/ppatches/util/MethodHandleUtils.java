@@ -419,4 +419,43 @@ public class MethodHandleUtils {
     public static MethodHandle greaterThanOrEqual(Class<?> type) {
         return PrimitiveComparisons.CACHES[IFGE - PrimitiveComparisons.OP_BASE].getUnchecked(type);
     }
+
+    /**
+     * Produces a method handle which returns the result of calling {@link String#valueOf} on its sole argument when invoked.
+     *
+     * @throws IllegalArgumentException if the given type is {@code void}
+     */
+    public static MethodHandle stringValueOf(Class<?> type) {
+        return StringValueOf.CACHE.getUnchecked(type);
+    }
+
+    private static final class StringValueOf extends CacheLoader<Class<?>, MethodHandle> {
+        public static final LoadingCache<Class<?>, MethodHandle> CACHE = CacheBuilder.newBuilder().concurrencyLevel(1).weakKeys().weakValues().build(new StringValueOf());
+        private static final MethodHandle RAW;
+
+        static {
+            try {
+                RAW = MethodHandles.publicLookup().findStatic(String.class, "valueOf", MethodType.methodType(String.class, Object.class));
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        }
+
+        @Override
+        public MethodHandle load(Class<?> type) throws Exception {
+            MethodHandle result;
+            if (type.isPrimitive()) {
+                try {
+                    //String.valueOf doesn't have overloads for byte and short, they need to be forwarded to the int variant
+                    Class<?> effectiveArgumentType = type == byte.class || type == short.class ? int.class : type;
+                    result = MethodHandles.publicLookup().findStatic(String.class, "valueOf", MethodType.methodType(String.class, effectiveArgumentType));
+                } catch (NoSuchMethodException e) { //can happen if type is void
+                    throw new IllegalArgumentException("type " + type + " doesn't support this operation", e);
+                }
+            } else {
+                result = RAW;
+            }
+            return result.asType(MethodType.methodType(String.class, type));
+        }
+    }
 }

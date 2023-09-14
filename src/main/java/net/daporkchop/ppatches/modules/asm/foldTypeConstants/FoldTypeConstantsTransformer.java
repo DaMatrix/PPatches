@@ -6,10 +6,14 @@ import com.google.common.cache.LoadingCache;
 import lombok.SneakyThrows;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
-import net.daporkchop.ppatches.util.asm.*;
+import net.daporkchop.ppatches.util.asm.BytecodeHelper;
+import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
+import net.daporkchop.ppatches.util.asm.TypeUtils;
+import net.daporkchop.ppatches.util.asm.VarargsParameterDecoder;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import net.daporkchop.ppatches.util.asm.analysis.IReverseDataflowProvider;
 import net.daporkchop.ppatches.util.asm.concat.AppendStringBuilderOptimizationRegistry;
+import net.daporkchop.ppatches.util.asm.concat.PreparedConcatGenerator;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
@@ -26,16 +30,6 @@ import static org.objectweb.asm.Opcodes.*;
  * @author DaPorkchop_
  */
 public class FoldTypeConstantsTransformer implements ITreeClassTransformer.IndividualMethod, ITreeClassTransformer.OptimizationPass {
-    static {
-        AppendStringBuilderOptimizationRegistry.register("org/objectweb/asm/Type",
-                BytecodeHelper.makeInsnList(
-                        //initial stack: [StringBuilder, Type]
-                        new InsnNode(SWAP), // [Type, StringBuilder]
-                        new InsnNode(DUP_X1), // [StringBuilder, Type, StringBuilder]
-                        InvokeDynamicUtils.makeInaccessibleHandle(new Handle(H_INVOKEVIRTUAL, "org/objectweb/asm/Type", "getDescriptor", "(Ljava/lang/StringBuilder;)V", false)) // [StringBuilder]
-                ));
-    }
-
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
         //set to CHANGED if a change is made which doesn't invalidate the source frame info
@@ -179,16 +173,33 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                             classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn));
 
                     try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
-                        ConcatGenerator concat = new ConcatGenerator();
-                        batch.insertBefore(returnTypeExprFirstInsn, concat.begin());
-                        batch.insertBefore(returnTypeExprFirstInsn, concat.appendConstant("("));
+                        PreparedConcatGenerator concat = new PreparedConcatGenerator();
+
+                        //prepare the ConcatGenerator
+                        int returnTypeArgumentIndex = returnTypeConstantString != null ? -1 : concat.prepareUnorderedArgument(Type.getObjectType("org/objectweb/asm/Type"));
+                        concat.prepareAppendLiteral("(");
+                        for (String elementConstantString : elementConstantStrings) {
+                            if (elementConstantString != null) {
+                                concat.prepareAppendLiteral(elementConstantString);
+                            } else {
+                                concat.prepareAppendArgument(Type.getObjectType("org/objectweb/asm/Type"));
+                            }
+                        }
+                        concat.prepareAppendLiteral(")");
+                        if (returnTypeConstantString != null) {
+                            concat.prepareAppendLiteral(returnTypeConstantString);
+                        } else {
+                            concat.prepareAppendArgumentByIndex(returnTypeArgumentIndex);
+                        }
+
+                        //generate the string concatenation bytecode
+                        batch.insertBefore(returnTypeExprFirstInsn, concat.generateSetup());
 
                         if (returnTypeConstantString == null) {
-                            //swap the return type with the StringBuilder instance immediately before the varargs parameter array is created
-                            batch.set(varargs.loadLengthInsn, new InsnNode(SWAP));
-                        } else {
-                            batch.remove(varargs.loadLengthInsn);
+                            //consume the return type Type instance into the concatenator immediately before the varargs parameter array is created
+                            batch.insertBefore(varargs.loadLengthInsn, concat.generateConsumeArgument());
                         }
+                        batch.remove(varargs.loadLengthInsn);
                         batch.remove(varargs.newArrayInsn);
 
                         //append each parameter type to the StringBuilder instead of inserting them into the generic array
@@ -198,22 +209,14 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                             batch.remove(element.dupInsn);
                             batch.remove(element.loadIndexInsn);
 
-                            batch.insertBefore(element.astoreInsn, elementConstantStrings[i] == null
-                                    ? concat.append(Type.getObjectType("org/objectweb/asm/Type"))
-                                    : concat.appendConstant(elementConstantStrings[i]));
+                            if (elementConstantStrings[i] == null) {
+                                batch.insertBefore(element.astoreInsn, concat.generateConsumeArgument());
+                            }
 
                             batch.remove(element.astoreInsn);
                         }
 
-                        batch.insertBefore(methodInsn, concat.appendConstant(")"));
-                        if (returnTypeConstantString == null) {
-                            //swap the return type with the StringBuilder instance, append it and then build the final string instead of calling getMethodDescriptor()
-                            batch.insertBefore(methodInsn, new InsnNode(SWAP));
-                            batch.insertBefore(methodInsn, concat.append(Type.getObjectType("org/objectweb/asm/Type")));
-                        } else {
-                            batch.insertBefore(methodInsn, concat.appendConstant(returnTypeConstantString));
-                        }
-                        batch.insertBefore(methodInsn, concat.finish());
+                        batch.insertBefore(methodInsn, concat.generateFinish());
                         batch.remove(methodInsn);
 
                         for (AbstractInsnNode removeInsn : toRemove) {
@@ -271,5 +274,10 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
     public static StringBuilder append(StringBuilder builder, Type type) {
         ASM_TYPE_getDescriptor.invokeExact(type, builder);
         return builder;
+    }
+
+    static {
+        AppendStringBuilderOptimizationRegistry.register("org/objectweb/asm/Type", BytecodeHelper.makeInsnList(
+                        new MethodInsnNode(INVOKESTATIC, Type.getInternalName(FoldTypeConstantsTransformer.class).intern(), "append", "(Ljava/lang/StringBuilder;Lorg/objectweb/asm/Type;)Ljava/lang/StringBuilder;", false)));
     }
 }

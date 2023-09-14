@@ -1,6 +1,6 @@
-package net.daporkchop.ppatches.util.asm;
+package net.daporkchop.ppatches.util.asm.concat;
 
-import net.daporkchop.ppatches.util.asm.concat.AppendStringBuilderOptimizationRegistry;
+import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 
@@ -11,7 +11,7 @@ import static org.objectweb.asm.Opcodes.*;
  *
  * @author DaPorkchop_
  */
-public final class ConcatGenerator {
+public final class SimpleConcatGenerator {
     private LdcInsnNode prevConstantValueInsn;
 
     public InsnList begin() {

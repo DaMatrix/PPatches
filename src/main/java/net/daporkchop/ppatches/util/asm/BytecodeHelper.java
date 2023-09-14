@@ -305,6 +305,16 @@ public class BytecodeHelper {
         throw new IllegalStateException();
     }
 
+    public static AbstractInsnNode dup_below(Type belowType, Type type) {
+        switch (belowType.getSize()) {
+            case 1:
+                return dup_x1(type);
+            case 2:
+                return dup_x2(type);
+        }
+        throw new IllegalStateException();
+    }
+
     public static InsnList swap(Type t0, Type t1) {
         int s0 = t0.getSize();
         int s1 = t1.getSize();
