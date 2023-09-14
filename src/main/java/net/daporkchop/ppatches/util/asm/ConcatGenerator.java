@@ -1,5 +1,6 @@
 package net.daporkchop.ppatches.util.asm;
 
+import net.daporkchop.ppatches.util.asm.concat.AppendStringBuilderOptimizationRegistry;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 
@@ -12,7 +13,6 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public final class ConcatGenerator {
     private LdcInsnNode prevConstantValueInsn;
-    private MethodInsnNode prevAppendInsn;
 
     public InsnList begin() {
         return BytecodeHelper.makeInsnList(
@@ -22,14 +22,8 @@ public final class ConcatGenerator {
     }
 
     public InsnList append(Type type) {
-        String desc = type.getDescriptor();
-        if ((type.getSort() == Type.OBJECT || type.getSort() == Type.ARRAY) && !"Ljava/lang/String;".equals(desc)) {
-            desc = "Ljava/lang/Object;";
-        }
-
         this.prevConstantValueInsn = null;
-        this.prevAppendInsn = new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", '(' + desc + ")Ljava/lang/StringBuilder;", false);
-        return BytecodeHelper.makeInsnList(this.prevAppendInsn);
+        return AppendStringBuilderOptimizationRegistry.makeAppend(type);
     }
 
     public InsnList appendConstant(String cst) {
@@ -38,13 +32,11 @@ public final class ConcatGenerator {
             return BytecodeHelper.makeInsnList();
         }
         this.prevConstantValueInsn = new LdcInsnNode(cst);
-        this.prevAppendInsn = new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
-        return BytecodeHelper.makeInsnList(this.prevConstantValueInsn, this.prevAppendInsn);
+        return BytecodeHelper.makeInsnList(this.prevConstantValueInsn, new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false));
     }
 
     public InsnList finish() {
         this.prevConstantValueInsn = null;
-        this.prevAppendInsn = null;
         return BytecodeHelper.makeInsnList(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false));
     }
 }

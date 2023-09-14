@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.util.MethodHandleUtils;
+import net.daporkchop.ppatches.util.ReflectionUtils;
 import net.daporkchop.ppatches.util.UnsafeWrapper;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Handle;
@@ -20,8 +21,7 @@ import org.objectweb.asm.tree.analysis.SourceValue;
 import org.objectweb.asm.util.Printer;
 
 import java.lang.invoke.*;
-import java.lang.reflect.Array;
-import java.lang.reflect.Modifier;
+import java.lang.reflect.*;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -112,6 +112,112 @@ public class InvokeDynamicUtils {
 
     public static CallSite bootstrapAssertionState(MethodHandles.Lookup lookup, String name, MethodType type) throws Throwable {
         return new ConstantCallSite(MethodHandleUtils.constant(boolean.class, lookup.lookupClass().desiredAssertionStatus()));
+    }
+
+    public static InvokeDynamicInsnNode makeInaccessibleHandle(Handle handle) {
+        /*String desc = BytecodeHelper.getEffectiveHandleMethodType(handle).getDescriptor();
+
+        switch (handle.getTag()) {
+            case H_GETFIELD:
+            case H_GETSTATIC:
+                return new InvokeDynamicInsnNode(handle.getName(), desc,
+                        new Handle(H_INVOKESTATIC, Type.getInternalName(InvokeDynamicUtils.class), "bootstrapInaccessibleFieldAccessor",
+                                "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
+                        Type.getObjectType(handle.getOwner()),
+                        Type.getType(handle.getDesc()),
+                        new Handle(H_INVOKEVIRTUAL, Type.getInternalName(MethodHandles.Lookup.class),
+                                "unreflectGetter", "(Ljava/lang/reflect/Field;)Ljava/lang/invoke/MethodHandle;", false));
+            case H_PUTFIELD:
+            case H_PUTSTATIC:
+                return new InvokeDynamicInsnNode(handle.getName(), desc,
+                        new Handle(H_INVOKESTATIC, Type.getInternalName(InvokeDynamicUtils.class), "bootstrapInaccessibleFieldAccessor",
+                                "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;)Ljava/lang/invoke/CallSite;", false),
+                        Type.getObjectType(handle.getOwner()),
+                        Type.getType(handle.getDesc()),
+                        new Handle(H_INVOKEVIRTUAL, Type.getInternalName(MethodHandles.Lookup.class),
+                                "unreflectSetter", "(Ljava/lang/reflect/Field;)Ljava/lang/invoke/MethodHandle;", false));
+            case H_INVOKEVIRTUAL:
+            case H_INVOKESTATIC:
+            case H_INVOKESPECIAL: //TODO: this should be calling lookup.unreflectSpecial()
+            case H_INVOKEINTERFACE:
+                return new InvokeDynamicInsnNode(handle.getName(), desc,
+                        new Handle(H_INVOKESTATIC, Type.getInternalName(InvokeDynamicUtils.class), "bootstrapInaccessibleMethodAccessor",
+                                "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;", false),
+                        Type.getObjectType(handle.getOwner()),
+                        Type.getMethodType(handle.getDesc()));
+            case H_NEWINVOKESPECIAL:
+                return new InvokeDynamicInsnNode(handle.getName(), desc,
+                        new Handle(H_INVOKESTATIC, Type.getInternalName(InvokeDynamicUtils.class), "bootstrapInaccessibleMethodAccessor",
+                                "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;", false),
+                        Type.getObjectType(handle.getOwner()),
+                        Type.getMethodType(handle.getDesc()));
+            default:
+                throw new IllegalStateException("illegal handle tag " + handle.getTag());
+        }*/
+
+        Handle bsm = new Handle(H_INVOKESTATIC, Type.getInternalName(InvokeDynamicUtils.class), "bootstrapInaccessibleAccessor",
+                "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodHandle;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;", false);
+
+        Handle unreflectMethod;
+        Handle resolveMethod;
+
+        List<Object> bsmArgs = new ArrayList<>();
+        bsmArgs.add(null); //unreflectMethod
+        bsmArgs.add(null); //resolveMethod
+        bsmArgs.add(Type.getObjectType(handle.getOwner()));
+
+        int tag = handle.getTag();
+        switch (tag) {
+            case H_GETFIELD:
+            case H_GETSTATIC:
+            case H_PUTFIELD:
+            case H_PUTSTATIC:
+                unreflectMethod = new Handle(H_INVOKEVIRTUAL, Type.getInternalName(MethodHandles.Lookup.class),
+                        tag == H_GETFIELD || tag == H_GETSTATIC ? "unreflectGetter" : "unreflectSetter",
+                        "(Ljava/lang/reflect/Field;)Ljava/lang/invoke/MethodHandle;", false);
+                resolveMethod = new Handle(H_INVOKESTATIC, Type.getInternalName(ReflectionUtils.class), "getDeclaredFieldExact", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/reflect/Field;", false);
+                bsmArgs.add(handle.getName());
+                bsmArgs.add(Type.getType(handle.getDesc()));
+                break;
+            case H_INVOKEVIRTUAL:
+            case H_INVOKESTATIC:
+            case H_INVOKESPECIAL: //TODO: this should be calling lookup.unreflectSpecial()
+            case H_INVOKEINTERFACE:
+                unreflectMethod = new Handle(H_INVOKEVIRTUAL, Type.getInternalName(MethodHandles.Lookup.class), "unreflect", "(Ljava/lang/reflect/Method;)Ljava/lang/invoke/MethodHandle;", false);
+                resolveMethod = new Handle(H_INVOKESTATIC, Type.getInternalName(ReflectionUtils.class), "getDeclaredMethodExact", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/reflect/Method;", false);
+                bsmArgs.add(handle.getName());
+                bsmArgs.add(Type.getMethodType(handle.getDesc()));
+                break;
+            case H_NEWINVOKESPECIAL:
+                unreflectMethod = new Handle(H_INVOKEVIRTUAL, Type.getInternalName(MethodHandles.Lookup.class), "unreflectConstructor", "(Ljava/lang/reflect/Constructor;)Ljava/lang/invoke/MethodHandle;", false);
+                resolveMethod = new Handle(H_INVOKEVIRTUAL, "java/lang/Class", "getDeclaredConstructor", "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;", false);
+                bsmArgs.addAll(Arrays.asList(Type.getArgumentTypes(handle.getDesc())));
+                break;
+            default:
+                throw new IllegalStateException("illegal handle tag " + handle.getTag());
+        }
+
+        bsmArgs.set(0, unreflectMethod);
+        bsmArgs.set(1, resolveMethod);
+        return new InvokeDynamicInsnNode(handle.getName(), BytecodeHelper.getEffectiveHandleMethodType(handle).getDescriptor(), bsm, bsmArgs.toArray());
+    }
+
+    /*public static CallSite bootstrapInaccessibleFieldAccessor(MethodHandles.Lookup lookup, String name, MethodType type, Class<?> owner, Class<?> fieldType, MethodHandle unreflectMethod) throws Throwable {
+        Field field = ReflectionUtils.getDeclaredFieldExact(owner, name, fieldType);
+        field.setAccessible(true);
+        return new ConstantCallSite(((MethodHandle) unreflectMethod.invokeExact(lookup, field)).asType(type));
+    }
+
+    public static CallSite bootstrapInaccessibleMethodAccessor(MethodHandles.Lookup lookup, String name, MethodType type, Class<?> owner, MethodType methodType) throws Throwable {
+        Method method = ReflectionUtils.getDeclaredMethodExact(owner, name, methodType);
+        method.setAccessible(true);
+        return new ConstantCallSite(lookup.unreflect(method).asType(type));
+    }*/
+
+    public static CallSite bootstrapInaccessibleAccessor(MethodHandles.Lookup lookup, String name, MethodType type, MethodHandle unreflectMethod, MethodHandle resolveMethod, Object... resolveArgs) throws Throwable {
+        AccessibleObject element = (AccessibleObject) resolveMethod.invokeWithArguments(resolveArgs);
+        element.setAccessible(true);
+        return new ConstantCallSite(((MethodHandle) unreflectMethod.invoke(lookup, element)).asType(type));
     }
 
     public static CallSite bootstrapStringConcatenation(MethodHandles.Lookup lookup, String name, MethodType type, Object... args) throws Throwable {

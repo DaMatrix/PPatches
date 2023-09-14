@@ -39,8 +39,6 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             }
         }
 
-        //preloadReferencedClasses(transformer.getClass().getName());
-
         ITreeClassTransformer[] newTransformers = Arrays.copyOf(PIPELINE.allTransformers, PIPELINE.allTransformers.length + 1);
         newTransformers[PIPELINE.allTransformers.length] = transformer;
         Arrays.sort(newTransformers);
@@ -142,11 +140,11 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         if (!interestedMethodTransformers.isEmpty() || !interestedMethodOptimizationPasses.isEmpty()) {
             changeFlags |= classNode.methods.stream() //TODO: doing this in parallel seems impossible, due to LaunchClassLoader not allowing concurrent loading
                     .mapToInt(methodNode -> {
-                        int methodChangeFlags = 0;
+                        if ((methodNode.access & Opcodes.ACC_ABSTRACT) != 0) { //we can skip transforming abstract methods
+                            return 0;
+                        }
 
-                        /*if (interestedMethodTransformers.isEmpty() && !methodNode.tryCatchBlocks.isEmpty()) { //TODO: this is a gross hack
-                            return methodChangeFlags;
-                        }*/
+                        int methodChangeFlags = 0;
 
                         try (AnalyzedInsnList analyzedInstructions = new AnalyzedInsnList(classNode.name, methodNode)) {
                             for (int i = interestedMethodTransformers.nextSetBit(0); i >= 0; i = interestedMethodTransformers.nextSetBit(i + 1)) {
@@ -239,12 +237,12 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                 continue;
             }
             switch (reader.readByte(index - 1)) {
-                case 9: { //CONSTANT_Class
-                    String desc = reader.readClass(index, buf);
+                case 7: { //CONSTANT_Class
+                    String desc = reader.readUTF8(index, buf);
                     if (desc.charAt(0) == '[') {
                         int classNameStart = desc.indexOf('L');
                         if (classNameStart >= 0) { //desc represents an array of objects
-                            result.add(desc.substring(classNameStart + 1));
+                            result.add(desc.substring(classNameStart + 1, desc.length() - 1));
                         }
                     } else {
                         result.add(desc);

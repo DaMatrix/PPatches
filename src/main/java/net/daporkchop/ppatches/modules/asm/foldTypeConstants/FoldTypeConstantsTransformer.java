@@ -3,19 +3,19 @@ package net.daporkchop.ppatches.modules.asm.foldTypeConstants;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import lombok.SneakyThrows;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
-import net.daporkchop.ppatches.util.asm.BytecodeHelper;
-import net.daporkchop.ppatches.util.asm.ConcatGenerator;
-import net.daporkchop.ppatches.util.asm.TypeUtils;
-import net.daporkchop.ppatches.util.asm.VarargsParameterDecoder;
+import net.daporkchop.ppatches.util.asm.*;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import net.daporkchop.ppatches.util.asm.analysis.IReverseDataflowProvider;
+import net.daporkchop.ppatches.util.asm.concat.AppendStringBuilderOptimizationRegistry;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 
 import java.lang.invoke.*;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -26,6 +26,16 @@ import static org.objectweb.asm.Opcodes.*;
  * @author DaPorkchop_
  */
 public class FoldTypeConstantsTransformer implements ITreeClassTransformer.IndividualMethod, ITreeClassTransformer.OptimizationPass {
+    static {
+        AppendStringBuilderOptimizationRegistry.register("org/objectweb/asm/Type",
+                BytecodeHelper.makeInsnList(
+                        //initial stack: [StringBuilder, Type]
+                        new InsnNode(SWAP), // [Type, StringBuilder]
+                        new InsnNode(DUP_X1), // [StringBuilder, Type, StringBuilder]
+                        InvokeDynamicUtils.makeInaccessibleHandle(new Handle(H_INVOKEVIRTUAL, "org/objectweb/asm/Type", "getDescriptor", "(Ljava/lang/StringBuilder;)V", false)) // [StringBuilder]
+                ));
+    }
+
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
         //set to CHANGED if a change is made which doesn't invalidate the source frame info
@@ -189,7 +199,7 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                             batch.remove(element.loadIndexInsn);
 
                             batch.insertBefore(element.astoreInsn, elementConstantStrings[i] == null
-                                    ? concat.append(Type.getObjectType("java/lang/Object"))
+                                    ? concat.append(Type.getObjectType("org/objectweb/asm/Type"))
                                     : concat.appendConstant(elementConstantStrings[i]));
 
                             batch.remove(element.astoreInsn);
@@ -199,7 +209,7 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         if (returnTypeConstantString == null) {
                             //swap the return type with the StringBuilder instance, append it and then build the final string instead of calling getMethodDescriptor()
                             batch.insertBefore(methodInsn, new InsnNode(SWAP));
-                            batch.insertBefore(methodInsn, concat.append(Type.getObjectType("java/lang/Object")));
+                            batch.insertBefore(methodInsn, concat.append(Type.getObjectType("org/objectweb/asm/Type")));
                         } else {
                             batch.insertBefore(methodInsn, concat.appendConstant(returnTypeConstantString));
                         }
@@ -243,5 +253,23 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
 
     public static CallSite bootstrapConstantType(MethodHandles.Lookup lookup, String name, MethodType type, String arg) {
         return new ConstantCallSite(CONSTANT_TYPE_CACHE.getUnchecked(arg.intern()));
+    }
+
+    private static final MethodHandle ASM_TYPE_getDescriptor;
+
+    static {
+        try {
+            Method getDescriptor = Type.class.getDeclaredMethod("getDescriptor", StringBuilder.class);
+            getDescriptor.setAccessible(true);
+            ASM_TYPE_getDescriptor = MethodHandles.publicLookup().unreflect(getDescriptor);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @SneakyThrows
+    public static StringBuilder append(StringBuilder builder, Type type) {
+        ASM_TYPE_getDescriptor.invokeExact(type, builder);
+        return builder;
     }
 }
