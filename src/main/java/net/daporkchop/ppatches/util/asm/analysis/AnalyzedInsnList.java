@@ -38,7 +38,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
     final IdentityHashMap<AbstractInsnNode, DynamicSourceFrame> dynamicFrames;
     DynamicSourceFrame startFrame;
 
-    final IdentityHashMap<LabelNode, TryCatchBlockNode> tryCatchBlocksByHandlers = new IdentityHashMap<>();
+    final IdentityHashMap<LabelNode, TryCatchBlockNode[]> tryCatchBlocksByHandlers = new IdentityHashMap<>();
 
     public AnalyzedInsnList(String ownerName, MethodNode methodNode) {
         this.ownerName = ownerName;
@@ -57,7 +57,7 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
 
         //index all the try-catch block handlers
         for (TryCatchBlockNode tryCatchBlockNode : this.methodNode.tryCatchBlocks) {
-            Preconditions.checkState(this.tryCatchBlocksByHandlers.put(tryCatchBlockNode.handler, tryCatchBlockNode) == null, "method contains multiple try-catch blocks with the same handler?!?");
+            this.tryCatchBlocksByHandlers.compute(tryCatchBlockNode.handler, (handler, blocks) -> COWArrayUtils.listAdd(TryCatchBlockNode.class, blocks, tryCatchBlockNode));
         }
 
         //initialize local state for each instruction (creating DynamicSourceFrames and linking them together, and creating an empty incoming instruction set for each label)
@@ -231,6 +231,12 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
             DynamicSourceFrame prevFrame = frame.getPreviousTotal();
             int prevIndexFromThis = prevFrame.convertIndexAfterToIndexFromThis(indexBefore);
             dfsStack.push(new DFSItem(prevFrame, prevIndexFromThis));
+        }
+    }
+
+    private void tryBlockInsns(TryCatchBlockNode[] tryCatchBlocks, ArrayDeque<DynamicSourceFrame> dfsStack) {
+        for (TryCatchBlockNode tryCatchBlock : tryCatchBlocks) {
+            this.tryBlockInsns(tryCatchBlock, dfsStack);
         }
     }
 
@@ -533,13 +539,13 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
         }
 
         private static int[] PUSHED_STACK_OPS_LOAD_SINGLE(int var) {
-            return var <= PUSHED_STACK_OPS_LOAD_CACHE_SINGLE.length
+            return var < PUSHED_STACK_OPS_LOAD_CACHE_SINGLE.length
                     ? PUSHED_STACK_OPS_LOAD_CACHE_SINGLE[var]
                     : makePushedStackOpsLoadSingle(var);
         }
 
         private static int[] PUSHED_STACK_OPS_LOAD_DOUBLE(int var) {
-            return var <= PUSHED_STACK_OPS_LOAD_CACHE_DOUBLE.length
+            return var < PUSHED_STACK_OPS_LOAD_CACHE_DOUBLE.length
                     ? PUSHED_STACK_OPS_LOAD_CACHE_DOUBLE[var]
                     : makePushedStackOpsLoadDouble(var);
         }
@@ -1116,12 +1122,12 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                 }
 
                 if (currFrame.insn instanceof LabelNode) {
-                    TryCatchBlockNode tryCatchBlock = list.tryCatchBlocksByHandlers.get(currFrame.insn);
-                    if (tryCatchBlock != null) { //this label is a try-catch block handler
+                    TryCatchBlockNode[] tryCatchBlocks = list.tryCatchBlocksByHandlers.get(currFrame.insn);
+                    if (tryCatchBlocks != null) { //this label is a try-catch block handler
                         //we want to merge all of the possible sources which the local variable may have, which means we'll have to merge the sources for every
                         // instruction in the try block.
 
-                        list.tryBlockInsns(tryCatchBlock, dfsStack);
+                        list.tryBlockInsns(tryCatchBlocks, dfsStack);
                         continue;
                     }
 
@@ -1232,8 +1238,8 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                 }
 
                 if (currFrame.insn instanceof LabelNode) {
-                    TryCatchBlockNode tryCatchBlock = list.tryCatchBlocksByHandlers.get(currFrame.insn);
-                    if (tryCatchBlock != null) { //this label is a try-catch block handler
+                    TryCatchBlockNode[] tryCatchBlocks = list.tryCatchBlocksByHandlers.get(currFrame.insn);
+                    if (tryCatchBlocks != null) { //this label is a try-catch block handler
                         if (indexFromThis == -1) { //the caught exception is being queried
                             result = mergeNullable(result, EXCEPTION_SOURCE_VALUE); //tail return: "return EXCEPTION_SOURCE_VALUE;"
                             currFrame = null; //set currFrame to null to forcibly advance to the next DFS item
@@ -1319,8 +1325,8 @@ public final class AnalyzedInsnList extends CheckedInsnList implements IDataflow
                 }
 
                 if (currFrame.insn instanceof LabelNode) {
-                    TryCatchBlockNode tryCatchBlock = list.tryCatchBlocksByHandlers.get(currFrame.insn);
-                    if (tryCatchBlock != null) { //this label is a try-catch block handler
+                    TryCatchBlockNode[] tryCatchBlocks = list.tryCatchBlocksByHandlers.get(currFrame.insn);
+                    if (tryCatchBlocks != null) { //this label is a try-catch block handler
                         if (indexFromThis == -1) { //the caught exception is being queried
                             visited.clear();
                             return 1;
