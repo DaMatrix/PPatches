@@ -99,6 +99,17 @@ public class PPatchesConfig {
     public static final ModuleConfigBase forge_preventSplashScreenAutoDisable = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Patches all Java code to move string concatenation out of the main method body and into a separate INVOKEDYNAMIC instruction.",
+            "This emulates the standard behavior for string concatenation in Java 9+.",
+            "This could slightly improve performance for code which uses lots of string concatenation.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            hasMixins = false,
+            transformerClass = "net.daporkchop.ppatches.modules.java.dynamicStringConcatenation.DynamicStringConcatenationTransformer")
+    public static final ModuleConfigBase java_dynamicStringConcatenation = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Rewrites simple usages of Java's Stream API into equivalent loop(s) and conditional(s).",
             "This can significantly improve performance when using mods which make extensive use of the Stream API, however vanilla code is unlikely to benefit.",
     })

@@ -72,22 +72,13 @@ public final class PreparedConcatGenerator {
         return this;
     }
 
-    public PreparedConcatGenerator prepareAppendConstant(AbstractInsnNode loadConstantInsn) {
+    public PreparedConcatGenerator prepareAppendConstant(Type cst) {
         Preconditions.checkArgument(this.nextComponentIndex < 0, "already prepared?");
 
-        Object constant = BytecodeHelper.decodeConstant(loadConstantInsn);
-        if (constant == null) {
-            return this.prepareAppendLiteral("null");
-        } else if (constant instanceof String || constant instanceof Integer || constant instanceof Long || constant instanceof Float || constant instanceof Double) {
-            return this.prepareAppendLiteral(constant.toString());
-        } else if (constant instanceof Type) {
-            this.components.add((LdcInsnNode) loadConstantInsn);
+        this.components.add(new LdcInsnNode(cst));
 
-            this.allLiteral = false;
-            return this;
-        } else {
-            throw new IllegalArgumentException(String.valueOf(constant));
-        }
+        this.allLiteral = false;
+        return this;
     }
 
     public InsnList generateSetup() {

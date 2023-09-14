@@ -30,6 +30,26 @@ import static org.objectweb.asm.Opcodes.*;
  */
 @UtilityClass
 public class DynamicConcatGenerator {
+    private static void convertEligibleConstantsToLiterals(Object[] recipe) {
+        for (int i = 0; i < recipe.length; i++) {
+            Object item = recipe[i];
+            if (item instanceof AbstractInsnNode && BytecodeHelper.isConstant((AbstractInsnNode) item)) {
+                Object cst = BytecodeHelper.decodeConstant((AbstractInsnNode) item);
+                if (cst == null) {
+                    recipe[i] = "null";
+                } else if (cst instanceof String) {
+                    recipe[i] = cst;
+                } else if (cst instanceof Integer || cst instanceof Long || cst instanceof Float || cst instanceof Double) {
+                    recipe[i] = cst.toString();
+                } else if (cst instanceof Type) {
+                    //no-op
+                } else {
+                    throw new IllegalArgumentException("constant " + cst.getClass().getName());
+                }
+            }
+        }
+    }
+
     /**
      * Returns an INVOKEDYNAMIC instruction which will consume one value of each of the given argument types and combine them using string concatenation.
      *
@@ -62,6 +82,9 @@ public class DynamicConcatGenerator {
      * @param recipe the concatenation recipe
      */
     public static AbstractInsnNode makeDynamicStringConcatenation(Object... recipe) {
+        recipe = recipe.clone();
+        convertEligibleConstantsToLiterals(recipe);
+
         CONTAINS_NON_STRING_LITERAL:
         {
             for (Object item : recipe) {
@@ -130,6 +153,9 @@ public class DynamicConcatGenerator {
      * @param recipe        the concatenation recipe
      */
     public static AbstractInsnNode makeUnorderedDynamicStringConcatenation(Type[] argumentTypes, Object... recipe) {
+        recipe = recipe.clone();
+        convertEligibleConstantsToLiterals(recipe);
+
         CONTAINS_NON_STRING_LITERAL:
         {
             for (Object argument : recipe) {
