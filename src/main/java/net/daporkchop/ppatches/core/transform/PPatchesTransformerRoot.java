@@ -5,18 +5,14 @@ import lombok.SneakyThrows;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
+import net.daporkchop.ppatches.util.asm.analysis.ReachabilityAnalyzer;
 import net.minecraft.launchwrapper.IClassTransformer;
-import net.minecraft.launchwrapper.Launch;
 import org.objectweb.asm.*;
-import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.FrameNode;
-import org.objectweb.asm.tree.MethodNode;
 import org.spongepowered.asm.service.ITransformer;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -143,6 +139,9 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                         if ((methodNode.access & Opcodes.ACC_ABSTRACT) != 0) { //we can skip transforming abstract methods
                             return 0;
                         }
+
+                        //remove unreachable instructions from the list
+                        ReachabilityAnalyzer.removeUnreachableInstructions(classNode.name, methodNode);
 
                         int methodChangeFlags = 0;
 
