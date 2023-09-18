@@ -231,7 +231,7 @@ public class UseFieldsForSimpleConstantGettersTransformer implements ITreeClassT
         //noinspection UnstableApiUsage
         ClassReader reader = new ClassReader(Resources.toByteArray(Resources.getResource(UseFieldsForSimpleConstantGettersTransformer.class, "UseFieldsForSimpleConstantGettersTransformer$" + name + ".class")));
         ClassNode classNode = new ClassNode();
-        reader.accept(classNode, 0);
+        reader.accept(classNode, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
 
         Map<String, Set<String>> result = new Object2ObjectAVLTreeMap<>();
         for (MethodNode methodNode : classNode.methods) {
