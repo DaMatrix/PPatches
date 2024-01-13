@@ -223,6 +223,15 @@ public class PPatchesConfig {
     public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Patches Minecraft's tile entity update code to group tile entity updates by the type of tile entity being updated.",
+            "This can significantly improve server tick time in worlds with large numbers of tickable tile entities, but may break existing builds which rely on a"
+            + " particular tile entity update order.",
+            "Test extensively before enabling this in a new world!",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase vanilla_groupTileEntityUpdatesByType = new ModuleConfigBase(ModuleState.DISABLED);
+
+    @Config.Comment({
             "Patches Minecraft's item renderer to re-use the same vertex data when rendering items which have the same mesh.",
             "This should notably improve performance when rendering many items (generally during GUI rendering) by ~5% or more, and will definitely help reduce GC churn.",
     })
