@@ -1,6 +1,7 @@
 package net.daporkchop.ppatches.modules.vanilla.optimizeWorldIsRemoteOnDedicatedServer;
 
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
+import net.daporkchop.ppatches.util.asm.TypeUtils;
 import net.minecraftforge.fml.relauncher.FMLLaunchHandler;
 import net.minecraftforge.fml.relauncher.Side;
 import org.objectweb.asm.tree.*;
@@ -28,9 +29,9 @@ public class OptimizeWorldIsRemoteOnDedicatedServerTransformer implements ITreeC
                 AbstractInsnNode insn = itr.next();
                 if (insn.getOpcode() == GETFIELD) {
                     FieldInsnNode fieldInsnNode = (FieldInsnNode) insn;
-                    if ("net/minecraft/world/World".equals(fieldInsnNode.owner)
-                        && "Z".equals(fieldInsnNode.desc)
-                        && ("field_72995_K".equals(fieldInsnNode.name) || "isRemote".equals(fieldInsnNode.name))) {
+                    if ("Z".equals(fieldInsnNode.desc)
+                        && ("field_72995_K".equals(fieldInsnNode.name) || "isRemote".equals(fieldInsnNode.name))
+                        && TypeUtils.hasSuperClass(fieldInsnNode.owner, "net/minecraft/world/World")) {
                         //pop the world instance off the stack again, it's not actually going to be used
                         itr.set(new InsnNode(POP));
 
