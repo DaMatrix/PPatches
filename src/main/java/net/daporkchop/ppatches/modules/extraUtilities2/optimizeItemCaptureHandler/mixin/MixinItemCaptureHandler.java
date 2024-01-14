@@ -1,16 +1,16 @@
 package net.daporkchop.ppatches.modules.extraUtilities2.optimizeItemCaptureHandler.mixin;
 
+import net.daporkchop.ppatches.util.mixin.ext.Delete;
 import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.NonNullList;
-import org.spongepowered.asm.mixin.Dynamic;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Pseudo;
-import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
+import net.minecraftforge.event.entity.EntityJoinWorldEvent;
+import net.minecraftforge.fml.common.eventhandler.EventBus;
+import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
@@ -26,10 +26,6 @@ import java.util.LinkedList;
 @Pseudo
 @Mixin(targets = "com.rwtema.extrautils2.eventhandlers.ItemCaptureHandler", remap = false)
 abstract class MixinItemCaptureHandler {
-    @Dynamic
-    @Shadow
-    static ThreadLocal<LinkedList<ItemStack>> capturing;
-
     @Unique
     private static final MethodHandle CAPTURE_DROPS;
 
@@ -64,5 +60,22 @@ abstract class MixinItemCaptureHandler {
         NonNullList<ItemStack> blockDrops = (NonNullList<ItemStack>) CAPTURE_DROPS.invokeExact(false);
 
         items.addAll(blockDrops);
+    }
+
+    //delete the onItemJoin event handler since it's not actually needed
+    @Delete
+    @Dynamic
+    @Shadow
+    @SuppressWarnings("unused")
+    public abstract void onItemJoin(EntityJoinWorldEvent event);
+
+    //don't register this class to the event bus since it no longer has any event handlers
+    @Dynamic
+    @Redirect(method = "<clinit>",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraftforge/fml/common/eventhandler/EventBus;register(Ljava/lang/Object;)V"),
+            allow = 1, require = 1)
+    private static void ppatches_optimizeItemCaptureHandler_$clinit$_dontRegisterToEventBus(EventBus bus, Object handler) {
+        //no-op
     }
 }
