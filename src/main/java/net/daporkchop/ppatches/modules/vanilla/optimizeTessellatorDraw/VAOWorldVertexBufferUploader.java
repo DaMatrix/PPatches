@@ -163,6 +163,7 @@ public class VAOWorldVertexBufferUploader extends WorldVertexBufferUploader {
     @Override
     public void draw(BufferBuilder builder) {
         if (builder.getVertexCount() == 0) { //nothing to draw!
+            builder.reset();
             return;
         }
 
