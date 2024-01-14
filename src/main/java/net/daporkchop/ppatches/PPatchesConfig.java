@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
+import net.daporkchop.ppatches.modules.misc.ModuleConfig_PerDimensionBlackList;
 import net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.ModuleConfigOptimizeCallbackInfoAllocation;
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ModuleConfigOptimizeItemRendererCacheModels;
 import net.daporkchop.ppatches.modules.vanilla.optimizeSearchTree.ModuleConfigOptimizeSearchTree;
@@ -153,6 +154,18 @@ public class PPatchesConfig {
             + " lighting algorithm is extremely slow at calculating sky light in these dimensions.",
     })
     public static final ModuleConfigBase mekanism_optimizeSkyLightUpdates = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
+            "Disable lighting updates in specific dimensions.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfig_PerDimensionBlackList misc_disableLightUpdatesPerDimension = new ModuleConfig_PerDimensionBlackList(ModuleState.DISABLED);
+
+    @Config.Comment({
+            "Disable random block ticks in specific dimensions.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfig_PerDimensionBlackList misc_disableRandomTicksPerDimension = new ModuleConfig_PerDimensionBlackList(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches all Mixin injection points to replace eligible allocations of CallbackInfo with a static instance which can be re-used.",
