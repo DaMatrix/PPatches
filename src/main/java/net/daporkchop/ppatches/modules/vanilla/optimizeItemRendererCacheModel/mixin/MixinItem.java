@@ -3,21 +3,23 @@ package net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.m
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.util.IMixinItem_OptimizeItemRendererCacheModel;
 import net.minecraft.item.Item;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 
 /**
  * @author DaPorkchop_
  */
 @Mixin(Item.class)
 abstract class MixinItem implements IMixinItem_OptimizeItemRendererCacheModel {
-    public boolean ppatches_optimizeItemRendererCacheModel_excluded;
+    @Unique
+    private boolean ppatches_optimizeItemRendererCacheModel_excluded;
 
     @Override
-    public boolean ppatches_optimizeItemRendererCacheModel_excluded() {
+    public final boolean ppatches_optimizeItemRendererCacheModel_excluded() {
         return this.ppatches_optimizeItemRendererCacheModel_excluded;
     }
 
     @Override
-    public void ppatches_optimizeItemRendererCacheModel_excluded(boolean value) {
+    public final void ppatches_optimizeItemRendererCacheModel_excluded(boolean value) {
         this.ppatches_optimizeItemRendererCacheModel_excluded = value;
     }
 }

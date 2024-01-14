@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.Unique;
  * @author DaPorkchop_
  */
 @Mixin(TileEntity.class)
-public abstract class MixinTileEntity implements IMixinTileEntity_GroupTileEntityUpdatesByType {
+abstract class MixinTileEntity implements IMixinTileEntity_GroupTileEntityUpdatesByType {
     @Unique
     private Object ppatches_groupTileEntityUpdatesByType_currList;
     @Unique

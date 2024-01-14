@@ -17,7 +17,7 @@ import java.util.List;
  * @author DaPorkchop_
  */
 @Mixin(World.class)
-public abstract class MixinWorld {
+abstract class MixinWorld {
     @Mutable
     @Shadow
     @Final

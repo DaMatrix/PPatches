@@ -64,6 +64,12 @@ public class PPatchesConfig {
     public static final ModuleConfigBase extraUtilities2_disableSkyLightInCustomDimensions = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches Extra Utilities 2 to make the Quantum Quarry chunkload the source chunks in the quarry dimension.",
+            "This will improve Quantum Quarry performance overall by avoiding periodic stuttering caused by chunks being unloaded and immediately loaded again.",
+    })
+    public static final ModuleConfigBase extraUtilities2_loadQuarryChunks = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Extra Utilities 2 to optimize the ItemCaptureHandler class to eliminate the need to create an item entity for each captured item drop.",
             "This will result in a server-side performance increase of 15-30% for blocks which use it, in particular the Quantum Quarry.",
     })
