@@ -72,7 +72,7 @@ public abstract class MixinFontRenderer {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void ppatches_fontRendererBatching_init(CallbackInfo ci) {
-        (this.ppatches_fontRendererBatching_defaultCharTessellator = new Tessellator(4096)).getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
+        (this.ppatches_fontRendererBatching_defaultCharTessellator = new Tessellator(16)).getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
     }
 
     @Unique
@@ -80,6 +80,17 @@ public abstract class MixinFontRenderer {
         if (this.ppatches_fontRendererBatching_defaultCharTessellator.getBuffer().getVertexCount() != 0) {
             this.bindTexture(this.locationFontTexture);
             this.ppatches_fontRendererBatching_defaultCharTessellator.draw();
+            this.ppatches_fontRendererBatching_defaultCharTessellator.getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
+        }
+    }
+
+    //VanillaFix compatibility: make sure the tessellator is always drawing when we start rendering a new string - for some reason VanillaFix resets ALL BufferBuilder
+    // instances when the game crashes
+    @Inject(method = "Lnet/minecraft/client/gui/FontRenderer;renderStringAtPos(Ljava/lang/String;Z)V",
+            at = @At("HEAD"),
+            require = 1, allow = 1) //TODO: maybe guard this behind a constraint?
+    private void ppatches_fontRendererBatching_renderStringAtPos_beginTessellating(CallbackInfo ci) {
+        if (!this.ppatches_fontRendererBatching_defaultCharTessellator.getBuffer().isDrawing) {
             this.ppatches_fontRendererBatching_defaultCharTessellator.getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
         }
     }
