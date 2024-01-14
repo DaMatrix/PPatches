@@ -41,6 +41,14 @@ public final class GroupedTileEntityList extends AbstractList<TileEntity> {
 
     //methods actually used by World
 
+    private static ImplicitLinkedList list(TileEntity te) {
+        return (ImplicitLinkedList) ((IMixinTileEntity_GroupTileEntityUpdatesByType) te).ppatches_groupTileEntityUpdatesByType_currList();
+    }
+
+    private static void list(TileEntity te, ImplicitLinkedList list) {
+        ((IMixinTileEntity_GroupTileEntityUpdatesByType) te).ppatches_groupTileEntityUpdatesByType_currList(list);
+    }
+
     private static TileEntity prev(TileEntity te) {
         return ((IMixinTileEntity_GroupTileEntityUpdatesByType) te).ppatches_groupTileEntityUpdatesByType_prevTickable();
     }
@@ -93,7 +101,7 @@ public final class GroupedTileEntityList extends AbstractList<TileEntity> {
             checkState(te == prev(next));
         }
 
-        ImplicitLinkedList list = (ImplicitLinkedList) ((IMixinTileEntity_GroupTileEntityUpdatesByType) te).ppatches_groupTileEntityUpdatesByType_currList();
+        ImplicitLinkedList list = list(te);
         checkState(list.clazz == te.getClass());
 
         if (te == list.first) {
@@ -114,8 +122,8 @@ public final class GroupedTileEntityList extends AbstractList<TileEntity> {
     public boolean add(TileEntity tileEntity) {
         ImplicitLinkedList list = this.tileEntitiesByType.computeIfAbsent(tileEntity.getClass(), ImplicitLinkedList::new);
 
-        checkState(((IMixinTileEntity_GroupTileEntityUpdatesByType) tileEntity).ppatches_groupTileEntityUpdatesByType_currList() == null, "tile entity is already in a list?!?");
-        ((IMixinTileEntity_GroupTileEntityUpdatesByType) tileEntity).ppatches_groupTileEntityUpdatesByType_currList(list);
+        checkState(list(tileEntity) == null, "tile entity is already in a list?!?");
+        list(tileEntity, list);
 
         if (list.first != null) { //add the tile entity to the end of the sublist
             TileEntity prev = list.last;
@@ -152,9 +160,12 @@ public final class GroupedTileEntityList extends AbstractList<TileEntity> {
         return true;
     }
 
-    private void remove(TileEntity tileEntity) {
-        ImplicitLinkedList list = (ImplicitLinkedList) ((IMixinTileEntity_GroupTileEntityUpdatesByType) tileEntity).ppatches_groupTileEntityUpdatesByType_currList();
-        checkState(list != null, "not in a list???");
+    private boolean remove(TileEntity tileEntity) {
+        ImplicitLinkedList list = list(tileEntity);
+        if (list == null) {
+            return false;
+        }
+
         TileEntity prev = prev(tileEntity);
         TileEntity next = next(tileEntity);
 
@@ -181,7 +192,7 @@ public final class GroupedTileEntityList extends AbstractList<TileEntity> {
             list.last = prev;
         }
 
-        ((IMixinTileEntity_GroupTileEntityUpdatesByType) tileEntity).ppatches_groupTileEntityUpdatesByType_currList(null);
+        list(tileEntity, null);
         prev(tileEntity, null);
         next(tileEntity, null);
 
@@ -190,12 +201,13 @@ public final class GroupedTileEntityList extends AbstractList<TileEntity> {
         assert this.checkInvariantsFor(prev);
         assert this.checkInvariantsFor(next);
         assert this.checkInvariantsGlobal();
+
+        return true;
     }
 
     @Override
     public boolean remove(Object o) {
-        this.remove((TileEntity) o);
-        return true;
+        return this.remove((TileEntity) o);
     }
 
     @Override
