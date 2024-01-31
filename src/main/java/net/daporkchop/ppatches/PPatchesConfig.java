@@ -89,6 +89,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches ChunkProviderServer to avoid iterating over Forge's forced chunk set on every tick",
+            "This can reduce the server thread time spent processing chunk unloads significantly in worlds with lots of loaded chunks.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase forge_optimizeChunkProviderServerUnloading = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches all Forge events and event handlers, and most references to Forge event buses, to allow resetting event instances when possible instead of allocating a new"
             + " instance every time one is fired.",
             "This can dramatically improve performance and/or reduce GC churn in some situations.",
@@ -97,6 +104,20 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             transformerClass = "net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.OptimizeEventInstanceAllocationTransformer")
     public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
+            "Patches ForgeChunkManager to store the per-world forced chunks set in the world instance directly.",
+            "This can reduce the server thread time spent processing chunk unloads significantly in worlds with lots of loaded chunks.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase forge_optimizeGetPersistentChunks = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
+            "Patches ForgeChunkManager to avoid copying the entire loaded chunk set into a new HashSet on every tick.",
+            "This can reduce the server thread time spent processing random ticks significantly in worlds with lots of loaded chunks."
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase forge_optimizeGetPersistentChunksIterable = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Prevents the FML splash screen from automatically disabling itself in config if the splash renderer thread throws an exception.",
