@@ -195,6 +195,15 @@ public class PPatchesConfig {
     public static final ModuleConfig_PerDimensionBlackList misc_disableRandomTicksPerDimension = new ModuleConfig_PerDimensionBlackList(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Aggressively preload classes in the order in which they were loaded during the last startup.",
+            "This can improve startup times and first join times by ~10-15% on large modpacks, but may cause issues with some particularly hacky mods.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            transformerClass = "net.daporkchop.ppatches.modules.misc.preloadClassesAsync.PreloadClassesDummyTransformer")
+    public static final ModuleConfigBase misc_preloadClassesAsync = new ModuleConfigBase(ModuleState.DISABLED);
+
+    @Config.Comment({
             "Patches all Mixin injection points to replace eligible allocations of CallbackInfo with a static instance which can be re-used.",
             "This can dramatically improve performance and/or reduce GC churn in some situations, especially when there are other mods installed which use Mixin.",
     })

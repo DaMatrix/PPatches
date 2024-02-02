@@ -21,7 +21,7 @@ import java.util.List;
  *
  * @author DaPorkchop_
  */
-@Mixin(Loader.class)
+@Mixin(value = Loader.class, priority = 2000)
 public abstract class MixinLoader {
     @Shadow
     private List<ModContainer> mods;

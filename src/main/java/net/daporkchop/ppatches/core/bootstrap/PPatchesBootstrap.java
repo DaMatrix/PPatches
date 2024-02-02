@@ -1,6 +1,8 @@
 package net.daporkchop.ppatches.core.bootstrap;
 
 import com.google.common.base.Preconditions;
+import com.google.common.eventbus.EventBus;
+import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.PPatchesConfig;
@@ -31,6 +33,8 @@ public class PPatchesBootstrap {
 
     private static Phase EFFECTIVE_PHASE;
 
+    public static final EventBus EVENT_BUS = new EventBus();
+
     public synchronized static void preinit() {
         Preconditions.checkState(MixinEnvironment.getCurrentEnvironment().getPhase() == MixinEnvironment.Phase.PREINIT, "current mixin phase is %s, expected %s", MixinEnvironment.getCurrentEnvironment().getPhase(), MixinEnvironment.Phase.PREINIT);
         Preconditions.checkState(EFFECTIVE_PHASE == null, "previous phase was %s, expected %s", EFFECTIVE_PHASE, null);
@@ -40,7 +44,12 @@ public class PPatchesBootstrap {
         Mixins.addConfiguration("mixins.ppatches.json");
 
         addRootTransformer();
+
+        EVENT_BUS.post(new StartingStateTransitionEvent(EFFECTIVE_PHASE));
+
         notifyBeginPhase(EFFECTIVE_PHASE);
+
+        EVENT_BUS.post(new CompletedStateTransitionEvent(EFFECTIVE_PHASE));
     }
 
     public synchronized static void afterMixinDefault() {
@@ -51,7 +60,11 @@ public class PPatchesBootstrap {
         //add a transformer here to make sure that our transformers always run after Mixin's transformers
         addRootTransformer();
 
+        EVENT_BUS.post(new StartingStateTransitionEvent(EFFECTIVE_PHASE));
+
         notifyBeginPhase(EFFECTIVE_PHASE);
+
+        EVENT_BUS.post(new CompletedStateTransitionEvent(EFFECTIVE_PHASE));
     }
 
     @SneakyThrows
@@ -73,8 +86,12 @@ public class PPatchesBootstrap {
             }
         }
 
+        EVENT_BUS.post(new StartingStateTransitionEvent(EFFECTIVE_PHASE));
+
         notifyBeginPhase(EFFECTIVE_PHASE);
         MixinCompatHelper.forceSelectConfigs();
+
+        EVENT_BUS.post(new CompletedStateTransitionEvent(EFFECTIVE_PHASE));
     }
 
     @SneakyThrows
@@ -118,5 +135,15 @@ public class PPatchesBootstrap {
         PREINIT,
         AFTER_MIXIN_DEFAULT,
         MODS_ON_CLASSPATH,
+    }
+
+    @RequiredArgsConstructor
+    public static final class StartingStateTransitionEvent {
+        public final Phase phase;
+    }
+
+    @RequiredArgsConstructor
+    public static final class CompletedStateTransitionEvent {
+        public final Phase phase;
     }
 }
