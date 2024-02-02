@@ -132,7 +132,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         if (!interestedMethodTransformers.isEmpty() || !interestedMethodOptimizationPasses.isEmpty()) {
             changeFlags |= classNode.methods.stream() //TODO: doing this in parallel seems impossible, due to LaunchClassLoader not allowing concurrent loading
                     .mapToInt(methodNode -> {
-                        if ((methodNode.access & Opcodes.ACC_ABSTRACT) != 0) { //we can skip transforming abstract methods
+                        if ((methodNode.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) { //we can skip transforming abstract and native methods
                             return 0;
                         }
 

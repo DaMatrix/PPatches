@@ -84,11 +84,13 @@ public final class ReachabilityAnalyzer extends Analyzer {
                 for (LabelNode removedLabel : removedLabels) {
                     //if the label was used as a start or end label, remove the entire item with that index
                     for (int i; (i = lvan.start.indexOf(removedLabel)) >= 0; ) {
+                        lvan.start.remove(i);
                         lvan.end.remove(i);
                         lvan.index.remove(i);
                     }
                     for (int i; (i = lvan.end.indexOf(removedLabel)) >= 0; ) {
                         lvan.start.remove(i);
+                        lvan.end.remove(i);
                         lvan.index.remove(i);
                     }
                 }
