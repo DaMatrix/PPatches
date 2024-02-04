@@ -1,6 +1,7 @@
 package net.daporkchop.ppatches;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
@@ -36,13 +37,14 @@ import java.util.*;
 @Mod.EventBusSubscriber(modid = PPatchesMod.MODID)
 public class PPatchesConfig {
     public static final Configuration CONFIGURATION;
-    private static ImmutableSortedMap<String, ModuleConfigBase> MODULES;
+    private static ImmutableMap<String, ModuleConfigBase> MODULES;
 
     @Config.Comment({
             "Patches all references to the ObjectWeb ASM library's Type class to limit the number of temporary object allocations.",
             "This does not directly affect game runtime performance by itself, but should slightly improve load times other transformers are loaded.",
     })
     @ModuleDescriptor(
+            priority = 500, //high priority, but lower than ppatches.tagLogMessages
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.asm.foldTypeConstants.FoldTypeConstantsTransformer")
@@ -254,6 +256,17 @@ public class PPatchesConfig {
     public static final ModuleConfigBase optifine_optimizeReflector = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches all PPatches module code to include the module name in log messages.",
+            "This can be useful for debugging and filtering uninteresting data out of the log.",
+    })
+    @ModuleDescriptor(
+            priority = 1000,
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            mixins = {},
+            transformerClass = "net.daporkchop.ppatches.modules.ppatches.tagLogMessages.TagLogMessagesTransformer")
+    public static final ModuleConfigBase ppatches_tagLogMessages = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Minecraft's networking code to avoid disconnecting players twice.",
             "This helps avoid crashing the dedicated server when the server is shut down while players are online.",
     })
@@ -388,7 +401,7 @@ public class PPatchesConfig {
     /**
      * @author DaPorkchop_
      */
-    public static class ModuleConfigBase {
+    public static class ModuleConfigBase implements Comparable<ModuleConfigBase> {
         @Config.RequiresMcRestart
         public ModuleState state;
 
@@ -414,6 +427,12 @@ public class PPatchesConfig {
                 default:
                     throw new IllegalStateException(String.valueOf(this.state));
             }
+        }
+
+        @Override
+        public int compareTo(ModuleConfigBase o) {
+            int d = -Integer.compare(this.descriptor.priority(), o.descriptor.priority());
+            return d == 0 ? this.field.getName().compareTo(o.field.getName()) : d;
         }
 
         @SneakyThrows(ReflectiveOperationException.class)
@@ -701,14 +720,16 @@ public class PPatchesConfig {
     private static final boolean DUMMY_FIELD = false;
 
     @SneakyThrows(ReflectiveOperationException.class)
-    public static ImmutableSortedMap<String, ModuleConfigBase> listModules() {
+    public static ImmutableMap<String, ModuleConfigBase> listModules() {
         if (MODULES != null) {
             return MODULES;
         }
 
         ModuleDescriptor defaultDescriptor = Objects.requireNonNull(PPatchesConfig.class.getDeclaredField("DUMMY_FIELD").getAnnotation(ModuleDescriptor.class));
 
-        ImmutableSortedMap.Builder<String, ModuleConfigBase> builder = ImmutableSortedMap.naturalOrder();
+        ImmutableMap.Builder<String, ModuleConfigBase> builder = ImmutableMap.builder();
+        builder.orderEntriesByValue(Comparator.naturalOrder());
+
         for (Field field : PPatchesConfig.class.getDeclaredFields()) {
             Object value = field.get(null);
             if (value instanceof ModuleConfigBase) {
@@ -739,6 +760,8 @@ public class PPatchesConfig {
     @Target({ElementType.FIELD})
     @Retention(RetentionPolicy.RUNTIME)
     public @interface ModuleDescriptor {
+        int priority() default 0;
+
         Requirement[] requires() default {};
 
         PPatchesBootstrap.Phase registerPhase() default PPatchesBootstrap.Phase.MODS_ON_CLASSPATH;
