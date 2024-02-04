@@ -3,23 +3,29 @@ package net.daporkchop.ppatches.modules.asm.foldTypeConstants;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import lombok.SneakyThrows;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
-import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
 import net.daporkchop.ppatches.util.asm.TypeUtils;
 import net.daporkchop.ppatches.util.asm.VarargsParameterDecoder;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import net.daporkchop.ppatches.util.asm.analysis.IReverseDataflowProvider;
-import net.daporkchop.ppatches.util.asm.concat.AppendStringBuilderOptimizationRegistry;
 import net.daporkchop.ppatches.util.asm.concat.PreparedConcatGenerator;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.*;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.InvokeDynamicInsnNode;
+import org.objectweb.asm.tree.LdcInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 
-import java.lang.invoke.*;
-import java.lang.reflect.Method;
+import java.lang.invoke.CallSite;
+import java.lang.invoke.ConstantCallSite;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -76,7 +82,7 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         FieldInsnNode fieldSrc = (FieldInsnNode) src;
                         Type primitiveType;
                         if ("TYPE".equals(fieldSrc.name) && "Ljava/lang/Class;".equals(fieldSrc.desc)
-                            && (primitiveType = BytecodeHelper.unboxedPrimitiveType(fieldSrc.owner).orElse(null)) != null) {
+                                && (primitiveType = BytecodeHelper.unboxedPrimitiveType(fieldSrc.owner).orElse(null)) != null) {
 
                             PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.{}({}.class) to \"{}\"",
                                     classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn),
@@ -111,7 +117,7 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         FieldInsnNode fieldSrc = (FieldInsnNode) src;
                         Type primitiveType;
                         if ("TYPE".equals(fieldSrc.name) && "Ljava/lang/Class;".equals(fieldSrc.desc)
-                            && (primitiveType = BytecodeHelper.unboxedPrimitiveType(fieldSrc.owner).orElse(null)) != null) {
+                                && (primitiveType = BytecodeHelper.unboxedPrimitiveType(fieldSrc.owner).orElse(null)) != null) {
                             //getType() on a constant primitive field, redirect to the static fields in Type
 
                             PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.getType({}.class) to Type.{}_TYPE",
@@ -256,28 +262,5 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
 
     public static CallSite bootstrapConstantType(MethodHandles.Lookup lookup, String name, MethodType type, String arg) {
         return new ConstantCallSite(CONSTANT_TYPE_CACHE.getUnchecked(arg.intern()));
-    }
-
-    private static final MethodHandle ASM_TYPE_getDescriptor;
-
-    static {
-        try {
-            Method getDescriptor = Type.class.getDeclaredMethod("getDescriptor", StringBuilder.class);
-            getDescriptor.setAccessible(true);
-            ASM_TYPE_getDescriptor = MethodHandles.publicLookup().unreflect(getDescriptor);
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
-    }
-
-    @SneakyThrows
-    public static StringBuilder append(StringBuilder builder, Type type) {
-        ASM_TYPE_getDescriptor.invokeExact(type, builder);
-        return builder;
-    }
-
-    static {
-        AppendStringBuilderOptimizationRegistry.register("org/objectweb/asm/Type", BytecodeHelper.makeInsnList(
-                        new MethodInsnNode(INVOKESTATIC, Type.getInternalName(FoldTypeConstantsTransformer.class).intern(), "append", "(Ljava/lang/StringBuilder;Lorg/objectweb/asm/Type;)Ljava/lang/StringBuilder;", false)));
     }
 }
