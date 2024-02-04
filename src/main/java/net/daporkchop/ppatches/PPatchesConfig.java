@@ -2,7 +2,7 @@ package net.daporkchop.ppatches;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedMap;
+import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
@@ -25,6 +25,8 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -48,7 +50,7 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.asm.foldTypeConstants.FoldTypeConstantsTransformer")
-    public static final ModuleConfigBase asm_foldTypeConstants = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase asm_foldTypeConstants = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches CustomMainMenu to use GlStateManager instead of directly invoking glColor*.",
@@ -96,7 +98,7 @@ public class PPatchesConfig {
             "This can reduce the server thread time spent processing chunk unloads significantly in worlds with lots of loaded chunks.",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigBase forge_optimizeChunkProviderServerUnloading = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase forge_optimizeChunkProviderServerUnloading = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches all Forge events and event handlers, and most references to Forge event buses, to allow resetting event instances when possible instead of allocating a new"
@@ -106,21 +108,21 @@ public class PPatchesConfig {
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             transformerClass = "net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.OptimizeEventInstanceAllocationTransformer")
-    public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches ForgeChunkManager to store the per-world forced chunks set in the world instance directly.",
             "This can reduce the server thread time spent processing chunk unloads significantly in worlds with lots of loaded chunks.",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigBase forge_optimizeGetPersistentChunks = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase forge_optimizeGetPersistentChunks = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches ForgeChunkManager to avoid copying the entire loaded chunk set into a new HashSet on every tick.",
             "This can reduce the server thread time spent processing random ticks significantly in worlds with lots of loaded chunks."
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigBase forge_optimizeGetPersistentChunksIterable = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase forge_optimizeGetPersistentChunksIterable = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Prevents the FML splash screen from automatically disabling itself in config if the splash renderer thread throws an exception.",
@@ -138,7 +140,7 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.java.dynamicStringConcatenation.DynamicStringConcatenationTransformer")
-    public static final ModuleConfigBase java_dynamicStringConcatenation = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase java_dynamicStringConcatenation = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Rewrites simple usages of Java's Stream API into equivalent loop(s) and conditional(s).",
@@ -148,7 +150,7 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.java.flattenStreams.FlattenStreamsTransformer")
-    public static final ModuleConfigBase java_flattenStreams = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase java_flattenStreams = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches all Java code to move construction of exception objects out of the main method body and into a separate INVOKEDYNAMIC instruction.",
@@ -158,7 +160,7 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.java.separatedExceptionConstruction.SeparatedExceptionConstructionTransformer")
-    public static final ModuleConfigBase java_separatedExceptionConstruction = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase java_separatedExceptionConstruction = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches JourneyMap to prevent it from rendering a tooltip for every widget on the screen, regardless of whether or not the mouse is hovering over the widget"
@@ -219,7 +221,7 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.OptimizeCallbackInfoAllocationTransformer")
-    public static final ModuleConfigOptimizeCallbackInfoAllocation mixin_optimizeCallbackInfoAllocation = new ModuleConfigOptimizeCallbackInfoAllocation(ModuleState.AUTO);
+    public static final ModuleConfigOptimizeCallbackInfoAllocation mixin_optimizeCallbackInfoAllocation = new ModuleConfigOptimizeCallbackInfoAllocation(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches OpenBlocks to align the rotation angles of its fans to a multiple of 10° (the angle by which the fans are rotated when right-clicked).",
@@ -271,7 +273,7 @@ public class PPatchesConfig {
             "This helps avoid crashing the dedicated server when the server is shut down while players are online.",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigBase vanilla_fixRemovePlayersOnServerShutdown = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase vanilla_fixRemovePlayersOnServerShutdown = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft's font renderer to group together entire strings and send them to the GPU at once, instead of drawing each letter individually.",
@@ -283,12 +285,12 @@ public class PPatchesConfig {
 
     @Config.Comment({
             "Patches Minecraft's font renderer to reset the text style when drawing text with a shadow.",
-            "Without this, text formatting from the end of the string will carry over to the front of the text unless it contains an explicit style reset sequence at the"
+            "Without this, text formatting will carry over from the end of the shadow layer to the start of the foreground layer unless it contains an explicit style reset sequence at the"
             + " beginning or end.",
             "This has no meaningful performance impact.",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase(ModuleState.DISABLED);
+    public static final ModuleConfigBase vanilla_fontRendererFixStyleResetShadow = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft's tile entity update code to group tile entity updates by the type of tile entity being updated.",
@@ -304,7 +306,7 @@ public class PPatchesConfig {
             "This should notably improve performance when rendering many items (generally during GUI rendering) by ~5% or more, and will definitely help reduce GC churn.",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigOptimizeItemRendererCacheModels vanilla_optimizeItemRendererCacheModel = new ModuleConfigOptimizeItemRendererCacheModels(ModuleState.AUTO);
+    public static final ModuleConfigOptimizeItemRendererCacheModels vanilla_optimizeItemRendererCacheModel = new ModuleConfigOptimizeItemRendererCacheModels(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft's SearchTree class to make initializing it faster.",
@@ -312,7 +314,7 @@ public class PPatchesConfig {
             "In large modpacks with many items and/or recipes, this can reduce client startup times by 10-20s (the effects are even more obvious if CraftTweaker is installed).",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigOptimizeSearchTree vanilla_optimizeSearchTree = new ModuleConfigOptimizeSearchTree(ModuleState.AUTO);
+    public static final ModuleConfigOptimizeSearchTree vanilla_optimizeSearchTree = new ModuleConfigOptimizeSearchTree(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft's Tessellator to use an alternative technique for sending draw commands to the GPU, which may be more efficient on some systems.",
@@ -330,7 +332,7 @@ public class PPatchesConfig {
             "This will probably not have much effect by itself, however it can significantly improve startup times for some mods. (e.g. Ancient Warfare)",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigBase vanilla_optimizeTextureUtilHeapAllocations = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase vanilla_optimizeTextureUtilHeapAllocations = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft's World class to cache its hash code, instead of using Java's default implementation.",
@@ -361,7 +363,7 @@ public class PPatchesConfig {
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.useFasterRandom.UseFasterRandomTransformer")
-    public static final ModuleConfigBase vanilla_useFasterRandom = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase vanilla_useFasterRandom = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft to use a Netty FastThreadLocalThread when creating the server thread.",
@@ -377,11 +379,12 @@ public class PPatchesConfig {
             "This can substantially reduce the amount of virtual method invocations, and allow these methods to be inlined far more aggressively by the JIT compiler. It will definitely"
             + " result in an increase in performance by some amount, although by how much can vary drastically based on a wide variety of factors.",
             "(some additional benchmarking should be done)",
+            "Disabled by default as this is still somewhat experimental and untested.",
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.useFieldsForSimpleConstantGetters.UseFieldsForSimpleConstantGettersTransformer")
-    public static final ModuleConfigBase vanilla_useFieldsForSimpleConstantGetters = new ModuleConfigBase(ModuleState.AUTO);
+    public static final ModuleConfigBase vanilla_useFieldsForSimpleConstantGetters = new ModuleConfigBase(ModuleState.DISABLED);
 
     public static String getDisabledReason(Requirement[] requirements) {
         for (Requirement requirement : requirements) {
@@ -401,15 +404,21 @@ public class PPatchesConfig {
     /**
      * @author DaPorkchop_
      */
+    @RequiredArgsConstructor
     public static class ModuleConfigBase implements Comparable<ModuleConfigBase> {
+        public transient final ModuleState defaultState;
+
         @Config.RequiresMcRestart
-        public ModuleState state;
+        @UseGetterForCommentDefault
+        public ModuleState state = ModuleState.DEFAULT;
 
         public transient ModuleDescriptor descriptor;
         public transient Field field;
 
-        public ModuleConfigBase(ModuleState defaultState) {
-            this.state = defaultState;
+        //called to determine the string used in the [default: ...] comment entry for the state property
+        @SuppressWarnings("unused")
+        protected String state$commentDefault() {
+            return this.defaultState.name();
         }
 
         public boolean isEnabled() {
@@ -417,16 +426,23 @@ public class PPatchesConfig {
         }
 
         public String getDisabledReason() {
-            switch (this.state) {
-                case DISABLED:
-                    return "disabled by config";
-                case AUTO:
-                    return PPatchesConfig.getDisabledReason(this.descriptor.requires());
-                case ENABLED:
-                    return null;
-                default:
-                    throw new IllegalStateException(String.valueOf(this.state));
-            }
+            ModuleState state = this.state;
+            do {
+                switch (state) {
+                    case DISABLED:
+                        return "disabled by config";
+                    case AUTO:
+                        return PPatchesConfig.getDisabledReason(this.descriptor.requires());
+                    case ENABLED:
+                        return null;
+                    case DEFAULT:
+                        //check again using the default state
+                        state = this.defaultState;
+                        continue;
+                    default:
+                        throw new IllegalStateException(String.valueOf(this.state));
+                }
+            } while (true);
         }
 
         @Override
@@ -507,7 +523,7 @@ public class PPatchesConfig {
                         throw new IllegalStateException("don't know how to handle " + field);
                     }
 
-                    property.setComment(getComment(type, property, field));
+                    property.setComment(getComment(type, property, field, this));
                     property.setLanguageKey(getLangKey(category + '.' + name, field));
                     property.setRequiresWorldRestart(requiresMcRestart(field));
                     property.setRequiresMcRestart(requiresMcRestart(field));
@@ -588,11 +604,11 @@ public class PPatchesConfig {
         return annotation != null ? String.join("\n", annotation.value()) : null;
     }
 
-    @SneakyThrows(ReflectiveOperationException.class)
-    private static String getComment(Class<?> type, Property property, AnnotatedElement element) {
+    @SneakyThrows
+    private static String getComment(Class<?> type, Property property, Field field, Object instance) {
         StringBuilder builder = new StringBuilder();
 
-        Config.Comment commentAnnotation = element.getAnnotation(Config.Comment.class);
+        Config.Comment commentAnnotation = field.getAnnotation(Config.Comment.class);
         if (commentAnnotation != null) {
             for (String line : commentAnnotation.value()) {
                 builder.append(line).append('\n');
@@ -600,30 +616,56 @@ public class PPatchesConfig {
         }
 
         //append additional comment text describing the property
-        builder.append("[default: ").append(property.isList() ? Arrays.toString(property.getDefaults()) : property.getDefault()).append(']');
+        builder.append("[default: ");
+        if (field.isAnnotationPresent(UseGetterForCommentDefault.class)) {
+            builder.append(MethodHandles.lookup().findVirtual(field.getDeclaringClass(), field.getName() + "$commentDefault", MethodType.methodType(String.class)).invoke(instance));
+        } else {
+            builder.append(property.isList() ? Arrays.toString(property.getDefaults()) : property.getDefault());
+        }
+       builder.append(']');
 
         if (property.getValidValues() != null && property.getValidValues().length != 0) { //only some values are actually allowed, add them
             builder.append("\nAccepted values:");
-            for (String validValue : property.getValidValues()) {
-                builder.append("\n- ").append(validValue);
 
-                if (type.isEnum()) { //the field is an enum, the enum properties might be annotated with a comment describing the value
+            boolean oneLine;
+            if (type.isEnum()) { //the field is an enum, the enum properties might be annotated with a comment describing the value
+                oneLine = true;
+                for (String validValue : property.getValidValues()) {
                     Field enumField = type.getField(validValue);
                     assert enumField.getDeclaringClass() == type : enumField + " is declared in class " + enumField.getDeclaringClass().getTypeName();
-                    String enumComment = getComment(enumField);
-                    if (enumComment != null) { //append enum value description to comment
-                        builder.append(":\n   ").append(enumComment.replace("\n", "   \n"));
+                    if (getComment(enumField) != null) { //at least one of the enum constants has a comment, we can't print out the options on a single line
+                        oneLine = false;
+                        break;
+                    }
+                }
+            } else {
+                oneLine = false;
+            }
+
+            if (oneLine) {
+                builder.append(' ').append(String.join(", ", property.getValidValues()));
+            } else {
+                for (String validValue : property.getValidValues()) {
+                    builder.append("\n- ").append(validValue);
+
+                    if (type.isEnum()) { //the field is an enum, the enum properties might be annotated with a comment describing the value
+                        Field enumField = type.getField(validValue);
+                        assert enumField.getDeclaringClass() == type : enumField + " is declared in class " + enumField.getDeclaringClass().getTypeName();
+                        String enumComment = getComment(enumField);
+                        if (enumComment != null) { //append enum value description to comment
+                            builder.append(":\n   ").append(enumComment.replace("\n", "   \n"));
+                        }
                     }
                 }
             }
         }
 
-        Config.RangeInt rangeAnnotationInt = element.getAnnotation(Config.RangeInt.class);
+        Config.RangeInt rangeAnnotationInt = field.getAnnotation(Config.RangeInt.class);
         if (rangeAnnotationInt != null) {
             builder.append("\nMinimum: ").append(rangeAnnotationInt.min()).append(", maximum: ").append(rangeAnnotationInt.max());
         }
 
-        Config.RangeDouble rangeAnnotationDouble = element.getAnnotation(Config.RangeDouble.class);
+        Config.RangeDouble rangeAnnotationDouble = field.getAnnotation(Config.RangeDouble.class);
         if (rangeAnnotationDouble != null) {
             builder.append("\nMinimum: ").append(rangeAnnotationDouble.min()).append(", maximum: ").append(rangeAnnotationDouble.max());
         }
@@ -752,6 +794,7 @@ public class PPatchesConfig {
         ENABLED,
         DISABLED,
         AUTO,
+        DEFAULT,
     }
 
     /**
@@ -791,6 +834,14 @@ public class PPatchesConfig {
         String suffix() default "";
 
         Requirement[] requires() default {};
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @Target({ElementType.FIELD})
+    @Retention(RetentionPolicy.RUNTIME)
+    private @interface UseGetterForCommentDefault {
     }
 
     @SubscribeEvent
