@@ -1,6 +1,7 @@
 package net.daporkchop.ppatches.modules.forge.optimizeGetPersistentChunksIterable.mixin;
 
 import com.google.common.collect.ImmutableSetMultimap;
+import net.daporkchop.ppatches.modules.forge.optimizeGetPersistentChunksIterable.FastForcedChunksMergingChunkIterator;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
@@ -26,36 +27,6 @@ abstract class MixinForgeChunkManager {
 
         //this iterator is not very efficient, but it's still faster than
         // putting all the chunks into a set every tick :)
-        return new Iterator<Chunk>() {
-            boolean usingForcedChunks = true;
-            Chunk nextChunk;
-
-            @Override
-            public boolean hasNext() {
-                if (this.usingForcedChunks) {
-                    if (forcedChunkPosIterator.hasNext()) {
-                        return true;
-                    }
-                    this.usingForcedChunks = false;
-                }
-                while (chunkIterator.hasNext()) {
-                    Chunk nextChunk = chunkIterator.next();
-                    if (!persistentChunks.containsKey(nextChunk.getPos())) {
-                        this.nextChunk = nextChunk;
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            @Override
-            public Chunk next() {
-                if (this.usingForcedChunks) {
-                    ChunkPos nextPos = forcedChunkPosIterator.next();
-                    return world.getChunk(nextPos.x, nextPos.z);
-                }
-                return this.nextChunk;
-            }
-        };
+        return new FastForcedChunksMergingChunkIterator(forcedChunkPosIterator, chunkIterator, persistentChunks, world);
     }
 }
