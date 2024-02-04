@@ -135,6 +135,7 @@ public abstract class LambdaFlattener {
 
         @Override
         public void visitPreInvoke(InsnList out) {
+            out.add(BytecodeHelper.flattenHandlePre(this.implMethod));
             for (LVTReference capturedArgumentValue : this.capturedArgumentValues) {
                 out.add(capturedArgumentValue.makeLoad());
             }
@@ -153,7 +154,7 @@ public abstract class LambdaFlattener {
 
         @Override
         public void visitPostInvoke(InsnList out) {
-            out.add(BytecodeHelper.flattenHandle(this.implMethod));
+            out.add(BytecodeHelper.flattenHandlePost(this.implMethod));
 
             Type ru = this.samReturnType;
             Type rt = this.instantiatedReturnType;
@@ -192,6 +193,7 @@ public abstract class LambdaFlattener {
 
         @Override
         public void visitPreInvoke(InsnList out) {
+            out.add(BytecodeHelper.flattenHandlePre(this.interfaceMethodHandle));
             out.add(this.capturedInterfaceInstanceValue.makeLoad());
         }
 
@@ -205,7 +207,7 @@ public abstract class LambdaFlattener {
 
         @Override
         public void visitPostInvoke(InsnList out) {
-            out.add(BytecodeHelper.flattenHandle(this.interfaceMethodHandle));
+            out.add(BytecodeHelper.flattenHandlePost(this.interfaceMethodHandle));
         }
     }
 }

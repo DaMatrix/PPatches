@@ -426,6 +426,51 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         return changeFlags;
     }
 
+    private static String stringifyStreamChain(Source sourceOp, List<IntermediateOp> intermediateOps, TerminalOp terminalOp) {
+        int minLine = Integer.MAX_VALUE;
+        int maxLine = Integer.MIN_VALUE;
+        
+        StringBuilder builder = new StringBuilder();
+        if (sourceOp == null) {
+            builder.append("[[stream call chain with unknown or unsupported source, ending with]]");
+        } else {
+            builder.append(sourceOp);
+            
+            int lineNo = BytecodeHelper.findLineNumber(sourceOp.stageInsn);
+            if (lineNo >= 0) {
+                minLine = Math.min(minLine, lineNo);
+                maxLine = Math.max(maxLine, lineNo);
+            }
+        }
+
+        for (IntermediateOp intermediateOp : intermediateOps) {
+            builder.append(intermediateOp);
+            
+            int lineNo = BytecodeHelper.findLineNumber(intermediateOp.stageInsn);
+            if (lineNo >= 0) {
+                minLine = Math.min(minLine, lineNo);
+                maxLine = Math.max(maxLine, lineNo);
+            }
+        }
+        builder.append(terminalOp);
+
+        int lineNo = BytecodeHelper.findLineNumber(terminalOp.stageInsn);
+        if (lineNo >= 0) {
+            minLine = Math.min(minLine, lineNo);
+            maxLine = Math.max(maxLine, lineNo);
+        }
+        
+        if (minLine != Integer.MAX_VALUE) {
+            builder.insert(0, minLine == maxLine
+                    ? "(line: " + minLine + ") "
+                    : "(lines: " + minLine + "-" + maxLine + ") ");
+        } else {
+            builder.insert(0, "(unknown source) ");
+        }
+        
+        return builder.toString();
+    }
+
     private static int transformStreamCall(ClassNode classNode, MethodNode methodNode, TerminalOp terminalOp) {
         Frame<SourceValue>[] sourceFrames = BytecodeHelper.analyzeSources(classNode.name, methodNode);
 
@@ -436,15 +481,15 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             Set<AbstractInsnNode> sources = BytecodeHelper.getStackValueFromTop(
                     sourceFrames[methodNode.instructions.indexOf(lastStageInsn)], Type.getArgumentTypes(lastStageInsn.desc).length).insns;
             if (sources.size() != 1) {
-                PPatchesMod.LOGGER.error("Not optimizing stream usage at L{};{}{} (stream has {} source instructions)",
-                        classNode.name, methodNode.name, methodNode.desc, sources.size());
+                PPatchesMod.LOGGER.error("Not optimizing stream usage at L{};{}{} {} (stream has {} source instructions)",
+                        classNode.name, methodNode.name, methodNode.desc, stringifyStreamChain(sourceOp, intermediateOps, terminalOp), sources.size());
                 return 0;
             }
 
             AbstractInsnNode rawSourceInsn = sources.iterator().next();
             if (!(rawSourceInsn instanceof MethodInsnNode)) {
-                PPatchesMod.LOGGER.error("Not optimizing stream usage at L{};{}{} (expected chained stream calls, but source instruction is '{}')",
-                        classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.toString(rawSourceInsn));
+                PPatchesMod.LOGGER.error("Not optimizing stream usage at L{};{}{} {} (expected chained stream calls, but source instruction is '{}')",
+                        classNode.name, methodNode.name, methodNode.desc, stringifyStreamChain(sourceOp, intermediateOps, terminalOp), BytecodeHelper.toString(rawSourceInsn));
                 return 0;
             }
 
@@ -462,8 +507,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 break;
             }
 
-            PPatchesMod.LOGGER.error("Not optimizing stream usage at L{};{}{} (encountered unexpected instruction '{}')",
-                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.toString(rawSourceInsn));
+            PPatchesMod.LOGGER.error("Not optimizing stream usage at L{};{}{} {} (encountered unexpected or unsupported instruction '{}')",
+                    classNode.name, methodNode.name, methodNode.desc, stringifyStreamChain(sourceOp, intermediateOps, terminalOp), BytecodeHelper.toString(rawSourceInsn));
             return 0;
         }
 
@@ -519,14 +564,14 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
             terminalOp.finalizeReturnValue(out);
             out.add(tailLabel);
         } catch (UnsupportedOperationException e) {
-            PPatchesMod.LOGGER.error("Not optimizing stream usage at L{};{}{} (support for {} not implemented yet)",
-                    classNode.name, methodNode.name, methodNode.desc, e.getMessage());
+            PPatchesMod.LOGGER.error("Not optimizing stream usage at L{};{}{} {} (support for {} not implemented yet)",
+                    classNode.name, methodNode.name, methodNode.desc, stringifyStreamChain(sourceOp, intermediateOps, terminalOp), e.getMessage());
             return 0;
         }
 
         //if we've gotten this far, we assume everything is going to be fine and apply the changes
-        PPatchesMod.LOGGER.info("Optimizing stream usage at L{};{}{} (line {})",
-                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(terminalOp.stageInsn));
+        PPatchesMod.LOGGER.info("Optimizing stream usage at L{};{}{} {}",
+                classNode.name, methodNode.name, methodNode.desc, stringifyStreamChain(sourceOp, intermediateOps, terminalOp));
 
         methodNode.maxLocals = newMaxLocals.intValue();
 
@@ -629,6 +674,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 out.add(lvtAlloc.allocate(operandTypes.get(i)).makeStore());
             }
         }
+
+        @Override
+        public String toString() {
+            return "." + this.stageInsn.name + BytecodeHelper.methodDescriptorToPrettyString(this.stageInsn.desc, true, false);
+        }
     }
 
     @Getter
@@ -662,6 +712,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
         @Override
         public void loadExactSize(InsnList out, boolean asInt) {
             throw new UnsupportedOperationException("loadExactSize on " + this.getClass().getTypeName());
+        }
+
+        @Override
+        public String toString() {
+            return BytecodeHelper.stripStdlibPackageFromInternalName(this.stageInsn.owner) + "." + this.stageInsn.name + BytecodeHelper.methodDescriptorToPrettyString(this.stageInsn.desc, true, false);
         }
 
         private static class OfEmpty extends Source {
@@ -855,7 +910,8 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
                 this.collectionValue = operandValues.get(0);
                 this.iteratorValue = lvtAlloc.allocate(Type.getType(Iterator.class));
                 out.add(this.collectionValue.makeLoad());
-                out.add(new MethodInsnNode(INVOKEINTERFACE, Type.getInternalName(Collection.class), "iterator", Type.getMethodDescriptor(Type.getType(Iterator.class)), true));
+                //call .iterator(), but going directly to the class on which .stream() was called (potentially avoiding unnecessary interface calls)
+                out.add(new MethodInsnNode(this.stageInsn.getOpcode(), this.stageInsn.owner, "iterator", Type.getMethodDescriptor(Type.getType(Iterator.class)), this.stageInsn.itf));
                 out.add(this.iteratorValue.makeStore());
             }
 
