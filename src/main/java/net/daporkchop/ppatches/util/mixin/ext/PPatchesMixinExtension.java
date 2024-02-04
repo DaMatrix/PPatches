@@ -3,7 +3,9 @@ package net.daporkchop.ppatches.util.mixin.ext;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import org.objectweb.asm.AnnotationVisitor;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -16,6 +18,7 @@ import org.spongepowered.asm.mixin.transformer.ext.ITargetClassContext;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * @author DaPorkchop_
@@ -44,20 +47,36 @@ public final class PPatchesMixinExtension implements IExtension {
         List<FieldNode> deletedFields = null;
         for (Iterator<FieldNode> itr = context.getClassNode().fields.iterator(); itr.hasNext(); ) {
             FieldNode fieldNode = itr.next();
-            if (fieldNode.visibleAnnotations != null && BytecodeHelper.findAnnotationByDesc(fieldNode.visibleAnnotations, "Lnet/daporkchop/ppatches/util/mixin/ext/Delete;").isPresent()) {
-                PPatchesMod.LOGGER.info("Deleting field L{};{}:{}", context.getClassInfo().getName(), fieldNode.name, fieldNode.desc);
-                itr.remove();
-                (deletedFields != null ? deletedFields : (deletedFields = new ArrayList<>())).add(fieldNode);
+            if (fieldNode.visibleAnnotations != null) {
+                if (BytecodeHelper.findAnnotationByDesc(fieldNode.visibleAnnotations, "Lnet/daporkchop/ppatches/util/mixin/ext/Delete;").isPresent()) {
+                    PPatchesMod.LOGGER.info("Deleting field L{};{}:{}", context.getClassInfo().getName(), fieldNode.name, fieldNode.desc);
+                    itr.remove();
+                    (deletedFields != null ? deletedFields : (deletedFields = new ArrayList<>())).add(fieldNode);
+                }
+                Optional<AnnotationNode> annotationNode = BytecodeHelper.findAnnotationByDesc(fieldNode.visibleAnnotations, "Lnet/daporkchop/ppatches/util/mixin/ext/MakeFinal;");
+                if (annotationNode.isPresent()) {
+                    PPatchesMod.LOGGER.info("Making field L{};{}:{} final", context.getClassInfo().getName(), fieldNode.name, fieldNode.desc);
+                    fieldNode.access |= Opcodes.ACC_FINAL;
+                    annotationNode.get().desc = "Lnet/daporkchop/ppatches/util/mixin/ext/MixinMadeFinal;";
+                }
             }
         }
 
         List<MethodNode> deletedMethods = null;
         for (Iterator<MethodNode> itr = context.getClassNode().methods.iterator(); itr.hasNext(); ) {
             MethodNode methodNode = itr.next();
-            if (methodNode.visibleAnnotations != null && BytecodeHelper.findAnnotationByDesc(methodNode.visibleAnnotations, "Lnet/daporkchop/ppatches/util/mixin/ext/Delete;").isPresent()) {
-                PPatchesMod.LOGGER.info("Deleting method L{};{}{}", context.getClassInfo().getName(), methodNode.name, methodNode.desc);
-                itr.remove();
-                (deletedMethods != null ? deletedMethods : (deletedMethods = new ArrayList<>())).add(methodNode);
+            if (methodNode.visibleAnnotations != null) {
+                if (BytecodeHelper.findAnnotationByDesc(methodNode.visibleAnnotations, "Lnet/daporkchop/ppatches/util/mixin/ext/Delete;").isPresent()) {
+                    PPatchesMod.LOGGER.info("Deleting method L{};{}{}", context.getClassInfo().getName(), methodNode.name, methodNode.desc);
+                    itr.remove();
+                    (deletedMethods != null ? deletedMethods : (deletedMethods = new ArrayList<>())).add(methodNode);
+                }
+                Optional<AnnotationNode> annotationNode = BytecodeHelper.findAnnotationByDesc(methodNode.visibleAnnotations, "Lnet/daporkchop/ppatches/util/mixin/ext/MakeFinal;");
+                if (annotationNode.isPresent()) {
+                    PPatchesMod.LOGGER.info("Making method L{};{}{} final", context.getClassInfo().getName(), methodNode.name, methodNode.desc);
+                    methodNode.access |= Opcodes.ACC_FINAL;
+                    annotationNode.get().desc = "Lnet/daporkchop/ppatches/util/mixin/ext/MixinMadeFinal;";
+                }
             }
         }
 

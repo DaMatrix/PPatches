@@ -3,7 +3,6 @@
   "compatibilityLevel": "JAVA_8",
   "package": "net.daporkchop.ppatches.modules.vanilla.useFasterRandom.mixin",
   "refmap": "mixins.ppatches.refmap.json",
-  "plugin": "net.daporkchop.ppatches.modules.vanilla.useFasterRandom.UseFasterRandomMixinConfigPlugin",
   "client": [
     "client.multiplayer.MixinWorldClient",
 
@@ -12,6 +11,7 @@
     "client.Mixin_UseThreadLocalRandomInStaticInitializer_NoSeed"
   ],
   "mixins": [
+    "block.MixinBlock",
     "block.MixinBlock_getDrops",
     "block.MixinBlock_getExpDrop",
     "fml.common.MixinGameRegistry",
