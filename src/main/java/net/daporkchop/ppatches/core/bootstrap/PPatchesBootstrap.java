@@ -109,9 +109,16 @@ public class PPatchesBootstrap {
                 continue;
             }
 
-            if (module.descriptor.hasMixins()) {
-                PPatchesMod.LOGGER.info("Enabling mixins for module {}", name);
-                Mixins.addConfiguration("net/daporkchop/ppatches/modules/" + name.replace('.', '/') + "/mixins.json");
+            for (PPatchesConfig.MixinConfig mixinConfig : module.descriptor.mixins()) {
+                String suffix = mixinConfig.suffix();
+                String configName = suffix.isEmpty() ? "mixins.json" : "mixins." + suffix + ".json";
+                String disabledReason = PPatchesConfig.getDisabledReason(mixinConfig.requires());
+                if (disabledReason != null) {
+                    PPatchesMod.LOGGER.info("Not enabling mixin config {} for module {}: {}", configName, name, disabledReason);
+                } else {
+                    PPatchesMod.LOGGER.info("Enabling mixin config {} for module {}", mixinConfig, name);
+                    Mixins.addConfiguration("net/daporkchop/ppatches/modules/" + name.replace('.', '/') + "/" + configName);
+                }
             }
             if (!module.descriptor.transformerClass().isEmpty()) {
                 PPatchesMod.LOGGER.info("Registering transformer for module {}", name);

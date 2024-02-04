@@ -1,5 +1,6 @@
 package net.daporkchop.ppatches;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSortedMap;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
@@ -43,7 +44,7 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
-            hasMixins = false,
+            mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.asm.foldTypeConstants.FoldTypeConstantsTransformer")
     public static final ModuleConfigBase asm_foldTypeConstants = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -59,7 +60,7 @@ public class PPatchesConfig {
             "This could result in a slight performance increase on the server side, in particular when the Quantum Quarry is active.",
     })
     @ModuleDescriptor(
-            requiredClasses = "com.rwtema.extrautils2.dimensions.deep_dark.WorldProviderDeepDark",
+            requires = @Requirement(classPresent = "com.rwtema.extrautils2.dimensions.deep_dark.WorldProviderDeepDark"),
             transformerClass = "net.daporkchop.ppatches.modules.extraUtilities2.disableSkyLightInCustomDimensions.DisableSkyLightInCustomDimensionsTransformer")
     public static final ModuleConfigBase extraUtilities2_disableSkyLightInCustomDimensions = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -85,7 +86,7 @@ public class PPatchesConfig {
             "Patches FoamFix to make OptiFine's \"Smart Animations\" work.",
             "Without this patch, OptiFine's \"Smart Animations\" will have no effect if FoamFix is installed.",
     })
-    @ModuleDescriptor(requiredClasses = "net.optifine.SmartAnimations")
+    @ModuleDescriptor(requires = @Requirement(classPresent = "net.optifine.SmartAnimations"))
     public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
@@ -133,7 +134,7 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
-            hasMixins = false,
+            mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.java.dynamicStringConcatenation.DynamicStringConcatenationTransformer")
     public static final ModuleConfigBase java_dynamicStringConcatenation = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -143,7 +144,7 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
-            hasMixins = false,
+            mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.java.flattenStreams.FlattenStreamsTransformer")
     public static final ModuleConfigBase java_flattenStreams = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -153,7 +154,7 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
-            hasMixins = false,
+            mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.java.separatedExceptionConstruction.SeparatedExceptionConstructionTransformer")
     public static final ModuleConfigBase java_separatedExceptionConstruction = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -191,7 +192,12 @@ public class PPatchesConfig {
     @Config.Comment({
             "Disable random block ticks in specific dimensions.",
     })
-    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.AFTER_MIXIN_DEFAULT,
+            mixins = {
+                    @MixinConfig,
+                    @MixinConfig(suffix = "CubicChunks", requires = @Requirement(classPresent = "io.github.opencubicchunks.cubicchunks.core.CubicChunks"))
+            })
     public static final ModuleConfig_PerDimensionBlackList misc_disableRandomTicksPerDimension = new ModuleConfig_PerDimensionBlackList(ModuleState.DISABLED);
 
     @Config.Comment({
@@ -209,7 +215,7 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
-            hasMixins = false,
+            mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.OptimizeCallbackInfoAllocationTransformer")
     public static final ModuleConfigOptimizeCallbackInfoAllocation mixin_optimizeCallbackInfoAllocation = new ModuleConfigOptimizeCallbackInfoAllocation(ModuleState.AUTO);
 
@@ -226,7 +232,7 @@ public class PPatchesConfig {
             "This can have measurable performance benefits when there are many fans present in the world.",
     })
     @ModuleDescriptor(
-            requiredClasses = "openblocks.common.tileentity.TileEntityFan",
+            requires = @Requirement(classPresent = "openblocks.common.tileentity.TileEntityFan"),
             transformerClass = "net.daporkchop.ppatches.modules.openBlocks.fanEntityOptimization.FanEntityOptimizationTransformer")
     public static final ModuleConfigBase openBlocks_fanEntityOptimization = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -241,9 +247,9 @@ public class PPatchesConfig {
             "This could give some minor performance benefits when OptiFine is installed, and will definitely help reduce GC churn.",
     })
     @ModuleDescriptor(
-            requiredClasses = "net.optifine.reflect.Reflector",
+            requires = @Requirement(classPresent = "net.optifine.reflect.Reflector"),
             registerPhase = PPatchesBootstrap.Phase.AFTER_MIXIN_DEFAULT,
-            hasMixins = false,
+            mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.optifine.optimizeReflector.OptimizeReflectorTransformer")
     public static final ModuleConfigBase optifine_optimizeReflector = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -364,6 +370,21 @@ public class PPatchesConfig {
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.useFieldsForSimpleConstantGetters.UseFieldsForSimpleConstantGettersTransformer")
     public static final ModuleConfigBase vanilla_useFieldsForSimpleConstantGetters = new ModuleConfigBase(ModuleState.AUTO);
 
+    public static String getDisabledReason(Requirement[] requirements) {
+        for (Requirement requirement : requirements) {
+            String classPresent = requirement.classPresent();
+            String classAbsent = requirement.classAbsent();
+            Preconditions.checkArgument(classPresent.isEmpty() ^ classAbsent.isEmpty(), "exactly one of classPresent or classAbsent must be set!");
+            if (!classPresent.isEmpty() && Launch.classLoader.getResource(classPresent.replace('.', '/') + ".class") == null) {
+                return "dependency class " + classPresent + " can't be found";
+            }
+            if (!classAbsent.isEmpty() && Launch.classLoader.getResource(classAbsent.replace('.', '/') + ".class") != null) {
+                return "negative dependency class " + classAbsent + " was found";
+            }
+        }
+        return null;
+    }
+
     /**
      * @author DaPorkchop_
      */
@@ -387,13 +408,7 @@ public class PPatchesConfig {
                 case DISABLED:
                     return "disabled by config";
                 case AUTO:
-                    for (String className : this.descriptor.requiredClasses()) {
-                        if (Launch.classLoader.getResource(className.replace('.', '/') + ".class") == null) {
-                            return "dependency class " + className + " can't be found";
-                        }
-                    }
-
-                    //fall through
+                    return PPatchesConfig.getDisabledReason(this.descriptor.requires());
                 case ENABLED:
                     return null;
                 default:
@@ -724,13 +739,35 @@ public class PPatchesConfig {
     @Target({ElementType.FIELD})
     @Retention(RetentionPolicy.RUNTIME)
     public @interface ModuleDescriptor {
-        String[] requiredClasses() default {};
+        Requirement[] requires() default {};
 
         PPatchesBootstrap.Phase registerPhase() default PPatchesBootstrap.Phase.MODS_ON_CLASSPATH;
 
-        boolean hasMixins() default true;
+        MixinConfig[] mixins() default @MixinConfig;
 
         String transformerClass() default "";
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @Target({})
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface Requirement {
+        String classPresent() default "";
+
+        String classAbsent() default "";
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @Target({})
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface MixinConfig {
+        String suffix() default "";
+
+        Requirement[] requires() default {};
     }
 
     @SubscribeEvent
