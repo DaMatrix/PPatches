@@ -4,8 +4,8 @@ import com.google.common.base.Preconditions;
 import lombok.SneakyThrows;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
-import net.daporkchop.ppatches.util.MethodHandleUtils;
 import net.daporkchop.ppatches.util.UnsafeWrapper;
+import net.daporkchop.ppatches.util.asm.AnonymousClassWriter;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import net.daporkchop.ppatches.util.asm.analysis.ReachabilityAnalyzer;
 import net.minecraft.launchwrapper.IClassTransformer;
@@ -49,6 +49,18 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         newTransformers[PIPELINE.allTransformers.length] = transformer;
         Arrays.sort(newTransformers);
         PIPELINE = new TransformerPipeline(newTransformers);
+    }
+
+    public static void dumpClass(String name, ClassWriter writer) {
+        if (DUMP_CLASSES) {
+            try {
+                Path path = Paths.get(".ppatches_transformed" + File.separatorChar + name.replace('/', File.separatorChar).replace('.', File.separatorChar) + ".class");
+                Files.createDirectories(path.getParent());
+                Files.write(path, writer.toByteArray());
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
     }
 
     private final PPatchesBootstrap.Phase phase = PPatchesBootstrap.currentPhase();
@@ -189,15 +201,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                 }
             }
 
-            if (DUMP_CLASSES) {
-                try {
-                    Path path = Paths.get(".ppatches_transformed" + File.separatorChar + transformedName.replace('.', File.separatorChar) + ".class");
-                    Files.createDirectories(path.getParent());
-                    Files.write(path, writer.toByteArray());
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }
+            dumpClass(transformedName, writer);
 
             return writer.toByteArray();
         } else {
@@ -276,12 +280,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
     @SneakyThrows
     private static MethodHandle determineInterestedTransformersHandle(ITreeClassTransformer[] transformers) {
-        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
-
-        int[] cpIndices = new int[transformers.length];
-        for (int i = 0; i < transformers.length; i++) {
-            cpIndices[i] = cw.newConst("##DUMMY## " + i);
-        }
+        AnonymousClassWriter cw = AnonymousClassWriter.create(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
 
         cw.visit(V1_8, ACC_PUBLIC | ACC_FINAL, "DetermineInterested", null, "java/lang/Object", null);
         {
@@ -297,8 +296,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             for (int i = 0; i < transformers.length; i++) {
                 mv.visitVarInsn(ALOAD, 2);
                 mv.visitLdcInsn(i);
-                mv.visitLdcInsn("##DUMMY## " + i);
-                mv.visitTypeInsn(CHECKCAST, Type.getInternalName(ITreeClassTransformer.class));
+                cw.addConstant(mv, transformers[i], Type.getInternalName(ITreeClassTransformer.class));
                 mv.visitVarInsn(ALOAD, 0);
                 mv.visitVarInsn(ALOAD, 1);
                 mv.visitMethodInsn(INVOKEINTERFACE, Type.getInternalName(ITreeClassTransformer.class), "interestedInClass", "(Ljava/lang/String;Ljava/lang/String;)Z", true);
@@ -313,13 +311,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         }
         cw.visitEnd();
 
-        Object[] cpPatches = new Object[Arrays.stream(cpIndices).max().orElse(-1) + 1];
-        for (int i = 0; i < transformers.length; i++) {
-            cpPatches[cpIndices[i]] = transformers[i];
-        }
-
-        Class<?> clazz = UnsafeWrapper.defineAnonymousClass(PPatchesTransformerRoot.class, cw.toByteArray(), cpPatches);
-        return MethodHandles.publicLookup().findStatic(clazz, "determineInterested", MethodType.methodType(BitSet.class, String.class, String.class));
+        return MethodHandles.publicLookup().findStatic(cw.defineAnonymousClass(PPatchesTransformerRoot.class), "determineInterested", MethodType.methodType(BitSet.class, String.class, String.class));
     }
 
     private static ClassNode readClass(ClassReader reader) {

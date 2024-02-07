@@ -50,6 +50,13 @@ public final class ReachabilityAnalyzer extends Analyzer {
         for (AbstractInsnNode insn = instructions.getFirst(), next; insn != null; insn = next, i++) {
             next = insn.getNext();
             if (frames[i] == null) {
+                if (shouldCheckLabels && insn instanceof LabelNode && insn == instructions.getLast()) {
+                    //don't remove the final LabelNode in the instruction, as doing so will result in pretty much all local variable information being deleted
+                    //TODO: there are still some labels which would need to be kept, for instance to preserve local variable information about locals which go out of
+                    // scope from a return instruction which isn't at the tail of the function
+                    continue;
+                }
+
                 instructions.remove(insn);
 
                 if (shouldCheckLabels && insn instanceof LabelNode) {

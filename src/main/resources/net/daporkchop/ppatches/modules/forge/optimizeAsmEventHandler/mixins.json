@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.forge.optimizeAsmEventHandler.mixin",
+  "refmap": "mixins.ppatches.refmap.json",
+  "target": "@env(INIT)",
+  "mixins": [
+    "IMixinASMEventHandler",
+    "MixinASMEventHandler",
+    "MixinEventBus"
+  ]
+}
