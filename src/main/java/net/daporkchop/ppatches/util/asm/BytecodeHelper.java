@@ -130,12 +130,46 @@ public class BytecodeHelper {
         return isCHECKCAST(insn, type.getInternalName());
     }
 
+    private static boolean isField(FieldInsnNode insn, String owner, String name, String desc) {
+        return owner.equals(insn.owner) && name.equals(insn.name) && desc.equals(insn.desc);
+    }
+
+    public static boolean isGETSTATIC(AbstractInsnNode insn, String owner, String name, String desc) {
+        return insn.getOpcode() == GETSTATIC && isField((FieldInsnNode) insn, owner, name, desc);
+    }
+
+    public static boolean isGETFIELD(AbstractInsnNode insn, String owner, String name, String desc) {
+        return insn.getOpcode() == GETFIELD && isField((FieldInsnNode) insn, owner, name, desc);
+    }
+
+    public static boolean isPUTSTATIC(AbstractInsnNode insn, String owner, String name, String desc) {
+        return insn.getOpcode() == PUTSTATIC && isField((FieldInsnNode) insn, owner, name, desc);
+    }
+
+    public static boolean isPUTFIELD(AbstractInsnNode insn, String owner, String name, String desc) {
+        return insn.getOpcode() == PUTFIELD && isField((FieldInsnNode) insn, owner, name, desc);
+    }
+
     public static boolean isHandle(Handle handle, int tag, String owner, String name) {
         return handle.getTag() == tag && owner.equals(handle.getOwner()) && name.equals(handle.getName());
     }
 
     public static boolean isHandle(Handle handle, int tag, String owner, String name, String desc) {
         return isHandle(handle, tag, owner, desc) && desc.equals(handle.getDesc());
+    }
+
+    public static boolean isReturnInsn(AbstractInsnNode insn) {
+        switch (insn.getOpcode()) {
+            case RETURN:
+            case ARETURN:
+            case IRETURN:
+            case LRETURN:
+            case FRETURN:
+            case DRETURN:
+                return true;
+            default:
+                return false;
+        }
     }
 
     //
@@ -1389,6 +1423,10 @@ public class BytecodeHelper {
     }
 
     public static String toString(AbstractInsnNode insn) {
+        if (insn == null) {
+            return "null";
+        }
+
         int opcode = insn.getOpcode();
         switch (insn.getType()) {
             case AbstractInsnNode.INSN:
@@ -2091,5 +2129,29 @@ public class BytecodeHelper {
             }
         }
         return Optional.empty();
+    }
+
+    public static String mangleSignature(String name) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+                builder.append(c);
+            } else switch (c) {
+                case '_':
+                    builder.append("_1");
+                    break;
+                case ';':
+                    builder.append("_2");
+                    break;
+                case '[':
+                    builder.append("_3");
+                    break;
+                default:
+                    builder.append("_0").append(Integer.toHexString(c | 0x10000), 1, 5);
+                    break;
+            }
+        }
+        return builder.toString();
     }
 }
