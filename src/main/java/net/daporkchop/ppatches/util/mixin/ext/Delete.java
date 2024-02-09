@@ -17,4 +17,9 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.METHOD, ElementType.FIELD})
 public @interface Delete {
+    /**
+     * If {@code true} and this annotation is placed on a static field, any {@code PUTFIELD} opcodes in the class' static initializer corresponding to the marked field will
+     * be converted into {@code POP} opcodes.
+     */
+    boolean removeStaticInitializer() default false;
 }

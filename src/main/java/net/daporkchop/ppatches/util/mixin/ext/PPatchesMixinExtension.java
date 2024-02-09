@@ -5,8 +5,10 @@ import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.spongepowered.asm.mixin.MixinEnvironment;
@@ -84,6 +86,8 @@ public final class PPatchesMixinExtension implements IExtension {
             AnnotationVisitor visitor = context.getClassNode().visitAnnotation("Lnet/daporkchop/ppatches/util/mixin/ext/MixinDeleted;", true);
 
             if (deletedFields != null) {
+                removeStaticInitializers(context.getClassNode(), deletedFields);
+
                 AnnotationVisitor fields = visitor.visitArray("fields");
                 for (FieldNode fieldNode : deletedFields) {
                     AnnotationVisitor field = fields.visitAnnotation(null, "Lnet/daporkchop/ppatches/util/mixin/ext/MixinDeleted$Field;");
@@ -113,6 +117,34 @@ public final class PPatchesMixinExtension implements IExtension {
             }
 
             visitor.visitEnd();
+        }
+    }
+
+    private static void removeStaticInitializers(ClassNode classNode, List<FieldNode> deletedFields) {
+        List<FieldNode> removeStaticInitializersFor = new ArrayList<>(deletedFields.size());
+        for (FieldNode deletedField : deletedFields) {
+            AnnotationNode deleteAnnotation = BytecodeHelper.findAnnotationByDesc(deletedField.visibleAnnotations, "Lnet/daporkchop/ppatches/util/mixin/ext/Delete;").get();
+            if ((Boolean) BytecodeHelper.findAnnotationValueByName(deleteAnnotation, "removeStaticInitializer").orElse(false)) {
+                removeStaticInitializersFor.add(deletedField);
+            }
+        }
+
+        MethodNode clinit;
+        if (!removeStaticInitializersFor.isEmpty() && (clinit = BytecodeHelper.findMethod(classNode, "<clinit>", "()V").orElse(null)) != null) {
+            for (AbstractInsnNode insn = clinit.instructions.getFirst(), next; insn != null; insn = next) {
+                next = insn.getNext();
+
+                FieldInsnNode fieldInsn;
+                if (insn.getOpcode() == Opcodes.PUTSTATIC && classNode.name.equals((fieldInsn = (FieldInsnNode) insn).owner)) {
+                    for (FieldNode deletedField : removeStaticInitializersFor) {
+                        if (fieldInsn.name.equals(deletedField.name) && fieldInsn.desc.equals(deletedField.desc)) {
+                            PPatchesMod.LOGGER.info("Disabling static initializer for L{};{}:{}", fieldInsn.owner, fieldInsn.name, fieldInsn.desc);
+                            clinit.instructions.set(fieldInsn, BytecodeHelper.pop(Type.getType(fieldInsn.desc)));
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -15,6 +15,7 @@ import java.lang.annotation.Target;
  * @author DaPorkchop_
  */
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.METHOD, ElementType.FIELD})
+//TODO: could this annotation be placed on types as well?
+@Target({ ElementType.METHOD, ElementType.FIELD })
 public @interface MakeFinal {
 }
