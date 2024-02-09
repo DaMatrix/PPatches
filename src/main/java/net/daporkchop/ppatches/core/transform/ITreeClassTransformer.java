@@ -2,6 +2,7 @@ package net.daporkchop.ppatches.core.transform;
 
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.MethodNode;
 
 /**
@@ -44,7 +45,7 @@ public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer>
     }
 
     interface IndividualMethod extends ITreeClassTransformer {
-        default boolean interestedInMethod(String className, String classTransformedName, MethodNode method) {
+        default boolean interestedInMethod(String className, String classTransformedName, MethodNode methodNode) {
             return true;
         }
 
@@ -60,14 +61,14 @@ public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer>
 
                 int transformResult;
                 do {
-                    transformResult = this.transformMethod(name, transformedName, classNode, methodNode);
+                    transformResult = this.transformMethod(name, transformedName, classNode, methodNode, methodNode.instructions);
                     changeFlags |= transformResult;
                 } while (optimization && transformResult != 0); //if this is an optimization pass, loop until no more changes can be applied
             }
             return changeFlags;
         }
 
-        int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode);
+        int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, InsnList instructions);
 
         interface Analyzed extends IndividualMethod {
             @Override
@@ -92,7 +93,7 @@ public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer>
             }
 
             @Override
-            default int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode) {
+            default int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, InsnList instructions) {
                 try (AnalyzedInsnList analyzedList = new AnalyzedInsnList(classNode.name, methodNode)) {
                     return this.transformMethod(name, transformedName, classNode, methodNode, analyzedList);
                 }

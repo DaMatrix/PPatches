@@ -36,7 +36,7 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class FlattenStreamsTransformer implements ITreeClassTransformer {
+public class FlattenStreamsTransformer implements ITreeClassTransformer.IndividualMethod {
     private static boolean isStreamType(String internalName) {
         switch (internalName) {
             case "java/util/stream/Stream":
@@ -410,18 +410,17 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer {
     }
 
     @Override
-    public int transformClass(String name, String transformedName, ClassNode classNode) {
+    public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, InsnList instructions) {
         int changeFlags = 0;
-        for (MethodNode methodNode : classNode.methods) {
-            for (ListIterator<AbstractInsnNode> itr = methodNode.instructions.iterator(); itr.hasNext(); ) {
-                AbstractInsnNode insn = itr.next();
-                TerminalOp terminalOp;
-                if (!(insn instanceof MethodInsnNode) || (terminalOp = tryMapTerminalOp(methodNode, (MethodInsnNode) insn).orElse(null)) == null) {
-                    continue;
-                }
+        for (AbstractInsnNode insn = instructions.getFirst(), next; insn != null; insn = next) {
+            next = insn.getNext();
 
-                changeFlags |= transformStreamCall(classNode, methodNode, terminalOp);
+            TerminalOp terminalOp;
+            if (!(insn instanceof MethodInsnNode) || (terminalOp = tryMapTerminalOp(methodNode, (MethodInsnNode) insn).orElse(null)) == null) {
+                continue;
             }
+
+            changeFlags |= transformStreamCall(classNode, methodNode, terminalOp);
         }
         return changeFlags;
     }

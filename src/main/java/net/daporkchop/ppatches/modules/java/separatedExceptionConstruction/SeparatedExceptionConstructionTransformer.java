@@ -23,8 +23,8 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public class SeparatedExceptionConstructionTransformer implements ITreeClassTransformer.IndividualMethod.Analyzed {
     @Override
-    public boolean interestedInMethod(String className, String classTransformedName, MethodNode method) {
-        return !"<clinit>".equals(method.name);
+    public boolean interestedInMethod(String className, String classTransformedName, MethodNode methodNode) {
+        return !"<clinit>".equals(methodNode.name);
     }
 
     @Override

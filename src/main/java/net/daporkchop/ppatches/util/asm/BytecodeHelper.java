@@ -792,6 +792,17 @@ public class BytecodeHelper {
         return Optional.empty();
     }
 
+    public static boolean hasAnnotationWithDesc(List<AnnotationNode> annotations, String desc) {
+        if (annotations != null) {
+            for (AnnotationNode annotation : annotations) {
+                if (desc.equals(annotation.desc)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static Optional<AnnotationNode> findAnnotationByDesc(List<AnnotationNode> annotations, String desc) {
         if (annotations != null) {
             for (AnnotationNode annotation : annotations) {

@@ -1,10 +1,12 @@
 package net.daporkchop.ppatches.modules.extraUtilities2.disableSkyLightInCustomDimensions.mixin;
 
 import net.daporkchop.ppatches.PPatchesMod;
+import net.daporkchop.ppatches.util.mixin.ext.Delete;
 import net.minecraft.world.WorldProvider;
 import org.spongepowered.asm.mixin.Dynamic;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -22,6 +24,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Pseudo
 @Mixin(targets = "com.rwtema.extrautils2.dimensions.deep_dark.WorldProviderDeepDark", remap = false)
 abstract class MixinWorldProviderDeepDark extends MixinXUWorldProvider {
+    @Delete
+    @Shadow(remap = true)
+    @Override
+    public abstract boolean hasSkyLight();
+
     /**
      * This method serves as a dummy injection point; it will be silently discarded if another mixin targeting the same class adds the same override.
      */

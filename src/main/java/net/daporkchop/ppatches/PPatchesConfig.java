@@ -63,9 +63,6 @@ public class PPatchesConfig {
             "Patches Extra Utilities 2 to disable sky light in the Quantum Quarry and Deep Dark dimensions.",
             "This could result in a slight performance increase on the server side, in particular when the Quantum Quarry is active.",
     })
-    @ModuleDescriptor(
-            requires = @Requirement(classPresent = "com.rwtema.extrautils2.dimensions.deep_dark.WorldProviderDeepDark"),
-            transformerClass = "net.daporkchop.ppatches.modules.extraUtilities2.disableSkyLightInCustomDimensions.DisableSkyLightInCustomDimensionsTransformer")
     public static final ModuleConfigBase extraUtilities2_disableSkyLightInCustomDimensions = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({

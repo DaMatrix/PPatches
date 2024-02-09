@@ -24,7 +24,7 @@ import static org.objectweb.asm.Opcodes.H_INVOKESTATIC;
 /**
  * @author DaPorkchop_
  */
-public class TagLogMessagesTransformer implements ITreeClassTransformer {
+public class TagLogMessagesTransformer implements ITreeClassTransformer.IndividualMethod {
     private static String getModuleName(String name) {
         int firstDotIndex;
         int lastDotIndex;
@@ -35,44 +35,37 @@ public class TagLogMessagesTransformer implements ITreeClassTransformer {
                 : null;
     }
 
-    //TODO: this could be a method transformer, except it doesn't actually need an AnalyzedInsnList
     @Override
-    public int transformClass(String name, String transformedName, ClassNode classNode) {
-        int changeFlags = 0;
-
-        String moduleName;
-        if (name.startsWith("net.daporkchop.ppatches.modules.") && (moduleName = getModuleName(name)) != null) {
-            for (MethodNode methodNode : classNode.methods) {
-                changeFlags |= transformMethod(moduleName, methodNode.instructions);
-            }
-        } else {
-            for (MethodNode methodNode : classNode.methods) {
-                Optional<AnnotationNode> optionalAnnotation = BytecodeHelper.findAnnotationByDesc(methodNode.visibleAnnotations, Type.getDescriptor(MixinMerged.class));
-                if (!optionalAnnotation.isPresent()) {
-                    continue;
-                }
-
-                Optional<Object> optionalMixinName = BytecodeHelper.findAnnotationValueByName(optionalAnnotation.get(), "mixin");
-                if (!optionalMixinName.isPresent() || !(optionalMixinName.get() instanceof String)) {
-                    continue;
-                }
-
-                String mixinName = (String) optionalMixinName.get();
-                if (mixinName.startsWith("net.daporkchop.ppatches.modules.") && (moduleName = getModuleName(mixinName)) != null) {
-                    changeFlags |= transformMethod(moduleName, methodNode.instructions);
-                }
-            }
-        }
-        return changeFlags;
+    public boolean interestedInMethod(String className, String classTransformedName, MethodNode methodNode) {
+        return className.startsWith("net.daporkchop.ppatches.modules.") || BytecodeHelper.hasAnnotationWithDesc(methodNode.visibleAnnotations, Type.getDescriptor(MixinMerged.class));
     }
 
-    private static int transformMethod(String moduleName, InsnList instructions) {
+    @Override
+    public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, InsnList instructions) {
+        String moduleName = getModuleName(name);
+        if (moduleName == null) { //not a piece of regular PPatches module code, presumably a mixin
+            Optional<AnnotationNode> optionalAnnotation = BytecodeHelper.findAnnotationByDesc(methodNode.visibleAnnotations, Type.getDescriptor(MixinMerged.class));
+            if (!optionalAnnotation.isPresent()) {
+                return 0;
+            }
+
+            Optional<Object> optionalMixinName = BytecodeHelper.findAnnotationValueByName(optionalAnnotation.get(), "mixin");
+            if (!optionalMixinName.isPresent() || !(optionalMixinName.get() instanceof String)) {
+                return 0;
+            }
+
+            moduleName = getModuleName((String) optionalMixinName.get());
+            if (moduleName == null) {
+                return 0;
+            }
+        }
+
         int changeFlags = 0;
-        for (AbstractInsnNode insn = instructions.getFirst(), next; insn != null; insn = next) {
+        for (AbstractInsnNode insn = methodNode.instructions.getFirst(), next; insn != null; insn = next) {
             next = insn.getNext();
 
             if (BytecodeHelper.isGETSTATIC(insn, "net/daporkchop/ppatches/PPatchesMod", "LOGGER", "Lorg/apache/logging/log4j/Logger;")) {
-                instructions.set(insn, new InvokeDynamicInsnNode(
+                methodNode.instructions.set(insn, new InvokeDynamicInsnNode(
                         "getLogger", "()Lorg/apache/logging/log4j/Logger;",
                         new Handle(H_INVOKESTATIC,
                                 "net/daporkchop/ppatches/modules/ppatches/tagLogMessages/TagLogMessagesTransformer",

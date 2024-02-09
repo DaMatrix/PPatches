@@ -16,6 +16,7 @@ import net.daporkchop.ppatches.util.asm.analysis.ReachabilityAnalyzer;
 import net.minecraft.launchwrapper.IClassTransformer;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.MethodNode;
 import org.spongepowered.asm.service.ITransformer;
 
@@ -161,10 +162,10 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                 ReachabilityAnalyzer.removeUnreachableInstructions(classNode.name, methodNode);
 
                 if (pipeline.anyBasicMethodTransformersInterestedInClass(interestedMask)) {
-                    changeFlags |= pipeline.applyBasicMethodTransformers(name, transformedName, classNode, methodNode, interestedMask);
+                    changeFlags |= pipeline.applyBasicMethodTransformers(name, transformedName, classNode, methodNode, methodNode.instructions, interestedMask);
 
                     //keep running all the optimization passes until they all stop making changes
-                    for (int prevRoundChangeFlags; (prevRoundChangeFlags = pipeline.applyBasicMethodOptimizationPasses(name, transformedName, classNode, methodNode, interestedMask)) != 0; ) {
+                    for (int prevRoundChangeFlags; (prevRoundChangeFlags = pipeline.applyBasicMethodOptimizationPasses(name, transformedName, classNode, methodNode, methodNode.instructions, interestedMask)) != 0; ) {
                         changeFlags |= prevRoundChangeFlags;
                     }
                 }
@@ -457,20 +458,16 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         String methodDesc;
         String transformMethodDesc;
         String transformerClassInternalName;
-        int interestedFlagsLvtIndex;
-        int accumulatorLvtIndex;
+        int interestedFlagsLvtIndex = 6;
+        int accumulatorLvtIndex = 7;
         if (analyzed) {
             methodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class), Type.getType(AnalyzedInsnList.class), Type.getType(BitSet.class));
             transformMethodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class), Type.getType(AnalyzedInsnList.class));
             transformerClassInternalName = Type.getInternalName(ITreeClassTransformer.IndividualMethod.Analyzed.class);
-            interestedFlagsLvtIndex = 6;
-            accumulatorLvtIndex = 7;
         } else {
-            methodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class), Type.getType(BitSet.class));
-            transformMethodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class));
+            methodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class), Type.getType(InsnList.class), Type.getType(BitSet.class));
+            transformMethodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class), Type.getType(InsnList.class));
             transformerClassInternalName = Type.getInternalName(ITreeClassTransformer.IndividualMethod.class);
-            interestedFlagsLvtIndex = 5;
-            accumulatorLvtIndex = 6;
         }
 
         MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, methodName, methodDesc, null, null);
@@ -487,15 +484,20 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(BitSet.class), "get", "(I)Z", false);
             mv.visitJumpInsn(IFEQ, tailLbl);
 
+            cw.addConstant(mv, transformers[i], transformerClassInternalName);
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitVarInsn(ALOAD, 2);
+            mv.visitVarInsn(ALOAD, 4);
+            mv.visitMethodInsn(INVOKEINTERFACE, transformerClassInternalName, "interestedInMethod", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(MethodNode.class)), true);
+            mv.visitJumpInsn(IFEQ, tailLbl);
+
             mv.visitVarInsn(ILOAD, accumulatorLvtIndex);
             cw.addConstant(mv, transformers[i], transformerClassInternalName);
             mv.visitVarInsn(ALOAD, 1);
             mv.visitVarInsn(ALOAD, 2);
             mv.visitVarInsn(ALOAD, 3);
             mv.visitVarInsn(ALOAD, 4);
-            if (analyzed) {
-                mv.visitVarInsn(ALOAD, 5);
-            }
+            mv.visitVarInsn(ALOAD, 5);
             mv.visitMethodInsn(INVOKEINTERFACE, transformerClassInternalName, "transformMethod", transformMethodDesc, true);
             mv.visitInsn(IOR);
             mv.visitVarInsn(ISTORE, accumulatorLvtIndex);
@@ -531,9 +533,9 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
         public abstract boolean anyBasicMethodTransformersInterestedInClass(BitSet interestedMask);
 
-        public abstract int applyBasicMethodTransformers(String name, String transformedName, ClassNode classNode, MethodNode methodNode, BitSet interestedMask);
+        public abstract int applyBasicMethodTransformers(String name, String transformedName, ClassNode classNode, MethodNode methodNode, InsnList instructions, BitSet interestedMask);
 
-        public abstract int applyBasicMethodOptimizationPasses(String name, String transformedName, ClassNode classNode, MethodNode methodNode, BitSet interestedMask);
+        public abstract int applyBasicMethodOptimizationPasses(String name, String transformedName, ClassNode classNode, MethodNode methodNode, InsnList instructions, BitSet interestedMask);
 
         public abstract boolean anyAnalyzedMethodTransformersInterestedInClass(BitSet interestedMask);
 

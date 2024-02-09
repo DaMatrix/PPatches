@@ -8,6 +8,7 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -23,40 +24,39 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class OptimizeReflectorTransformer implements ITreeClassTransformer {
+public class OptimizeReflectorTransformer implements ITreeClassTransformer.IndividualMethod {
     @Override
     public boolean interestedInClass(String name, String transformedName) {
-        return transformedName.startsWith("net.minecraft.") || transformedName.startsWith("net.optifine.");
+        return transformedName.startsWith("net.minecraft.") || (transformedName.startsWith("net.optifine.") && !"net.optifine.reflect.Reflector".equals(transformedName));
     }
 
     @Override
-    public int transformClass(String name, String transformedName, ClassNode classNode) {
+    public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, InsnList instructions) {
         if ("net.optifine.reflect.Reflector".equals(transformedName)) {
             return 0;
         }
 
         //some other class, we want to check for references to reflector so we can get rid of them
         int changeFlags = 0;
-        for (MethodNode methodNode : classNode.methods) {
-            for (ListIterator<AbstractInsnNode> itr = methodNode.instructions.iterator(); itr.hasNext(); ) {
-                AbstractInsnNode insn = itr.next();
-                if (insn.getOpcode() != INVOKEVIRTUAL && insn.getOpcode() != INVOKESTATIC) {
-                    continue;
-                }
+        for (AbstractInsnNode insn = instructions.getFirst(), next; insn != null; insn = next) {
+            next = insn.getNext();
 
-                MethodInsnNode methodInsnNode = (MethodInsnNode) insn;
-                if (!methodInsnNode.owner.startsWith("net/optifine/reflect/Reflector")) {
-                    continue;
-                }
-
-                //body moved to separate method to help JIT optimize the main loop, which is supposed to be fast
-                changeFlags |= this.transformCall(classNode, methodNode, methodInsnNode, itr);
+            if (insn.getOpcode() != INVOKEVIRTUAL && insn.getOpcode() != INVOKESTATIC) {
+                continue;
             }
+
+            MethodInsnNode methodInsnNode = (MethodInsnNode) insn;
+            if (!methodInsnNode.owner.startsWith("net/optifine/reflect/Reflector")) {
+                continue;
+            }
+
+            //body moved to separate method to help JIT optimize the main loop, which is supposed to be fast
+            changeFlags |= transformCall(classNode, methodNode, methodInsnNode);
         }
         return changeFlags;
     }
 
-    private int transformCall(ClassNode classNode, MethodNode methodNode, MethodInsnNode methodInsnNode, ListIterator<AbstractInsnNode> itr) {
+    private static int transformCall(ClassNode classNode, MethodNode methodNode, MethodInsnNode methodInsnNode) {
         FieldInsnNode reflectorFieldLoadInsn;
         for (AbstractInsnNode node = methodInsnNode.getPrevious(); ; node = node.getPrevious()) {
             if (node == null) {
@@ -297,7 +297,7 @@ public class OptimizeReflectorTransformer implements ITreeClassTransformer {
         }
 
         if (replacementInsn != null) {
-            itr.set(replacementInsn);
+            methodNode.instructions.set(methodInsnNode, replacementInsn);
             //the method invocation is being replaced, remove the original GETSTATIC
             //  (this is safe, assuming the InsnList implementation doesn't change)
             methodNode.instructions.remove(reflectorFieldLoadInsn);
