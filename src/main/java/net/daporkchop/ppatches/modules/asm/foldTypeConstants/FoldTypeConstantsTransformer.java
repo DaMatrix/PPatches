@@ -35,7 +35,7 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class FoldTypeConstantsTransformer implements ITreeClassTransformer.IndividualMethod, ITreeClassTransformer.OptimizationPass {
+public class FoldTypeConstantsTransformer implements ITreeClassTransformer.IndividualMethod.Analyzed, ITreeClassTransformer.OptimizationPass {
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
         //set to CHANGED if a change is made which doesn't invalidate the source frame info

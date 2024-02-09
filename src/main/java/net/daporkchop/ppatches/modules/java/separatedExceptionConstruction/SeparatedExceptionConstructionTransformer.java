@@ -21,7 +21,7 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class SeparatedExceptionConstructionTransformer implements ITreeClassTransformer.IndividualMethod {
+public class SeparatedExceptionConstructionTransformer implements ITreeClassTransformer.IndividualMethod.Analyzed {
     @Override
     public boolean interestedInMethod(String className, String classTransformedName, MethodNode method) {
         return !"<clinit>".equals(method.name);

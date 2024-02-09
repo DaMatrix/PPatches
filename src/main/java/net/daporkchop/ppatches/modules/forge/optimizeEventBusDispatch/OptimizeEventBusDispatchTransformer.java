@@ -38,7 +38,7 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class OptimizeEventBusDispatchTransformer implements ITreeClassTransformer.IndividualMethod {
+public class OptimizeEventBusDispatchTransformer implements ITreeClassTransformer.IndividualMethod.Analyzed {
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
         int changeFlags = 0;

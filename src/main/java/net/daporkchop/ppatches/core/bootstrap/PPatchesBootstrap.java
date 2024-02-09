@@ -16,7 +16,11 @@ import net.minecraft.launchwrapper.LaunchClassLoader;
 import org.spongepowered.asm.mixin.MixinEnvironment;
 import org.spongepowered.asm.mixin.Mixins;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -122,7 +126,9 @@ public class PPatchesBootstrap {
             }
             if (!module.descriptor.transformerClass().isEmpty()) {
                 PPatchesMod.LOGGER.info("Registering transformer for module {}", name);
-                PPatchesTransformerRoot.registerTransformer((ITreeClassTransformer) Class.forName(module.descriptor.transformerClass()).newInstance());
+                long startTime = System.nanoTime();
+                PPatchesTransformerRoot.registerTransformers((ITreeClassTransformer) MethodHandles.publicLookup().findConstructor(Class.forName(module.descriptor.transformerClass()), MethodType.methodType(void.class)).invoke());
+                PPatchesMod.LOGGER.debug("Registering transformer for module {} took {}ms", name, (System.nanoTime() - startTime) / 1_000_000.0d);
             }
         }
     }

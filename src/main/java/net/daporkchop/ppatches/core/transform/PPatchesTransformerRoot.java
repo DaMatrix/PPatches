@@ -1,16 +1,22 @@
 package net.daporkchop.ppatches.core.transform;
 
 import com.google.common.base.Preconditions;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
+import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
+import net.daporkchop.ppatches.util.COWArrayUtils;
 import net.daporkchop.ppatches.util.UnsafeWrapper;
 import net.daporkchop.ppatches.util.asm.AnonymousClassWriter;
+import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import net.daporkchop.ppatches.util.asm.analysis.ReachabilityAnalyzer;
 import net.minecraft.launchwrapper.IClassTransformer;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.spongepowered.asm.service.ITransformer;
 
 import java.io.File;
@@ -36,19 +42,27 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
     private static final boolean DUMP_CLASSES_DELETE_OLD = DUMP_CLASSES && Boolean.getBoolean("ppatches.dumpTransformedClasses.deleteOld");
 
     private static final List<PPatchesTransformerRoot> INSTANCES = new ArrayList<>();
-    private static TransformerPipeline PIPELINE = new TransformerPipeline();
+    private static TransformerPipeline PIPELINE = buildTransformerPipeline();
 
-    public synchronized static void registerTransformer(ITreeClassTransformer transformer) {
-        for (ITreeClassTransformer existingTransformer : PIPELINE.allTransformers) {
-            if (transformer == existingTransformer) {
-                throw new IllegalArgumentException("transformer " + transformer + " already registered?!?");
+    public synchronized static void registerTransformers(ITreeClassTransformer... transformers) {
+        if (transformers.length == 0) {
+            return;
+        }
+
+        for (int i = 0; i < transformers.length; i++) {
+            Class<? extends ITreeClassTransformer> transformerClass = transformers[i].getClass();
+            for (int j = i + 1; j < transformers.length; j++) {
+                Preconditions.checkArgument(transformerClass != transformers[j].getClass(), "transformer %s was registered twice?!?", transformerClass);
+            }
+
+            for (ITreeClassTransformer existingTransformer : PIPELINE.allTransformers) {
+                Preconditions.checkArgument(transformerClass != existingTransformer.getClass(), "transformer %s was already registered?!?", transformerClass);
             }
         }
 
-        ITreeClassTransformer[] newTransformers = Arrays.copyOf(PIPELINE.allTransformers, PIPELINE.allTransformers.length + 1);
-        newTransformers[PIPELINE.allTransformers.length] = transformer;
+        ITreeClassTransformer[] newTransformers = COWArrayUtils.concat(PIPELINE.allTransformers, transformers);
         Arrays.sort(newTransformers);
-        PIPELINE = new TransformerPipeline(newTransformers);
+        PIPELINE = buildTransformerPipeline(newTransformers);
     }
 
     public static void dumpClass(String name, ClassWriter writer) {
@@ -121,11 +135,9 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         TransformerPipeline pipeline = PIPELINE;
 
         //determine which transformers are interested in transforming this class
-        BitSet interestedRegularTransformers = (BitSet) pipeline.determineInterestedRegularTransformers.invokeExact(name, transformedName);
-        BitSet interestedMethodTransformers = (BitSet) pipeline.determineInterestedMethodTransformers.invokeExact(name, transformedName);
-        BitSet interestedMethodOptimizationPasses = (BitSet) pipeline.determineInterestedMethodOptimizationPasses.invokeExact(name, transformedName);
+        BitSet interestedMask = pipeline.determineInterested(name, transformedName);
 
-        if (interestedRegularTransformers.isEmpty() && interestedMethodTransformers.isEmpty() && interestedMethodOptimizationPasses.isEmpty()) {
+        if (interestedMask.isEmpty()) {
             //no transformers are interested in transforming this class
             return basicClass;
         }
@@ -136,44 +148,38 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         int changeFlags = 0;
 
         //run regular transformers
-        for (int i = interestedRegularTransformers.nextSetBit(0); i >= 0; i = interestedRegularTransformers.nextSetBit(i + 1)) {
-            changeFlags |= pipeline.regularTransformers[i].transformClass(name, transformedName, classNode);
-        }
+        changeFlags |= pipeline.applyRegularTransformers(name, transformedName, classNode, interestedMask);
 
         //run individual method transformers
-        if (!interestedMethodTransformers.isEmpty() || !interestedMethodOptimizationPasses.isEmpty()) {
-            changeFlags |= classNode.methods.stream() //TODO: doing this in parallel seems impossible, due to LaunchClassLoader not allowing concurrent loading
-                    .mapToInt(methodNode -> {
-                        if ((methodNode.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) { //we can skip transforming abstract and native methods
-                            return 0;
+        if (pipeline.anyMethodTransformersInterestedInClass(interestedMask)) {
+            for (MethodNode methodNode : classNode.methods) { //TODO: doing this in parallel seems impossible, due to LaunchClassLoader not allowing concurrent loading - we'd need to preload all classes which could potentially be accessed by any transformer
+                if ((methodNode.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) { //we can skip transforming abstract and native methods
+                    continue;
+                }
+
+                //remove unreachable instructions from the list
+                ReachabilityAnalyzer.removeUnreachableInstructions(classNode.name, methodNode);
+
+                if (pipeline.anyBasicMethodTransformersInterestedInClass(interestedMask)) {
+                    changeFlags |= pipeline.applyBasicMethodTransformers(name, transformedName, classNode, methodNode, interestedMask);
+
+                    //keep running all the optimization passes until they all stop making changes
+                    for (int prevRoundChangeFlags; (prevRoundChangeFlags = pipeline.applyBasicMethodOptimizationPasses(name, transformedName, classNode, methodNode, interestedMask)) != 0; ) {
+                        changeFlags |= prevRoundChangeFlags;
+                    }
+                }
+
+                if (pipeline.anyAnalyzedMethodTransformersInterestedInClass(interestedMask)) {
+                    try (AnalyzedInsnList analyzedInstructions = new AnalyzedInsnList(classNode.name, methodNode)) {
+                        changeFlags |= pipeline.applyAnalyzedMethodTransformers(name, transformedName, classNode, methodNode, analyzedInstructions, interestedMask);
+
+                        //keep running all the optimization passes until they all stop making changes
+                        for (int prevRoundChangeFlags; (prevRoundChangeFlags = pipeline.applyAnalyzedMethodOptimizationPasses(name, transformedName, classNode, methodNode, analyzedInstructions, interestedMask)) != 0; ) {
+                            changeFlags |= prevRoundChangeFlags;
                         }
-
-                        //remove unreachable instructions from the list
-                        ReachabilityAnalyzer.removeUnreachableInstructions(classNode.name, methodNode);
-
-                        int methodChangeFlags = 0;
-
-                        try (AnalyzedInsnList analyzedInstructions = new AnalyzedInsnList(classNode.name, methodNode)) {
-                            for (int i = interestedMethodTransformers.nextSetBit(0); i >= 0; i = interestedMethodTransformers.nextSetBit(i + 1)) {
-                                methodChangeFlags |= pipeline.methodTransformers[i].transformMethod(name, transformedName, classNode, methodNode, analyzedInstructions);
-                            }
-
-                            //keep running all the optimization passes until they all stop making changes
-                            int prevRoundChangeFlags;
-                            do {
-                                prevRoundChangeFlags = 0;
-
-                                for (int i = interestedMethodOptimizationPasses.nextSetBit(0); i >= 0; i = interestedMethodOptimizationPasses.nextSetBit(i + 1)) {
-                                    prevRoundChangeFlags |= pipeline.methodOptimizationPasses[i].transformMethod(name, transformedName, classNode, methodNode, analyzedInstructions);
-                                }
-
-                                methodChangeFlags |= prevRoundChangeFlags;
-                            } while (prevRoundChangeFlags != 0);
-                        }
-
-                        return methodChangeFlags;
-                    })
-                    .reduce(0, (a, b) -> a | b);
+                    }
+                }
+            }
         }
 
         if ((changeFlags & ITreeClassTransformer.CHANGED) != 0) {
@@ -275,43 +281,233 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
     private static boolean transformerInterestedInClass(ITreeClassTransformer transformer, String name, String transformedName) {
         return transformer.interestedInClass(name, transformedName)
-               && !transformedName.startsWith(transformer.getClass().getTypeName()); //prevent transformers from transforming their own inner classes
+               && !transformedName.startsWith(transformer.getClass().getName()); //prevent transformers from transforming their own inner classes
+    }
+
+    private static int bitsetArrayLength(int length) {
+        return ((length - 1) >> 6) + 1;
     }
 
     @SneakyThrows
-    private static MethodHandle determineInterestedTransformersHandle(ITreeClassTransformer[] transformers) {
+    private static TransformerPipeline buildTransformerPipeline(ITreeClassTransformer... transformers) {
+        String className = Type.getInternalName(TransformerPipeline.class) + "$OptimizedPipeline$" + transformers.length;
+
         AnonymousClassWriter cw = AnonymousClassWriter.create(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
 
-        cw.visit(V1_8, ACC_PUBLIC | ACC_FINAL, "DetermineInterested", null, "java/lang/Object", null);
-        {
-            MethodVisitor mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "determineInterested", Type.getMethodDescriptor(Type.getType(BitSet.class), Type.getType(String.class), Type.getType(String.class)), null, null);
+        cw.visit(V1_8, ACC_PUBLIC | ACC_FINAL, className, null, Type.getInternalName(TransformerPipeline.class), null);
+
+        IntArrayList regularTransformers = new IntArrayList();
+        IntArrayList allMethodTransformers = new IntArrayList();
+        IntArrayList allBasicMethodTransformers = new IntArrayList();
+        IntArrayList basicMethodTransformers = new IntArrayList();
+        IntArrayList basicMethodOptimizationPasses = new IntArrayList();
+        IntArrayList allAnalyzedMethodTransformers = new IntArrayList();
+        IntArrayList analyzedMethodTransformers = new IntArrayList();
+        IntArrayList analyzedMethodOptimizationPasses = new IntArrayList();
+        for (int i = 0; i < transformers.length; i++) {
+            ITreeClassTransformer transformer = transformers[i];
+            boolean optimization = transformer instanceof ITreeClassTransformer.OptimizationPass;
+            if (transformer instanceof ITreeClassTransformer.IndividualMethod) {
+                allMethodTransformers.add(i);
+                if (transformer instanceof ITreeClassTransformer.IndividualMethod.Analyzed) {
+                    allBasicMethodTransformers.add(i);
+                    (optimization ? analyzedMethodOptimizationPasses : analyzedMethodTransformers).add(i);
+                } else {
+                    allAnalyzedMethodTransformers.add(i);
+                    (optimization ? basicMethodOptimizationPasses : basicMethodTransformers).add(i);
+                }
+            } else {
+                Preconditions.checkArgument(!optimization, "non-method optimization passes aren't supported!", transformer);
+                regularTransformers.add(i);
+            }
+        }
+
+        { //constructor
+            MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "<init>", Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(ITreeClassTransformer[].class)), null, null);
+            mv.visitCode();
+
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitMethodInsn(INVOKESPECIAL, Type.getInternalName(TransformerPipeline.class), "<init>", Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(ITreeClassTransformer[].class)), false);
+            mv.visitInsn(RETURN);
+
+            mv.visitMaxs(0, 0);
+            mv.visitEnd();
+        }
+
+        { //BitSet determineInterested(String name, String internalName)
+            MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "determineInterested", Type.getMethodDescriptor(Type.getType(BitSet.class), Type.getType(String.class), Type.getType(String.class)), null, null);
             mv.visitCode();
 
             mv.visitTypeInsn(NEW, Type.getInternalName(BitSet.class));
             mv.visitInsn(DUP);
             mv.visitLdcInsn(transformers.length);
             mv.visitMethodInsn(INVOKESPECIAL, Type.getInternalName(BitSet.class), "<init>", "(I)V", false);
-            mv.visitVarInsn(ASTORE, 2);
+            mv.visitVarInsn(ASTORE, 3);
 
             for (int i = 0; i < transformers.length; i++) {
-                mv.visitVarInsn(ALOAD, 2);
+                ITreeClassTransformer transformer = transformers[i];
+
+                Label falseLbl = new Label();
+                Label tailLbl = new Label();
+
+                mv.visitVarInsn(ALOAD, 3);
                 mv.visitLdcInsn(i);
-                cw.addConstant(mv, transformers[i], Type.getInternalName(ITreeClassTransformer.class));
-                mv.visitVarInsn(ALOAD, 0);
+                mv.visitVarInsn(ALOAD, 2);
+                mv.visitLdcInsn(transformer.getClass().getName());
+                mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(String.class), "startsWith", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(String.class)), false);
+                mv.visitJumpInsn(IFNE, falseLbl);
+                cw.addConstant(mv, transformer, Type.getInternalName(ITreeClassTransformer.class));
                 mv.visitVarInsn(ALOAD, 1);
+                mv.visitVarInsn(ALOAD, 2);
                 mv.visitMethodInsn(INVOKEINTERFACE, Type.getInternalName(ITreeClassTransformer.class), "interestedInClass", "(Ljava/lang/String;Ljava/lang/String;)Z", true);
+                mv.visitJumpInsn(IFEQ, falseLbl);
+                mv.visitInsn(ICONST_1);
+                mv.visitJumpInsn(GOTO, tailLbl);
+                mv.visitLabel(falseLbl);
+                mv.visitInsn(ICONST_0);
+                mv.visitLabel(tailLbl);
                 mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(BitSet.class), "set", "(IZ)V", false);
             }
 
-            mv.visitVarInsn(ALOAD, 2);
+            mv.visitVarInsn(ALOAD, 3);
             mv.visitInsn(ARETURN);
 
             mv.visitMaxs(0, 0);
             mv.visitEnd();
         }
+
+        { //int applyRegularTransformers(String name, String internalName, ClassNode classNode, BitSet interestedMask)
+            MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "applyRegularTransformers", Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(BitSet.class)), null, null);
+            mv.visitCode();
+
+            mv.visitInsn(ICONST_0);
+            mv.visitVarInsn(ISTORE, 5);
+
+            for (int i : regularTransformers) {
+                Label tailLbl = new Label();
+
+                mv.visitVarInsn(ALOAD, 4);
+                mv.visitLdcInsn(i);
+                mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(BitSet.class), "get", "(I)Z", false);
+                mv.visitJumpInsn(IFEQ, tailLbl);
+
+                mv.visitVarInsn(ILOAD, 5);
+                cw.addConstant(mv, transformers[i], Type.getInternalName(ITreeClassTransformer.class));
+                mv.visitVarInsn(ALOAD, 1);
+                mv.visitVarInsn(ALOAD, 2);
+                mv.visitVarInsn(ALOAD, 3);
+                mv.visitMethodInsn(INVOKEINTERFACE, Type.getInternalName(ITreeClassTransformer.class), "transformClass", Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class)), true);
+                mv.visitInsn(IOR);
+                mv.visitVarInsn(ISTORE, 5);
+
+                mv.visitLabel(tailLbl);
+            }
+
+            mv.visitVarInsn(ILOAD, 5);
+            mv.visitInsn(IRETURN);
+
+            mv.visitMaxs(0, 0);
+            mv.visitEnd();
+        }
+
+        visitAnyInterestedMethodInPipeline(cw, transformers, "anyMethodTransformersInterestedInClass", allMethodTransformers);
+
+        visitAnyInterestedMethodInPipeline(cw, transformers, "anyBasicMethodTransformersInterestedInClass", allBasicMethodTransformers);
+        visitApplyMethodTransformersMethodInPipeline(cw, transformers, "applyBasicMethodTransformers", basicMethodTransformers, false);
+        visitApplyMethodTransformersMethodInPipeline(cw, transformers, "applyBasicMethodOptimizationPasses", basicMethodOptimizationPasses, false);
+
+        visitAnyInterestedMethodInPipeline(cw, transformers, "anyAnalyzedMethodTransformersInterestedInClass", allAnalyzedMethodTransformers);
+        visitApplyMethodTransformersMethodInPipeline(cw, transformers, "applyAnalyzedMethodTransformers", analyzedMethodTransformers, true);
+        visitApplyMethodTransformersMethodInPipeline(cw, transformers, "applyAnalyzedMethodOptimizationPasses", analyzedMethodOptimizationPasses, true);
+
         cw.visitEnd();
 
-        return MethodHandles.publicLookup().findStatic(cw.defineAnonymousClass(PPatchesTransformerRoot.class), "determineInterested", MethodType.methodType(BitSet.class, String.class, String.class));
+        dumpClass(className, cw);
+
+        return (TransformerPipeline) MethodHandles.publicLookup().findConstructor(cw.defineAnonymousClass(PPatchesTransformerRoot.class), MethodType.methodType(void.class, ITreeClassTransformer[].class)).invoke(transformers);
+    }
+    
+    private static void visitAnyInterestedMethodInPipeline(AnonymousClassWriter cw, ITreeClassTransformer[] transformers, String methodName, IntArrayList transformerIndices) {
+        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, methodName, Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(BitSet.class)), null, null);
+        mv.visitCode();
+
+        Label trueLbl = new Label();
+        Label tailLbl = new Label();
+
+        for (int i : transformerIndices) {
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitLdcInsn(i);
+            mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(BitSet.class), "get", "(I)Z", false);
+            mv.visitJumpInsn(IFNE, trueLbl);
+        }
+
+        mv.visitInsn(ICONST_0);
+        mv.visitJumpInsn(GOTO, tailLbl);
+        mv.visitLabel(trueLbl);
+        mv.visitInsn(ICONST_1);
+        mv.visitLabel(tailLbl);
+        mv.visitInsn(IRETURN);
+
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+    }
+
+    private static void visitApplyMethodTransformersMethodInPipeline(AnonymousClassWriter cw, ITreeClassTransformer[] transformers, String methodName, IntArrayList transformerIndices, boolean analyzed) {
+        String methodDesc;
+        String transformMethodDesc;
+        String transformerClassInternalName;
+        int interestedFlagsLvtIndex;
+        int accumulatorLvtIndex;
+        if (analyzed) {
+            methodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class), Type.getType(AnalyzedInsnList.class), Type.getType(BitSet.class));
+            transformMethodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class), Type.getType(AnalyzedInsnList.class));
+            transformerClassInternalName = Type.getInternalName(ITreeClassTransformer.IndividualMethod.Analyzed.class);
+            interestedFlagsLvtIndex = 6;
+            accumulatorLvtIndex = 7;
+        } else {
+            methodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class), Type.getType(BitSet.class));
+            transformMethodDesc = Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class), Type.getType(MethodNode.class));
+            transformerClassInternalName = Type.getInternalName(ITreeClassTransformer.IndividualMethod.class);
+            interestedFlagsLvtIndex = 5;
+            accumulatorLvtIndex = 6;
+        }
+
+        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, methodName, methodDesc, null, null);
+        mv.visitCode();
+
+        mv.visitInsn(ICONST_0);
+        mv.visitVarInsn(ISTORE, accumulatorLvtIndex);
+
+        for (int i : transformerIndices) {
+            Label tailLbl = new Label();
+
+            mv.visitVarInsn(ALOAD, interestedFlagsLvtIndex);
+            mv.visitLdcInsn(i);
+            mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(BitSet.class), "get", "(I)Z", false);
+            mv.visitJumpInsn(IFEQ, tailLbl);
+
+            mv.visitVarInsn(ILOAD, accumulatorLvtIndex);
+            cw.addConstant(mv, transformers[i], transformerClassInternalName);
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitVarInsn(ALOAD, 2);
+            mv.visitVarInsn(ALOAD, 3);
+            mv.visitVarInsn(ALOAD, 4);
+            if (analyzed) {
+                mv.visitVarInsn(ALOAD, 5);
+            }
+            mv.visitMethodInsn(INVOKEINTERFACE, transformerClassInternalName, "transformMethod", transformMethodDesc, true);
+            mv.visitInsn(IOR);
+            mv.visitVarInsn(ISTORE, accumulatorLvtIndex);
+
+            mv.visitLabel(tailLbl);
+        }
+
+        mv.visitVarInsn(ILOAD, accumulatorLvtIndex);
+        mv.visitInsn(IRETURN);
+
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
     }
 
     private static ClassNode readClass(ClassReader reader) {
@@ -323,40 +519,26 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         return classNode;
     }
 
-    private static final class TransformerPipeline {
+    @RequiredArgsConstructor
+    private static abstract class TransformerPipeline {
         public final ITreeClassTransformer[] allTransformers;
 
-        public final ITreeClassTransformer[] regularTransformers;
-        public final ITreeClassTransformer.IndividualMethod[] methodTransformers;
-        public final ITreeClassTransformer.IndividualMethod[] methodOptimizationPasses;
+        public abstract BitSet determineInterested(String name, String transformedName);
 
-        public final MethodHandle determineInterestedRegularTransformers;
-        public final MethodHandle determineInterestedMethodTransformers;
-        public final MethodHandle determineInterestedMethodOptimizationPasses;
+        public abstract int applyRegularTransformers(String name, String transformedName, ClassNode classNode, BitSet interestedMask);
 
-        public TransformerPipeline(ITreeClassTransformer... allTransformers) {
-            this.allTransformers = allTransformers;
+        public abstract boolean anyMethodTransformersInterestedInClass(BitSet interestedMask);
 
-            List<ITreeClassTransformer> regularTransformers = new ArrayList<>(allTransformers.length);
-            List<ITreeClassTransformer.IndividualMethod> methodTransformers = new ArrayList<>(allTransformers.length);
-            List<ITreeClassTransformer.IndividualMethod> methodOptimizationPasses = new ArrayList<>(allTransformers.length);
-            for (ITreeClassTransformer transformer : allTransformers) {
-                boolean optimization = transformer instanceof ITreeClassTransformer.OptimizationPass;
-                if (transformer instanceof ITreeClassTransformer.IndividualMethod) {
-                    (optimization ? methodOptimizationPasses : methodTransformers).add((ITreeClassTransformer.IndividualMethod) transformer);
-                } else {
-                    Preconditions.checkArgument(!optimization, "non-method optimization passes aren't supported!", transformer);
-                    regularTransformers.add(transformer);
-                }
-            }
+        public abstract boolean anyBasicMethodTransformersInterestedInClass(BitSet interestedMask);
 
-            this.regularTransformers = regularTransformers.toArray(new ITreeClassTransformer[0]);
-            this.methodTransformers = methodTransformers.toArray(new ITreeClassTransformer.IndividualMethod[0]);
-            this.methodOptimizationPasses = methodOptimizationPasses.toArray(new ITreeClassTransformer.IndividualMethod[0]);
+        public abstract int applyBasicMethodTransformers(String name, String transformedName, ClassNode classNode, MethodNode methodNode, BitSet interestedMask);
 
-            this.determineInterestedRegularTransformers = determineInterestedTransformersHandle(this.regularTransformers);
-            this.determineInterestedMethodTransformers = determineInterestedTransformersHandle(this.methodTransformers);
-            this.determineInterestedMethodOptimizationPasses = determineInterestedTransformersHandle(this.methodOptimizationPasses);
-        }
+        public abstract int applyBasicMethodOptimizationPasses(String name, String transformedName, ClassNode classNode, MethodNode methodNode, BitSet interestedMask);
+
+        public abstract boolean anyAnalyzedMethodTransformersInterestedInClass(BitSet interestedMask);
+
+        public abstract int applyAnalyzedMethodTransformers(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions, BitSet interestedMask);
+
+        public abstract int applyAnalyzedMethodOptimizationPasses(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions, BitSet interestedMask);
     }
 }
