@@ -183,6 +183,11 @@ public class PPatchesConfig {
     public static final ModuleConfigBase forge_preventSplashScreenAutoDisable = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Patches iChunUtil to not access client-only code on the dedicated server.",
+    })
+    public static final ModuleConfigBase iChunUtil_fixClientClassAccess = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches all Java code to move string concatenation out of the main method body and into a separate INVOKEDYNAMIC instruction.",
             "This emulates the standard behavior for string concatenation in Java 9+.",
             "This could slightly improve performance for code which uses lots of string concatenation.",
