@@ -95,8 +95,8 @@ public class DynamicStringConcatenationTransformer implements ITreeClassTransfor
             return 0;
         }
 
-        PPatchesMod.LOGGER.trace("Replacing string concatenation in L{};{}{} (line {}) with INVOKEDYNAMIC",
-                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(newInsn));
+        PPatchesMod.LOGGER.trace("Replacing string concatenation in L{};{}{} {} with INVOKEDYNAMIC",
+                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(newInsn));
 
         try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
             batch.remove(newInsn);

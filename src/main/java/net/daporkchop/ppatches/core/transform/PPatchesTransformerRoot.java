@@ -135,6 +135,8 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
         TransformerPipeline pipeline = PIPELINE;
 
+        //TODO: i'd like to redesign this so that transformers can be ordered individually, and we aren't limited to running transformers of a single type together
+
         //determine which transformers are interested in transforming this class
         BitSet interestedMask = pipeline.determineInterested(name, transformedName);
 
@@ -191,6 +193,8 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
             ClassWriter writer = new PPatchesClassWriter(reader, ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
             try {
+                //as it turns out, this currently isn't necessary, but it may be at some point in the future:
+                //  classNode.accept(new OptimizingClassVisitor(writer));
                 classNode.accept(writer);
             } catch (PPatchesClassWriter.UnknownCommonSuperClassException e) {
                 //this can only occur in a few very rare situations where two different object types are being merged together from different sides of a branch, and one of the types refers
@@ -311,10 +315,10 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             if (transformer instanceof ITreeClassTransformer.IndividualMethod) {
                 allMethodTransformers.add(i);
                 if (transformer instanceof ITreeClassTransformer.IndividualMethod.Analyzed) {
-                    allBasicMethodTransformers.add(i);
+                    allAnalyzedMethodTransformers.add(i);
                     (optimization ? analyzedMethodOptimizationPasses : analyzedMethodTransformers).add(i);
                 } else {
-                    allAnalyzedMethodTransformers.add(i);
+                    allBasicMethodTransformers.add(i);
                     (optimization ? basicMethodOptimizationPasses : basicMethodTransformers).add(i);
                 }
             } else {
@@ -358,10 +362,10 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                 mv.visitLdcInsn(transformer.getClass().getName());
                 mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(String.class), "startsWith", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(String.class)), false);
                 mv.visitJumpInsn(IFNE, falseLbl);
-                cw.addConstant(mv, transformer, Type.getInternalName(ITreeClassTransformer.class));
+                cw.addConstant(mv, transformer, Type.getInternalName(transformer.getClass()));
                 mv.visitVarInsn(ALOAD, 1);
                 mv.visitVarInsn(ALOAD, 2);
-                mv.visitMethodInsn(INVOKEINTERFACE, Type.getInternalName(ITreeClassTransformer.class), "interestedInClass", "(Ljava/lang/String;Ljava/lang/String;)Z", true);
+                mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(transformer.getClass()), "interestedInClass", "(Ljava/lang/String;Ljava/lang/String;)Z", false);
                 mv.visitJumpInsn(IFEQ, falseLbl);
                 mv.visitInsn(ICONST_1);
                 mv.visitJumpInsn(GOTO, tailLbl);
@@ -428,7 +432,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
         return (TransformerPipeline) MethodHandles.publicLookup().findConstructor(cw.defineAnonymousClass(PPatchesTransformerRoot.class), MethodType.methodType(void.class, ITreeClassTransformer[].class)).invoke(transformers);
     }
-    
+
     private static void visitAnyInterestedMethodInPipeline(AnonymousClassWriter cw, ITreeClassTransformer[] transformers, String methodName, IntArrayList transformerIndices) {
         MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, methodName, Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(BitSet.class)), null, null);
         mv.visitCode();

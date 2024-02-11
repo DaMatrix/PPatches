@@ -74,8 +74,8 @@ public class SeparatedExceptionConstructionTransformer implements ITreeClassTran
                     continue;
                 }
 
-                PPatchesMod.LOGGER.debug("replacing Throwable constructor with constant L{};{}{} at L{};{}{} (line {}) with INVOKEDYNAMIC",
-                        newInsn.desc, invokeCtorInsn.name, invokeCtorInsn.desc, classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(newInsn));
+                PPatchesMod.LOGGER.debug("replacing Throwable constructor with constant L{};{}{} at L{};{}{} {} with INVOKEDYNAMIC",
+                        newInsn.desc, invokeCtorInsn.name, invokeCtorInsn.desc, classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(newInsn));
 
                 //we found an argument which is a constant, let's merge it into the invokedynamic instruction
                 try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
@@ -92,8 +92,8 @@ public class SeparatedExceptionConstructionTransformer implements ITreeClassTran
             }
         }
 
-        PPatchesMod.LOGGER.debug("replacing Throwable constructor L{};{}{} at L{};{}{} (line {}) with INVOKEDYNAMIC",
-                newInsn.desc, invokeCtorInsn.name, invokeCtorInsn.desc, classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(newInsn));
+        PPatchesMod.LOGGER.debug("replacing Throwable constructor L{};{}{} at L{};{}{} {} with INVOKEDYNAMIC",
+                newInsn.desc, invokeCtorInsn.name, invokeCtorInsn.desc, classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(newInsn));
 
         try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
             batch.remove(newInsn);

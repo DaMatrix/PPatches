@@ -69,8 +69,8 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         Type constantClass = (Type) ((LdcInsnNode) src).cst;
                         String replacement = "getDescriptor".equals(methodInsn.name) ? constantClass.getDescriptor() : constantClass.getInternalName();
 
-                        PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.{}({}.class) to \"{}\"",
-                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn),
+                        PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} {} from Type.{}({}.class) to \"{}\"",
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(methodInsn),
                                 methodInsn.name, constantClass.getInternalName().replace('/', '.'), replacement);
 
                         try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
@@ -84,8 +84,8 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         if ("TYPE".equals(fieldSrc.name) && "Ljava/lang/Class;".equals(fieldSrc.desc)
                                 && (primitiveType = BytecodeHelper.unboxedPrimitiveType(fieldSrc.owner).orElse(null)) != null) {
 
-                            PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.{}({}.class) to \"{}\"",
-                                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn),
+                            PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} {} from Type.{}({}.class) to \"{}\"",
+                                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(methodInsn),
                                     methodInsn.name, primitiveType.getClassName(), primitiveType.getDescriptor());
 
                             try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
@@ -104,8 +104,8 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         //getType() on a constant class, redirect to a constant string to avoid loading classes
                         Type constantClass = (Type) ((LdcInsnNode) src).cst;
 
-                        PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.getType({}.class) to Type.getType(\"{}\")",
-                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn),
+                        PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} {} from Type.getType({}.class) to Type.getType(\"{}\")",
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(methodInsn),
                                 constantClass.getInternalName().replace('/', '.'), constantClass.getDescriptor());
 
                         try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
@@ -120,8 +120,8 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                                 && (primitiveType = BytecodeHelper.unboxedPrimitiveType(fieldSrc.owner).orElse(null)) != null) {
                             //getType() on a constant primitive field, redirect to the static fields in Type
 
-                            PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.getType({}.class) to Type.{}_TYPE",
-                                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn),
+                            PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} {} from Type.getType({}.class) to Type.{}_TYPE",
+                                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(methodInsn),
                                     primitiveType.getClassName(), primitiveType.getClassName().toUpperCase(Locale.ROOT));
 
                             try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
@@ -139,8 +139,8 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         //TODO: this could be CONSTANT_DYNAMIC when available
                         String desc = (String) ((LdcInsnNode) src).cst;
 
-                        PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} (line {}) from Type.getType(\"{}\") into an INVOKEDYNAMIC",
-                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn), desc);
+                        PPatchesMod.LOGGER.info("Folding constant Type usage at L{};{}{} {} from Type.getType(\"{}\") into an INVOKEDYNAMIC",
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(methodInsn), desc);
 
                         try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
                             batch.remove(src);
@@ -175,8 +175,8 @@ public class FoldTypeConstantsTransformer implements ITreeClassTransformer.Indiv
                         elementConstantStrings[i] = tryExtractConstantTypeDesc(instructions, varargs.elements.get(i).astoreInsn, 2, toRemove);
                     }
 
-                    PPatchesMod.LOGGER.info("Folding Type.getMethodDescriptor() call with constant argument type count at L{};{}{} (line {}) into string concatenation",
-                            classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(methodInsn));
+                    PPatchesMod.LOGGER.info("Folding Type.getMethodDescriptor() call with constant argument type count at L{};{}{} {} into string concatenation",
+                            classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(methodInsn));
 
                     try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
                         PreparedConcatGenerator concat = new PreparedConcatGenerator();

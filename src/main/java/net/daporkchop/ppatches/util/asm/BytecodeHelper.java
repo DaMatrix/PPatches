@@ -98,6 +98,16 @@ public class BytecodeHelper {
         return ((LineNumberNode) insn).line;
     }
 
+    public static String findLineNumberForLog(AbstractInsnNode insn) {
+        while (!(insn instanceof LineNumberNode)) {
+            insn = insn.getPrevious();
+            if (insn == null) {
+                return "(unknown line)";
+            }
+        }
+        return "(line " + ((LineNumberNode) insn).line + ')';
+    }
+
     //
     // <instruction equality checks>
     //

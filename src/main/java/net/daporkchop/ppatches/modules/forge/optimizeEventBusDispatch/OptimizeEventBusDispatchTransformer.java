@@ -64,14 +64,14 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
         ClassInfo classInfo;
         ClassInfo.Field field;
         if ((classInfo = ClassInfo.forName(getEventBusInsn.owner)) == null || (field = classInfo.findFieldInHierarchy(getEventBusInsn.name, getEventBusInsn.desc, ClassInfo.SearchType.ALL_CLASSES, ClassInfo.Traversal.NONE, ClassInfo.INCLUDE_ALL)) == null) {
-            PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): couldn't find event bus source field",
+            PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: couldn't find event bus source field",
                     getEventBusInsn.owner, getEventBusInsn.name,
-                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn));
+                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn));
             return 0;
         } else if (!field.isStatic() || !field.isFinal()) {
-            PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): event bus source field L{};{} isn't static final",
+            PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: event bus source field L{};{} isn't static final",
                     getEventBusInsn.owner, getEventBusInsn.name,
-                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn),
+                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn),
                     getEventBusInsn.owner, getEventBusInsn.name);
             return 0;
         }
@@ -89,29 +89,29 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
                 case ALOAD: {
                     AbstractInsnNode storeInsn = instructions.getSingleLocalSource(eventInstanceSourceInsn, ((VarInsnNode) eventInstanceSourceInsn).var);
                     if (storeInsn == null) {
-                        PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): local variable {} has {} possible sources",
+                        PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: local variable {} has {} possible sources",
                                 getEventBusInsn.owner, getEventBusInsn.name,
-                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn),
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn),
                                 ((VarInsnNode) eventInstanceSourceInsn).var, instructions.getLocalSources(eventInstanceSourceInsn, ((VarInsnNode) eventInstanceSourceInsn).var).insns.size());
                         return 0;
                     } else if (storeInsn == IReverseDataflowProvider.ARGUMENT_SOURCE) {
-                        PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): event instance comes from a method argument",
+                        PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: event instance comes from a method argument",
                                 getEventBusInsn.owner, getEventBusInsn.name,
-                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn));
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn));
                         return 0;
                     }
 
                     AbstractInsnNode storeSourceInsn = instructions.getSingleStackOperandSourceFromBottom(storeInsn, 0);
                     if (storeSourceInsn == null) {
-                        PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): instruction {} has {} possible sources",
+                        PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: instruction {} has {} possible sources",
                                 getEventBusInsn.owner, getEventBusInsn.name,
-                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn),
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn),
                                 BytecodeHelper.toString(storeInsn), instructions.getStackOperandSourcesFromBottom(storeInsn, 0).insns.size());
                         return 0;
                     } else if (storeSourceInsn.getOpcode() != NEW) {
-                        PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): store source instruction was {}",
+                        PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: store source instruction was {}",
                                 getEventBusInsn.owner, getEventBusInsn.name,
-                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn),
+                                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn),
                                 BytecodeHelper.toString(storeSourceInsn));
                         return 0;
                     }
@@ -120,9 +120,9 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
                     break;
                 }
                 default:
-                    PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): event instance source was {}",
+                    PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: event instance source was {}",
                             getEventBusInsn.owner, getEventBusInsn.name,
-                            classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn),
+                            classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn),
                             BytecodeHelper.toString(eventInstanceSourceInsn));
                     return 0;
             }
@@ -130,23 +130,23 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
             if (exactEventType == null) {
                 exactEventType = foundExactEventType;
             } else if (!exactEventType.equals(foundExactEventType)) {
-                PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): event instance has inconsistent possible types {} and {}",
+                PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: event instance has inconsistent possible types {} and {}",
                         getEventBusInsn.owner, getEventBusInsn.name,
-                        classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn),
+                        classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn),
                         exactEventType, foundExactEventType);
                 return 0;
             }
         }
         if (exactEventType == null) {
-            PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} (line {}): failed to determine event instance type",
+            PPatchesMod.LOGGER.warn("Not optimizing call to L{};{}.post() at L{};{}{} {}: failed to determine event instance type",
                     getEventBusInsn.owner, getEventBusInsn.name,
-                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn));
+                    classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn));
             return 0;
         }
 
-        PPatchesMod.LOGGER.info("Optimizing call to L{};{}.post() at L{};{}{} (line {}) with event type {}",
+        PPatchesMod.LOGGER.info("Optimizing call to L{};{}.post() at L{};{}{} {} with event type {}",
                 getEventBusInsn.owner, getEventBusInsn.name,
-                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumber(invokePostInsn),
+                classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(invokePostInsn),
                 exactEventType);
 
         try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
