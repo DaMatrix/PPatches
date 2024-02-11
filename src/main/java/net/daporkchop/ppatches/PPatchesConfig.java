@@ -382,6 +382,16 @@ public class PPatchesConfig {
     public static final ModuleConfigOptimizeItemRendererCacheModels vanilla_optimizeItemRendererCacheModel = new ModuleConfigOptimizeItemRendererCacheModels(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Patches all code to optimize all calls to Block#getDefaultState() into a simple constant load wherever we can prove that the block instance is a constant.",
+            "This will give a very slight performance increase in a lot of cases.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            mixins = {},
+            transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeGetDefaultState.OptimizeGetDefaultStateTransformer")
+    public static final ModuleConfigBase vanilla_optimizeGetDefaultState = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Patches Minecraft's MathHelper class to make a few operations more efficient.",
             "This will VERY slightly improve overall performance in certain cases.",
     })
