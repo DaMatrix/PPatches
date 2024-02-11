@@ -188,6 +188,29 @@ public class PPatchesConfig {
     public static final ModuleConfigBase java_flattenStreams = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Folds various effectively constant expressions using the Java API",
+            "This can significantly improve performance when using mods which make extensive use of the Stream API, however vanilla code is unlikely to benefit.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            mixins = {},
+            transformerClass = "net.daporkchop.ppatches.modules.java.foldTrivialConstants.FoldTrivialConstantsTransformer")
+    public static final ModuleConfigBase java_foldTrivialConstants = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
+            "Optimizes calls to Math.toDegrees(double) and Math.toRadians(double) with a simple multiplication by a constant.",
+            "This is the standard behavior on Java 9+ (see https://bugs.openjdk.org/browse/JDK-4477961), and as such should be totally safe to use. However, as it"
+            + " does slightly affect the results of angle conversions, this module is disabled by default.",
+            "This can increase the performance of code involving angle conversions by 3-4 times, however it will not affect vanilla code (as vanilla doesn't use the Java"
+            + " Math class for angle conversions).",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            mixins = {},
+            transformerClass = "net.daporkchop.ppatches.modules.java.optimizeAngleConversions.OptimizeAngleConversionsTransformer")
+    public static final ModuleConfigBase java_optimizeAngleConversions = new ModuleConfigBase(ModuleState.DISABLED);
+
+    @Config.Comment({
             "Patches all Java code to move construction of exception objects out of the main method body and into a separate INVOKEDYNAMIC instruction.",
             "This could theoretically improve performance in specific scenarios and on specific JVMs, but don't expect to see measurable improvements.",
     })
