@@ -4,7 +4,8 @@
   "package": "net.daporkchop.ppatches.modules.extraUtilities2.loadQuarryChunks.mixin",
   "refmap": "mixins.ppatches.refmap.json",
   "mixins": [
-    "IMixinWorldProviderSpecialDim",
-    "MixinXUChunkLoaderManager"
+    "MixinTilePower",
+    "MixinTileQuarry",
+    "MixinXUTile"
   ]
 }

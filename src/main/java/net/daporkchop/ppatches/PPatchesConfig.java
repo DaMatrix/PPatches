@@ -60,6 +60,16 @@ public class PPatchesConfig {
     public static final ModuleConfigBase customMainMenu_fixRenderColors = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches Extra Utilities 2 to make all Quantum Quarries mine from the same chunk.",
+            "This could result in a significant performance increase on the server side when multiple Quantum Quarries are active.",
+            "Note that when quarries are configured using a Biome Marker, those quarries will use a separate shared chunk for each configured biome. This will partially"
+            + " negate the performance improvements, especially if many quarries are configured with unique Biome Markers.",
+            "Note that this will affect the order in which blocks are mined - an individual quarry will no longer always mine an entire block column at a time, but will"
+            + " instead effectively be mining random blocks. On average, this should make no difference in mined items, however it should be taken into account.",
+    })
+    public static final ModuleConfigBase extraUtilities2_allQuarriesMineFromSameChunk = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Extra Utilities 2 to disable sky light in the Quantum Quarry and Deep Dark dimensions.",
             "This could result in a slight performance increase on the server side, in particular when the Quantum Quarry is active.",
     })
@@ -68,6 +78,13 @@ public class PPatchesConfig {
     @Config.Comment({
             "Patches Extra Utilities 2 to make the Quantum Quarry chunkload the source chunks in the quarry dimension.",
             "This will improve Quantum Quarry performance overall by avoiding periodic stuttering caused by chunks being unloaded and immediately loaded again.",
+    })
+    @ModuleDescriptor(mixins = {
+            //generic mixins for making the XUChunkLoader stuff work correctly with this
+            @MixinConfig,
+            //these mixins would break when allQuarriesMineFromSameChunk is enabled, so we'll only apply them when it's not enabled and duplicate the chunkloading logic
+            // into that module when this module is enabled
+            @MixinConfig(suffix = "standalone", requires = @Requirement(moduleDisabled = "extraUtilities2.allQuarriesMineFromSameChunk"))
     })
     public static final ModuleConfigBase extraUtilities2_loadQuarryChunks = new ModuleConfigBase(ModuleState.AUTO);
 
@@ -416,12 +433,31 @@ public class PPatchesConfig {
         for (Requirement requirement : requirements) {
             String classPresent = requirement.classPresent();
             String classAbsent = requirement.classAbsent();
-            Preconditions.checkArgument(classPresent.isEmpty() ^ classAbsent.isEmpty(), "exactly one of classPresent or classAbsent must be set!");
-            if (!classPresent.isEmpty() && Launch.classLoader.getResource(classPresent.replace('.', '/') + ".class") == null) {
-                return "dependency class " + classPresent + " can't be found";
-            }
-            if (!classAbsent.isEmpty() && Launch.classLoader.getResource(classAbsent.replace('.', '/') + ".class") != null) {
-                return "negative dependency class " + classAbsent + " was found";
+            String moduleEnabled = requirement.moduleEnabled();
+            String moduleDisabled = requirement.moduleDisabled();
+            Preconditions.checkArgument((classPresent.isEmpty() ? 0 : 1) + (classAbsent.isEmpty() ? 0 : 1) + (moduleEnabled.isEmpty() ? 0 : 1) + (moduleDisabled.isEmpty() ? 0 : 1) == 1, "exactly one requirement must be set!");
+            if (!classPresent.isEmpty()) {
+                if (Launch.classLoader.getResource(classPresent.replace('.', '/') + ".class") == null) {
+                    return "dependency class " + classPresent + " can't be found";
+                }
+            } else if (!classAbsent.isEmpty()) {
+                if (Launch.classLoader.getResource(classAbsent.replace('.', '/') + ".class") != null) {
+                    return "negative dependency class " + classAbsent + " was found";
+                }
+            } else if (!moduleEnabled.isEmpty()) {
+                ModuleConfigBase module = listModules().get(moduleEnabled);
+                Preconditions.checkState(module != null, "module %s doesn't exist!", moduleEnabled);
+                String disabledReason = module.getDisabledReason();
+                if (disabledReason != null) {
+                    return "dependency module " + moduleEnabled + " is disabled (reason: " + disabledReason + ')';
+                }
+            } else /*if (!moduleDisabled.isEmpty())*/ {
+                ModuleConfigBase module = listModules().get(moduleDisabled);
+                Preconditions.checkState(module != null, "module %s doesn't exist!", moduleDisabled);
+                String disabledReason = module.getDisabledReason();
+                if (disabledReason == null) {
+                    return "negative dependency module " + moduleDisabled + " is enabled";
+                }
             }
         }
         return null;
@@ -441,6 +477,10 @@ public class PPatchesConfig {
         public transient ModuleDescriptor descriptor;
         public transient Field field;
 
+        private transient String cachedDisabledReason;
+        private transient boolean disabledReasonCached = false;
+        private transient boolean computingDisabledReason = false;
+
         //called to determine the string used in the [default: ...] comment entry for the state property
         @SuppressWarnings("unused")
         protected String state$commentDefault() {
@@ -452,6 +492,25 @@ public class PPatchesConfig {
         }
 
         public String getDisabledReason() {
+            if (this.disabledReasonCached) {
+                return this.cachedDisabledReason;
+            }
+
+            String name = this.field.getName();
+            PPatchesBootstrap.Phase currentPhase = PPatchesBootstrap.currentPhase();
+            PPatchesBootstrap.Phase registerPhase = this.descriptor.registerPhase();
+            Preconditions.checkState(currentPhase.compareTo(registerPhase) >= 0, "state for module %s was accessed during phase %s, but the module is not loadable until %s", name, currentPhase, registerPhase);
+
+            Preconditions.checkState(!this.computingDisabledReason, "state for module %s was accessed recursively!", name);
+            this.computingDisabledReason = true;
+            String disabledReason = this.computeDisabledReason();
+            this.cachedDisabledReason = disabledReason;
+            this.disabledReasonCached = true;
+            this.computingDisabledReason = false;
+            return disabledReason;
+        }
+
+        private String computeDisabledReason() {
             ModuleState state = this.state;
             do {
                 switch (state) {
@@ -807,7 +866,7 @@ public class PPatchesConfig {
                 module.descriptor = descriptor != null ? descriptor : defaultDescriptor;
                 module.field = field;
 
-                builder.put(field.getName().replace('_', '.'), module);
+                builder.put(field.getName().replace('_', '.').intern(), module);
             }
         }
         return MODULES = builder.build();
@@ -849,6 +908,10 @@ public class PPatchesConfig {
         String classPresent() default "";
 
         String classAbsent() default "";
+
+        String moduleEnabled() default "";
+
+        String moduleDisabled() default "";
     }
 
     /**

@@ -238,15 +238,29 @@ abstract class MixinTileEntityFan extends MixinSyncedTileEntity {
      */
     @Unique
     @Override
+    public void invalidate() {
+        super.invalidate();
+    }
+
+    /**
+     * This method serves as a dummy injection point; it will be silently discarded if another mixin targeting the same class adds the same override.
+     */
+    @Unique
+    @Override
     public void onChunkUnload() {
-        //no-op
+        super.onChunkUnload();
     }
 
     @Dynamic
-    @Inject(method = "Lopenblocks/common/tileentity/TileEntityFan;onChunkUnload()V", //don't need to explicitly add an obfuscated method name here, since the base method is added by Forge
+    @Inject(
+            method = {
+                    "Lopenblocks/common/tileentity/TileEntityFan;invalidate()V",
+                    "Lopenblocks/common/tileentity/TileEntityFan;func_145843_s()V",
+                    "Lopenblocks/common/tileentity/TileEntityFan;onChunkUnload()V", //don't need to explicitly add an obfuscated method name here, since the base method is added by Forge
+            },
             at = @At(value = "HEAD"),
-            allow = 1, require = 1)
-    private void ppatches_fanUpdateBatching_onChunkUnload_destroyGroup(CallbackInfo ci) {
+            allow = 2, require = 2)
+    private void ppatches_fanUpdateBatching_invalidate_destroyGroup(CallbackInfo ci) {
         this.ppatches_fanUpdateBatching_destroyGroup();
     }
 }

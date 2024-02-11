@@ -1,9 +1,13 @@
 package net.daporkchop.ppatches.modules.extraUtilities2.loadQuarryChunks.mixin;
 
+import net.daporkchop.ppatches.modules.extraUtilities2.loadQuarryChunks.LoadQuarryChunksHelper;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraftforge.common.ForgeChunkManager;
-import net.minecraftforge.fml.common.Loader;
-import org.spongepowered.asm.mixin.*;
+import org.spongepowered.asm.mixin.Dynamic;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Pseudo;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Slice;
@@ -30,17 +34,14 @@ abstract class MixinTileQuarry extends MixinTilePower {
     private void ppatches_loadQuarryChunks_quarryInactive() {
         checkState(!this.world.isRemote, "invoked from client???");
 
-        if (this.ppatches_loadQuarryChunks_activeTicket != null) {
-            ForgeChunkManager.releaseTicket(this.ppatches_loadQuarryChunks_activeTicket);
-            this.ppatches_loadQuarryChunks_activeTicket = null;
-        }
+        this.ppatches_loadQuarryChunks_activeTicket = LoadQuarryChunksHelper.unloadQuarryChunks(this.chunkPos, this.ppatches_loadQuarryChunks_activeTicket);
     }
 
     @Dynamic
     @Inject(
             method = {
                     "Lcom/rwtema/extrautils2/quarry/TileQuarry;update()V",
-                    "Lcom/rwtema/extrautils2/quarry/TileQuarry;func_73660_a()V", //mixin plugin can't automatically generate refmaps for this method, since it's a psuedo class})
+                    "Lcom/rwtema/extrautils2/quarry/TileQuarry;func_73660_a()V", //mixin plugin can't automatically generate refmaps for this method, since it's a pseudo class
             },
             slice = @Slice(
                     from = @At(value = "INVOKE",
@@ -68,20 +69,46 @@ abstract class MixinTileQuarry extends MixinTilePower {
         }
     }
 
+    @Dynamic
+    @Inject(method = "Lcom/rwtema/extrautils2/quarry/TileQuarry;breakBlock(Lnet/minecraft/world/World;Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/state/IBlockState;)V", //don't need to explicitly add an obfuscated method name here, since the base method is added by Forge
+            at = @At(value = "INVOKE",
+                    target = "Lcom/rwtema/extrautils2/dimensions/workhousedim/WorldProviderSpecialDim;releaseChunk(Lnet/minecraft/util/math/ChunkPos;)V"),
+            allow = 1, require = 1)
+    private void ppatches_loadQuarryChunks_breakBlock_releaseTicket(CallbackInfo ci) {
+        if (this.ppatches_loadQuarryChunks_quarryChunksLoaded) {
+            this.ppatches_loadQuarryChunks_quarryChunksLoaded = false;
+            this.ppatches_loadQuarryChunks_quarryInactive();
+        }
+    }
+
+    /**
+     * This method serves as a dummy injection point; it will be silently discarded if another mixin targeting the same class adds the same override.
+     */
+    @Unique
+    @Override
+    public void invalidate() {
+        super.invalidate();
+    }
+
     /**
      * This method serves as a dummy injection point; it will be silently discarded if another mixin targeting the same class adds the same override.
      */
     @Unique
     @Override
     public void onChunkUnload() {
-        //no-op
+        super.onChunkUnload();
     }
 
     @Dynamic
-    @Inject(method = "Lcom/rwtema/extrautils2/quarry/TileQuarry;onChunkUnload()V", //don't need to explicitly add an obfuscated method name here, since the base method is added by Forge
+    @Inject(
+            method = {
+                    "Lcom/rwtema/extrautils2/quarry/TileQuarry;invalidate()V",
+                    "Lcom/rwtema/extrautils2/quarry/TileQuarry;func_145843_s()V",
+                    "Lcom/rwtema/extrautils2/quarry/TileQuarry;onChunkUnload()V", //don't need to explicitly add an obfuscated method name here, since the base method is added by Forge
+            },
             at = @At(value = "HEAD"),
-            allow = 1, require = 1)
-    private void ppatches_loadQuarryChunks_onChunkUnload_releaseTicket(CallbackInfo ci) {
+            allow = 2, require = 2)
+    private void ppatches_loadQuarryChunks_invalidate_releaseTicket(CallbackInfo ci) {
         if (this.ppatches_loadQuarryChunks_quarryChunksLoaded) {
             this.ppatches_loadQuarryChunks_quarryChunksLoaded = false;
             this.ppatches_loadQuarryChunks_quarryInactive();
@@ -93,25 +120,14 @@ abstract class MixinTileQuarry extends MixinTilePower {
         checkState(!this.world.isRemote, "invoked from client???");
         checkState(this.chunkPos != null, "quarry doesn't have an active position???");
 
-        this.ppatches_loadQuarryChunks_activeTicket = ForgeChunkManager.requestTicket(Loader.instance().getIndexedModList().get("extrautils2").getMod(), IMixinWorldProviderSpecialDim.callGetWorld(), ForgeChunkManager.Type.NORMAL);
-        if (this.ppatches_loadQuarryChunks_activeTicket != null) {
-            //we successfully acquired a chunkloading ticket, use it to load the quarry chunks
-
-            final int r = 1;
-            ChunkPos origin = this.chunkPos;
-            for (int dx = -r; dx <= r; dx++) {
-                for (int dz = -r; dz <= r; dz++) {
-                    ForgeChunkManager.forceChunk(this.ppatches_loadQuarryChunks_activeTicket, new ChunkPos(origin.x + dx, origin.z + dz));
-                }
-            }
-        }
+        this.ppatches_loadQuarryChunks_activeTicket = LoadQuarryChunksHelper.loadQuarryChunks(this.chunkPos);
     }
 
     @Dynamic
     @Inject(
             method = {
                     "Lcom/rwtema/extrautils2/quarry/TileQuarry;update()V",
-                    "Lcom/rwtema/extrautils2/quarry/TileQuarry;func_73660_a()V", //mixin plugin can't automatically generate refmaps for this method, since it's a psuedo class})
+                    "Lcom/rwtema/extrautils2/quarry/TileQuarry;func_73660_a()V", //mixin plugin can't automatically generate refmaps for this method, since it's a pseudo class
             },
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/World;getTotalWorldTime()J", remap = true,
