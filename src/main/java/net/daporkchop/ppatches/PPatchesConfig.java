@@ -139,6 +139,11 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            mixins = {
+                    @MixinConfig,
+                    //we want these mixins to be applied even if forge.optimizeEventInstanceAllocation is disabled, because they help us optimize as well
+                    @MixinConfig(suffix = "optimizeEventInstanceAllocation", requires = @Requirement(moduleDisabled = "forge.optimizeEventInstanceAllocation"))
+            },
             transformerClass = "net.daporkchop.ppatches.modules.forge.optimizeEventBusDispatch.OptimizeEventBusDispatchTransformer")
     public static final ModuleConfigBase forge_optimizeEventBusDispatch = new ModuleConfigBase(ModuleState.ENABLED);
 
@@ -149,8 +154,12 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
-            transformerClass = "net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.OptimizeEventInstanceAllocationTransformer")
-    public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.ENABLED);
+            transformerClass = {
+                    "net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.OptimizeEventInstanceAllocationTransformer_Events",
+                    "net.daporkchop.ppatches.modules.forge.optimizeEventInstanceAllocation.OptimizeEventInstanceAllocationTransformer_IndividualMethods",
+            })
+    //TODO: this is currently disabled because it conflicts with optimizeEventBusDispatch
+    public static final ModuleConfigBase forge_optimizeEventInstanceAllocation = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches ForgeChunkManager to store the per-world forced chunks set in the world instance directly.",
