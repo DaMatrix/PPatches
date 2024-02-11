@@ -124,10 +124,10 @@ public class PPatchesBootstrap {
                     Mixins.addConfiguration("net/daporkchop/ppatches/modules/" + name.replace('.', '/') + "/" + configName);
                 }
             }
-            if (!module.descriptor.transformerClass().isEmpty()) {
-                PPatchesMod.LOGGER.info("Registering transformer for module {}", name);
+            for (String transformerClass : module.descriptor.transformerClass()) {
+                PPatchesMod.LOGGER.info("Registering transformer for module {}: {}", name, transformerClass);
                 long startTime = System.nanoTime();
-                PPatchesTransformerRoot.registerTransformers((ITreeClassTransformer) MethodHandles.publicLookup().findConstructor(Class.forName(module.descriptor.transformerClass()), MethodType.methodType(void.class)).invoke());
+                PPatchesTransformerRoot.registerTransformers((ITreeClassTransformer) MethodHandles.publicLookup().findConstructor(Class.forName(transformerClass), MethodType.methodType(void.class)).invoke());
                 PPatchesMod.LOGGER.debug("Registering transformer for module {} took {}ms", name, (System.nanoTime() - startTime) / 1_000_000.0d);
             }
         }

@@ -89,6 +89,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase extraUtilities2_loadQuarryChunks = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches Extra Utilities 2 to optimize the DropsHandler class to eliminate an expensive HashMultimap lookup every time a block is harvested.",
+            "This can increase server performance by a few percent in scenarios where many blocks are being harvested quickly.",
+    })
+    @ModuleDescriptor
+    public static final ModuleConfigBase extraUtilities2_optimizeDropsHandler = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Extra Utilities 2 to optimize the ItemCaptureHandler class to eliminate the need to create an item entity for each captured item drop.",
             "This will result in a server-side performance increase of 15-30% for blocks which use it, in particular the Quantum Quarry.",
     })
@@ -929,7 +936,7 @@ public class PPatchesConfig {
 
         MixinConfig[] mixins() default @MixinConfig;
 
-        String transformerClass() default "";
+        String[] transformerClass() default {};
     }
 
     /**
