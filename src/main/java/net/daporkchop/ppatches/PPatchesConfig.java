@@ -352,6 +352,13 @@ public class PPatchesConfig {
     public static final ModuleConfigOptimizeItemRendererCacheModels vanilla_optimizeItemRendererCacheModel = new ModuleConfigOptimizeItemRendererCacheModels(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Patches Minecraft's MathHelper class to make a few operations more efficient.",
+            "This will VERY slightly improve overall performance in certain cases.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase vanilla_optimizeMathHelper = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Patches Minecraft's SearchTree class to make initializing it faster.",
             "This makes the SearchTree calculation run asynchronously, and avoids adding entries to the internal SuffixArray datastructure multiple times.",
             "In large modpacks with many items and/or recipes, this can reduce client startup times by 10-20s (the effects are even more obvious if CraftTweaker is installed).",
@@ -888,6 +895,9 @@ public class PPatchesConfig {
     @Target({ElementType.FIELD})
     @Retention(RetentionPolicy.RUNTIME)
     public @interface ModuleDescriptor {
+        /**
+         * Higher priority modules will be registered earlier.
+         */
         int priority() default 0;
 
         Requirement[] requires() default {};
