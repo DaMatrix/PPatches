@@ -128,7 +128,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         public final CallbackInfoCreation callbackInfoCreation;
 
         public Optional<VarInsnNode> loadCallbackInfoFromLvtInsn;
-        public final MethodInsnNode invokeCallbackMethodInsn;
+        public MethodInsnNode invokeCallbackMethodInsn;
         public final List<AbstractInsnNode> checkCancelledInsns;
         
         public final boolean unsupported;
@@ -948,9 +948,25 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
 
             MethodNode callbackMethod = callbackMethodMeta.callbackMethod;
 
-            if (!PPatchesConfig.mixin_optimizeCallbackInfoAllocation.allowTransformingNonPrivateCallbacks && (callbackMethod.access & ACC_PRIVATE) == 0) {
-                PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} (added by {}) isn't private, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
-                continue;
+            if ((callbackMethod.access & ACC_PRIVATE) == 0) {
+                if (!PPatchesConfig.mixin_optimizeCallbackInfoAllocation.allowTransformingNonPrivateCallbacks) {
+                    PPatchesMod.LOGGER.warn("mixin callback method L{};{}{} (added by {}) isn't private, skipping...", classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
+                    continue;
+                } else if (PPatchesConfig.mixin_optimizeCallbackInfoAllocation.makeNonPrivateCallbacksPrivate) {
+                    PPatchesMod.LOGGER.info("mixin callback method L{};{}{} (added by {}) is going to be made private!", classNode.name, callbackMethod.name, callbackMethod.desc, callbackMethodMeta.getSourceMixinClassName().orElse("<unknown mixin>"));
+                    callbackMethod.access = (callbackMethod.access & ~(ACC_PUBLIC | ACC_PROTECTED)) | ACC_PRIVATE;
+                    if ((callbackMethod.access & ACC_STATIC) != 0) {
+                        for (CallbackInvocation invocation : callbackMethodMeta.usedByInvocations) {
+                            MethodInsnNode oldInvokeCallbackMethodInsn = invocation.invokeCallbackMethodInsn;
+
+                            assert oldInvokeCallbackMethodInsn.getOpcode() == INVOKEVIRTUAL : "expected INVOKEVIRTUAL, but found: " + BytecodeHelper.toString(invocation.invokeCallbackMethodInsn);
+                            MethodInsnNode newInvokeCallbackMethodInsn = new MethodInsnNode(INVOKESPECIAL, oldInvokeCallbackMethodInsn.owner, oldInvokeCallbackMethodInsn.name, oldInvokeCallbackMethodInsn.desc,oldInvokeCallbackMethodInsn.itf);
+                            invocation.callingMethod.instructions.set(oldInvokeCallbackMethodInsn, newInvokeCallbackMethodInsn);
+                            invocation.invokeCallbackMethodInsn = newInvokeCallbackMethodInsn;
+                        }
+                    }
+                    anyChanged = true;
+                }
             }
 
             //make sure we don't transform mixin callbacks which are called using INVOKEVIRTUAL: this indicates the method callback isn't private, and could therefore be overridden

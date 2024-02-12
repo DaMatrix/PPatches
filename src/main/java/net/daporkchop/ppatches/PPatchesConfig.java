@@ -124,6 +124,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase forge_optimizeAsmEventHandler = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Patches some Forge code in Minecraft's Block class which handles capturing block drops to make it run faster.",
+            "This could substantially improve performance for mods which make extensive use of this feature.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase forge_optimizeBlockCaptureDrops = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Patches ChunkProviderServer to avoid iterating over Forge's forced chunk set on every tick",
             "This can reduce the server thread time spent processing chunk unloads significantly in worlds with lots of loaded chunks.",
     })
