@@ -420,6 +420,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase vanilla_optimizeNonNullList = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Patches Minecraft's ResourceLocation class to make equality checks faster.",
+            "This will slightly improve overall performance in certain cases.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase vanilla_optimizeResourceLocationComparison = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Patches Minecraft's SearchTree class to make initializing it faster.",
             "This makes the SearchTree calculation run asynchronously, and avoids adding entries to the internal SuffixArray datastructure multiple times.",
             "In large modpacks with many items and/or recipes, this can reduce client startup times by 10-20s (the effects are even more obvious if CraftTweaker is installed).",
