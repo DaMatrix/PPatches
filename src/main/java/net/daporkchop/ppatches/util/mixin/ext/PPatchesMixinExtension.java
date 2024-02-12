@@ -1,5 +1,6 @@
 package net.daporkchop.ppatches.util.mixin.ext;
 
+import com.google.common.base.Preconditions;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import org.objectweb.asm.AnnotationVisitor;
@@ -86,7 +87,7 @@ public final class PPatchesMixinExtension implements IExtension {
             AnnotationVisitor visitor = context.getClassNode().visitAnnotation("Lnet/daporkchop/ppatches/util/mixin/ext/MixinDeleted;", true);
 
             if (deletedFields != null) {
-                removeStaticInitializers(context.getClassNode(), deletedFields);
+                removeInitializers(context.getClassNode(), deletedFields);
 
                 AnnotationVisitor fields = visitor.visitArray("fields");
                 for (FieldNode fieldNode : deletedFields) {
@@ -120,12 +121,20 @@ public final class PPatchesMixinExtension implements IExtension {
         }
     }
 
-    private static void removeStaticInitializers(ClassNode classNode, List<FieldNode> deletedFields) {
+    private static void removeInitializers(ClassNode classNode, List<FieldNode> deletedFields) {
         List<FieldNode> removeStaticInitializersFor = new ArrayList<>(deletedFields.size());
+        List<FieldNode> removeInstanceInitializersFor = new ArrayList<>(deletedFields.size());
         for (FieldNode deletedField : deletedFields) {
             AnnotationNode deleteAnnotation = BytecodeHelper.findAnnotationByDesc(deletedField.visibleAnnotations, "Lnet/daporkchop/ppatches/util/mixin/ext/Delete;").get();
             if ((Boolean) BytecodeHelper.findAnnotationValueByName(deleteAnnotation, "removeStaticInitializer").orElse(false)) {
+                Preconditions.checkArgument((deletedField.access & Opcodes.ACC_STATIC) != 0, "non-static field L%s;%s:%s was requested for static initializer removal!",
+                        classNode.name, deletedField.name, deletedField.desc);
                 removeStaticInitializersFor.add(deletedField);
+            }
+            if ((Boolean) BytecodeHelper.findAnnotationValueByName(deleteAnnotation, "removeInstanceInitializer").orElse(false)) {
+                Preconditions.checkArgument((deletedField.access & Opcodes.ACC_STATIC) == 0, "static field L%s;%s:%s was requested for instance initializer removal!",
+                        classNode.name, deletedField.name, deletedField.desc);
+                removeInstanceInitializersFor.add(deletedField);
             }
         }
 
@@ -138,9 +147,32 @@ public final class PPatchesMixinExtension implements IExtension {
                 if (insn.getOpcode() == Opcodes.PUTSTATIC && classNode.name.equals((fieldInsn = (FieldInsnNode) insn).owner)) {
                     for (FieldNode deletedField : removeStaticInitializersFor) {
                         if (fieldInsn.name.equals(deletedField.name) && fieldInsn.desc.equals(deletedField.desc)) {
-                            PPatchesMod.LOGGER.info("Disabling static initializer for L{};{}:{}", fieldInsn.owner, fieldInsn.name, fieldInsn.desc);
+                            PPatchesMod.LOGGER.info("Disabling static initializer for L{};{}:{} at L{};{}{} {}",
+                                    fieldInsn.owner, fieldInsn.name, fieldInsn.desc,
+                                    classNode.name, clinit.name, clinit.desc, BytecodeHelper.findLineNumberForLog(fieldInsn));
                             clinit.instructions.set(fieldInsn, BytecodeHelper.pop(Type.getType(fieldInsn.desc)));
                             break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!removeInstanceInitializersFor.isEmpty()) {
+            for (MethodNode methodNode : BytecodeHelper.findMethod(classNode, "<init>")) {
+                for (AbstractInsnNode insn = methodNode.instructions.getFirst(), next; insn != null; insn = next) {
+                    next = insn.getNext();
+
+                    FieldInsnNode fieldInsn;
+                    if (insn.getOpcode() == Opcodes.PUTFIELD && classNode.name.equals((fieldInsn = (FieldInsnNode) insn).owner)) {
+                        for (FieldNode deletedField : removeInstanceInitializersFor) {
+                            if (fieldInsn.name.equals(deletedField.name) && fieldInsn.desc.equals(deletedField.desc)) {
+                                PPatchesMod.LOGGER.info("Disabling instance initializer for L{};{}:{} at L{};{}{} {}",
+                                        fieldInsn.owner, fieldInsn.name, fieldInsn.desc,
+                                        classNode.name, methodNode.name, methodNode.desc, BytecodeHelper.findLineNumberForLog(fieldInsn));
+                                methodNode.instructions.set(fieldInsn, BytecodeHelper.pop(Type.getType(fieldInsn.desc)));
+                                break;
+                            }
                         }
                     }
                 }

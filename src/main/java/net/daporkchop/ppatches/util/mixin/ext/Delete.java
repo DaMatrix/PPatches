@@ -18,8 +18,14 @@ import java.lang.annotation.Target;
 @Target({ElementType.METHOD, ElementType.FIELD})
 public @interface Delete {
     /**
-     * If {@code true} and this annotation is placed on a static field, any {@code PUTFIELD} opcodes in the class' static initializer corresponding to the marked field will
+     * If {@code true} and this annotation is placed on a static field, any {@code PUTSTATIC} opcodes in the class' static initializer corresponding to the marked field will
      * be converted into {@code POP} opcodes.
      */
     boolean removeStaticInitializer() default false;
+
+    /**
+     * If {@code true} and this annotation is placed on a non-static field, any {@code PUTFIELD} opcodes in any of the class' initializers corresponding to the marked field will
+     * be converted into {@code POP} opcodes.
+     */
+    boolean removeInstanceInitializer() default false;
 }
