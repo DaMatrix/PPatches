@@ -8,6 +8,7 @@ import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.daporkchop.ppatches.modules.misc.ModuleConfig_PerDimensionBlackList;
 import net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.ModuleConfigOptimizeCallbackInfoAllocation;
+import net.daporkchop.ppatches.modules.vanilla.optimizeGameRulesAccess.ModuleConfigOptimizeGameRulesAccess;
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ModuleConfigOptimizeItemRendererCacheModels;
 import net.daporkchop.ppatches.modules.vanilla.optimizeSearchTree.ModuleConfigOptimizeSearchTree;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
@@ -396,11 +397,16 @@ public class PPatchesConfig {
     public static final ModuleConfigBase vanilla_groupTileEntityUpdatesByType = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
-            "Patches Minecraft's item renderer to re-use the same vertex data when rendering items which have the same mesh.",
-            "This should notably improve performance when rendering many items (generally during GUI rendering) by ~5% or more, and will definitely help reduce GC churn.",
+            "Patches all code which accesses a constant gamerule to avoid a TreeMap lookup and instead access the value directly.",
+            "This will give a very slight overall performance boost.",
     })
-    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
-    public static final ModuleConfigOptimizeItemRendererCacheModels vanilla_optimizeItemRendererCacheModel = new ModuleConfigOptimizeItemRendererCacheModels(ModuleState.ENABLED);
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            transformerClass = {
+                    "net.daporkchop.ppatches.modules.vanilla.optimizeGameRulesAccess.OptimizeGameRulesAccessTransformer_GameRules",
+                    "net.daporkchop.ppatches.modules.vanilla.optimizeGameRulesAccess.OptimizeGameRulesAccessTransformer_UserMethods",
+            })
+    public static final ModuleConfigOptimizeGameRulesAccess vanilla_optimizeGameRulesAccess = new ModuleConfigOptimizeGameRulesAccess(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches all code to optimize all calls to Block#getDefaultState() into a simple constant load wherever we can prove that the block instance is a constant.",
@@ -411,6 +417,13 @@ public class PPatchesConfig {
             mixins = {},
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeGetDefaultState.OptimizeGetDefaultStateTransformer")
     public static final ModuleConfigBase vanilla_optimizeGetDefaultState = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
+            "Patches Minecraft's item renderer to re-use the same vertex data when rendering items which have the same mesh.",
+            "This should notably improve performance when rendering many items (generally during GUI rendering) by ~5% or more, and will definitely help reduce GC churn.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigOptimizeItemRendererCacheModels vanilla_optimizeItemRendererCacheModel = new ModuleConfigOptimizeItemRendererCacheModels(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft's MathHelper class to make a few operations more efficient.",

@@ -662,6 +662,35 @@ public class BytecodeHelper {
         return Optional.empty();
     }
 
+    public static InsnList generateIntSwitch(LabelNode defaultHandler, Map<Integer, LabelNode> caseHandlers) {
+        int size = caseHandlers.size();
+        int[] keys = new int[size];
+        LabelNode[] labels = new LabelNode[size];
+
+        //ensure keys are sorted
+        int i = 0;
+        for (Map.Entry<Integer, LabelNode> entry : new TreeMap<>(caseHandlers).entrySet()) {
+            keys[i] = entry.getKey();
+            labels[i] = entry.getValue();
+            i++;
+        }
+        return makeInsnList(new LookupSwitchInsnNode(defaultHandler, keys, labels));
+    }
+
+    public static InsnList generateStringSwitch(LabelNode defaultHandler, Map<String, LabelNode> caseHandlers) {
+        //TODO: this should switch on the hash code before comparing individual strings
+        InsnList insns = makeInsnList();
+        caseHandlers.forEach((string, label) -> {
+            insns.add(new InsnNode(DUP));
+            insns.add(new LdcInsnNode(string));
+            insns.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/String;)Z", false));
+            insns.add(new JumpInsnNode(IFNE, label));
+        });
+        insns.add(new InsnNode(POP));
+        insns.add(new JumpInsnNode(GOTO, defaultHandler));
+        return insns;
+    }
+
     public static List<MethodNode> findMethod(ClassNode classNode, String name) {
         List<MethodNode> out = null;
         for (MethodNode methodNode : classNode.methods) {
@@ -754,6 +783,27 @@ public class BytecodeHelper {
         methodNode.instructions.add(new InsnNode(RETURN));
         classNode.methods.add(methodNode);
         return methodNode;
+    }
+
+    public static InsnNode findSingleReturnInstructionOrThrow(InsnList instructions) {
+        InsnNode returnInsn = null;
+        for (AbstractInsnNode insn = instructions.getFirst(), next; insn != null; insn = next) {
+            next = insn.getNext();
+
+            switch (insn.getOpcode()) {
+                case RETURN:
+                case ARETURN:
+                case IRETURN:
+                case LRETURN:
+                case FRETURN:
+                case DRETURN:
+                    Preconditions.checkArgument(returnInsn == null, "given instruction list contains more than one return instructions!");
+                    returnInsn = (InsnNode) insn;
+                    break;
+            }
+        }
+        Preconditions.checkArgument(returnInsn != null, "given instruction list doesn't contain any return instructions!");
+        return returnInsn;
     }
 
     public static boolean methodDescriptorContainsMatchingArgument(String methodDesc, Type searchArgumentType) {
