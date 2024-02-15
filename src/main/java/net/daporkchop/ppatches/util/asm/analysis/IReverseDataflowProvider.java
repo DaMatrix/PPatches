@@ -70,6 +70,21 @@ public interface IReverseDataflowProvider {
         return sources.size() == 1 ? sources.iterator().next() : null;
     }
 
+    @Nullable
+    default List<AbstractInsnNode> getSingleStackOperandSources(AbstractInsnNode insn) {
+        List<SourceValue> sourceValues = this.getStackOperandSources(insn);
+        List<AbstractInsnNode> result = new ArrayList<>(sourceValues.size());
+        for (SourceValue sourceValue : sourceValues) {
+            Set<AbstractInsnNode> sources = sourceValue.insns;
+            if (sources.size() == 1) {
+                result.add(sources.iterator().next());
+            } else {
+                return null;
+            }
+        }
+        return result;
+    }
+
     SourceValue getLocalSources(AbstractInsnNode insn, int localIndex);
 
     @Nullable

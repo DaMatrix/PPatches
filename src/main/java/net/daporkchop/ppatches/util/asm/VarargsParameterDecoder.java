@@ -55,7 +55,7 @@ public class VarargsParameterDecoder {
             assert dataflowProvider.getSingleStackOperandSourceFromBottom(astoreInsn, 1) == loadIndexInsn
                    && dataflowProvider.getSingleStackOperandSourceFromBottom(astoreInsn, 0) == dupInsn;
 
-            elements.set(constantIndex, new Element(dupInsn, loadIndexInsn, dataflowProvider.getStackOperandSourcesFromTop(astoreInsn, 2).insns, astoreInsn));
+            elements.set(constantIndex, new Element(dupInsn, loadIndexInsn, dataflowProvider.getStackOperandSourcesFromBottom(astoreInsn, 2).insns, astoreInsn));
         }
 
         if (elements.contains(null)) { //at least one element wasn't set

@@ -39,7 +39,7 @@ import static org.objectweb.asm.Opcodes.*;
  * @author DaPorkchop_
  */
 public final class PPatchesTransformerRoot implements IClassTransformer, ITransformer {
-    private static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
+    public static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
     private static final boolean DUMP_CLASSES_DELETE_OLD = DUMP_CLASSES && Boolean.getBoolean("ppatches.dumpTransformedClasses.deleteOld");
 
     private static final List<PPatchesTransformerRoot> INSTANCES = new ArrayList<>();

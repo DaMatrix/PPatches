@@ -223,7 +223,10 @@ public class PPatchesConfig {
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             mixins = {},
-            transformerClass = "net.daporkchop.ppatches.modules.java.foldTrivialConstants.FoldTrivialConstantsTransformer")
+            transformerClass = {
+                    "net.daporkchop.ppatches.modules.java.foldTrivialConstants.FoldTrivialConstantsTransformer",
+                    "net.daporkchop.ppatches.modules.java.foldTrivialConstants.FoldTrivialConstantsTransformer_MethodHandles",
+            })
     public static final ModuleConfigBase java_foldTrivialConstants = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
