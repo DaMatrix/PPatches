@@ -772,6 +772,81 @@ public class PPatchesConfig {
                 configuration.getCategory(category).keySet().removeAll(unknownKeys);
             }
         }
+
+        @SneakyThrows(ReflectiveOperationException.class)
+        public boolean saveToConfig(Configuration configuration, String category) {
+            boolean changed = false;
+            for (Field field : this.getClass().getFields()) {
+                if ((field.getModifiers() & Modifier.TRANSIENT) != 0 || field.isAnnotationPresent(Config.Ignore.class)) { //skip ignored fields
+                    continue;
+                }
+
+                Class<?> type = field.getType();
+                String name = getName(field.getName(), field);
+                Preconditions.checkState(configuration.hasKey(category, name), "configuration doesn't contain key: %s#%s", category, name);
+
+                //configure this instance's values
+                Property property = configuration.getCategory(category).get(name);
+                if (type == boolean.class) {
+                    boolean value = field.getBoolean(this);
+                    if (property.getBoolean() != value) {
+                        property.setValue(value);
+                        changed = true;
+                    }
+                } else if (type == int.class) {
+                    int value = field.getInt(this);
+                    if (property.getInt() != value) {
+                        property.setValue(value);
+                        changed = true;
+                    }
+                } else if (type == double.class) {
+                    double value = field.getDouble(this);
+                    if (Double.doubleToRawLongBits(property.getDouble()) != Double.doubleToRawLongBits(value)) {
+                        property.setValue(value);
+                        changed = true;
+                    }
+                } else if (type == String.class) {
+                    String value = (String) field.get(this);
+                    if (!property.getString().equals(value)) {
+                        property.setValue(value);
+                        changed = true;
+                    }
+                } else if (type.isEnum()) {
+                    Enum<?> value = (Enum<?>) field.get(this);
+                    if (!property.getString().equals(value.name())) {
+                        property.setValue(value.name());
+                        changed = true;
+                    }
+                } else if (type == boolean[].class) {
+                    boolean[] value = (boolean[]) field.get(this);
+                    if (!Arrays.equals(property.getBooleanList(), value)) {
+                        property.setValues(value);
+                        changed = true;
+                    }
+                } else if (type == int[].class) {
+                    int[] value = (int[]) field.get(this);
+                    if (!Arrays.equals(property.getIntList(), value)) {
+                        property.setValues(value);
+                        changed = true;
+                    }
+                } else if (type == double[].class) {
+                    double[] value = (double[]) field.get(this);
+                    if (!Arrays.equals(property.getDoubleList(), value)) {
+                        property.setValues(value);
+                        changed = true;
+                    }
+                } else if (type == String[].class) {
+                    String[] value = (String[]) field.get(this);
+                    if (!Arrays.equals(property.getStringList(), value)) {
+                        property.setValues(value);
+                        changed = true;
+                    }
+                } else {
+                    throw new IllegalStateException("don't know how to handle " + field);
+                }
+            }
+            return changed;
+        }
     }
 
     private static String getName(String fallback, AnnotatedElement element) {
@@ -907,8 +982,27 @@ public class PPatchesConfig {
             } while (anyChange); //keep looping around in order to recursively delete categories which contain only empty categories
         }
 
-        sortConfigurationCategories(CONFIGURATION);
-        CONFIGURATION.save();
+        if (CONFIGURATION.hasChanged()) {
+            sortConfigurationCategories(CONFIGURATION);
+            CONFIGURATION.save();
+        }
+    }
+
+    public synchronized static void save() {
+        boolean anyChanged = false;
+        for (Map.Entry<String, ModuleConfigBase> entry : listModules().entrySet()) {
+            String categoryName = entry.getKey();
+            ModuleConfigBase module = entry.getValue();
+
+            Preconditions.checkState(CONFIGURATION.hasCategory(categoryName), "config category %s doesn't exist: %s", categoryName);
+
+            anyChanged |= module.saveToConfig(CONFIGURATION, categoryName);
+        }
+
+        if (anyChanged || CONFIGURATION.hasChanged()) {
+            sortConfigurationCategories(CONFIGURATION);
+            CONFIGURATION.save();
+        }
     }
 
     @SneakyThrows(ReflectiveOperationException.class)

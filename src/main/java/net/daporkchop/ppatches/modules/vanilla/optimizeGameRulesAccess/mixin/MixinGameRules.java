@@ -3,6 +3,7 @@ package net.daporkchop.ppatches.modules.vanilla.optimizeGameRulesAccess.mixin;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import lombok.SneakyThrows;
+import net.daporkchop.ppatches.PPatchesConfig;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.modules.vanilla.optimizeGameRulesAccess.OptimizeGameRulesAccessTransformer_GameRules;
 import net.daporkchop.ppatches.util.mixin.ext.MakeFinal;
@@ -56,14 +57,13 @@ abstract class MixinGameRules {
             throw new IllegalStateException("attempted to add duplicate gamerule: " + name);
         }
 
-        //if (Arrays.asList(PPatchesConfig.vanilla_optimizeGameRulesAccess.effectiveModdedGameRules).contains(name)) {
         if (ppatches_optimizeGameRulesAccess_allRules.contains(name)) {
             GameRules.Value existingValue = this.ppatches_optimzeGameRules_getOptimizedFieldValue(name);
             Preconditions.checkState(existingValue == ppatches_optimizeGameRulesAccess_dummyValue, "game rule %s already had its field set to %s", name, existingValue);
             MethodHandles.publicLookup().findSetter(MixinGameRules.class, name + OptimizeGameRulesAccessTransformer_GameRules.RULE_FIELD_SUFFIX, GameRules.Value.class).invokeExact((GameRules) (Object) this, value);
         } else {
-            //TODO: we need to add the unknown modded gamerule to the config
             PPatchesMod.LOGGER.warn("Unknown game rule '{}' was added, it will not be optimized!", name);
+            PPatchesConfig.vanilla_optimizeGameRulesAccess.encounteredUnknownModdedGameRule(name);
         }
 
         return null;
