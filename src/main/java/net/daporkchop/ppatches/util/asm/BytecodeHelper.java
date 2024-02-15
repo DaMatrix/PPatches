@@ -108,6 +108,35 @@ public class BytecodeHelper {
         return "(line " + ((LineNumberNode) insn).line + ')';
     }
 
+    public static String findLineNumberRangeForLog(AbstractInsnNode insn0, AbstractInsnNode insn1) {
+        return findLineNumberRangeForLog(Arrays.asList(insn0, insn1));
+    }
+
+    public static String findLineNumberRangeForLog(AbstractInsnNode... insns) {
+        return findLineNumberRangeForLog(Arrays.asList(insns));
+    }
+
+    public static String findLineNumberRangeForLog(Iterable<AbstractInsnNode> insns) {
+        int minLine = Integer.MAX_VALUE;
+        int maxLine = Integer.MIN_VALUE;
+
+        for (AbstractInsnNode insn : insns) {
+            int lineNo = findLineNumber(insn);
+            if (lineNo >= 0) {
+                minLine = Math.min(minLine, lineNo);
+                maxLine = Math.max(maxLine, lineNo);
+            }
+        }
+
+        if (minLine != Integer.MAX_VALUE) {
+            return minLine != maxLine
+                    ? "(lines " + minLine + '-' + maxLine + ')'
+                    : "(line " + minLine + ')';
+        } else {
+            return "(unknown source)";
+        }
+    }
+
     //
     // <instruction equality checks>
     //
