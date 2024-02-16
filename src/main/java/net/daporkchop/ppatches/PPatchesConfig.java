@@ -22,7 +22,11 @@ import net.minecraftforge.fml.client.event.ConfigChangedEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
+import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -31,7 +35,10 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 /**
@@ -684,6 +691,7 @@ public class PPatchesConfig {
                         throw new IllegalStateException("don't know how to handle " + field);
                     }
                 }
+                Preconditions.checkState(property.isList() == type.isArray(), "field type is %san array, but property is %sa list", type.isArray() ? "" : "not", property.isList() ? "" : "not");
 
                 if (init) {
                     if (type == boolean.class) {
@@ -717,7 +725,7 @@ public class PPatchesConfig {
 
                     property.setComment(getComment(type, property, field, this));
                     property.setLanguageKey(getLangKey(category + '.' + name, field));
-                    property.setRequiresWorldRestart(requiresMcRestart(field));
+                    property.setRequiresWorldRestart(requiresWorldRestart(field));
                     property.setRequiresMcRestart(requiresMcRestart(field));
 
                     Config.RangeInt rangeAnnotationInt = field.getAnnotation(Config.RangeInt.class);
@@ -978,26 +986,23 @@ public class PPatchesConfig {
         }
 
         if (init) {
-            boolean anyChange;
+            boolean changed;
             do {
-                anyChange = false;
+                changed = false;
                 for (String unusedCategoryName : unusedCategoryNames) {
                     if (CONFIGURATION.hasCategory(unusedCategoryName)) { //the category might be removed already if it was the child of another unused category
                         ConfigCategory category = CONFIGURATION.getCategory(unusedCategoryName);
                         if (category.getChildren().isEmpty()) {
                             CONFIGURATION.removeCategory(category);
                             PPatchesMod.LOGGER.info("Removed empty config category {}", unusedCategoryName);
-                            anyChange = true;
+                            changed = true;
                         }
                     }
                 }
-            } while (anyChange); //keep looping around in order to recursively delete categories which contain only empty categories
+            } while (changed); //keep looping around in order to recursively delete categories which contain only empty categories
         }
 
-        if (CONFIGURATION.hasChanged()) {
-            sortConfigurationCategories(CONFIGURATION);
-            CONFIGURATION.save();
-        }
+        saveConfiguration(CONFIGURATION);
     }
 
     public synchronized static void save() {
@@ -1011,9 +1016,8 @@ public class PPatchesConfig {
             anyChanged |= module.saveToConfig(CONFIGURATION, categoryName);
         }
 
-        if (anyChanged || CONFIGURATION.hasChanged()) {
-            sortConfigurationCategories(CONFIGURATION);
-            CONFIGURATION.save();
+        if (anyChanged) {
+            saveConfiguration(CONFIGURATION);
         }
     }
 
@@ -1039,6 +1043,49 @@ public class PPatchesConfig {
             }
             category.setPropertyOrder(propertyOrder);
         }
+    }
+
+    @SneakyThrows(IOException.class)
+    private static void saveConfiguration(Configuration configuration) {
+        sortConfigurationCategories(configuration);
+
+        Path filePath = configuration.getConfigFile().toPath();
+        if (!Files.exists(filePath) || !Arrays.equals(Files.readAllBytes(filePath), saveConfigurationToBytes(configuration))) {
+            configuration.save();
+        }
+    }
+
+    @SneakyThrows({ IOException.class, ReflectiveOperationException.class })
+    private static byte[] saveConfigurationToBytes(Configuration configuration) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(baos, configuration.defaultEncoding))) {
+            writer.write("# Configuration file" + Configuration.NEW_LINE + Configuration.NEW_LINE);
+
+            if (configuration.getDefinedConfigVersion() != null) {
+                Field CONFIG_VERSION_MARKER = Configuration.class.getDeclaredField("CONFIG_VERSION_MARKER");
+                CONFIG_VERSION_MARKER.setAccessible(true);
+                writer.write(CONFIG_VERSION_MARKER.get(null) + ": " + configuration.getDefinedConfigVersion() + Configuration.NEW_LINE + Configuration.NEW_LINE);
+            }
+
+            Field childrenField = Configuration.class.getDeclaredField("children");
+            childrenField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, Configuration> children = (Map<String, Configuration>) childrenField.get(configuration);
+
+            Method save = Configuration.class.getDeclaredMethod("save", BufferedWriter.class);
+            save.setAccessible(true);
+
+            if (children.isEmpty()) {
+                save.invoke(configuration, writer);
+            } else {
+                for (Map.Entry<String, Configuration> entry : children.entrySet()) {
+                    writer.write("START: \"" + entry.getKey() + '"' + Configuration.NEW_LINE);
+                    save.invoke(entry.getValue(), writer);
+                    writer.write("END: \"" + entry.getKey() + '"' + Configuration.NEW_LINE + Configuration.NEW_LINE);
+                }
+            }
+        }
+        return baos.toByteArray();
     }
 
     /**
