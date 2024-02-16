@@ -12,6 +12,7 @@ import net.daporkchop.ppatches.modules.vanilla.optimizeGameRulesAccess.ModuleCon
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ModuleConfigOptimizeItemRendererCacheModels;
 import net.daporkchop.ppatches.modules.vanilla.optimizeSearchTree.ModuleConfigOptimizeSearchTree;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
+import net.daporkchop.ppatches.modules.vanilla.setRenderThreadCount.ModuleConfigSetRenderThreadCount;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraftforge.common.config.Config;
 import net.minecraftforge.common.config.ConfigCategory;
@@ -495,6 +496,14 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeWorldIsRemoteOnDedicatedServer.OptimizeWorldIsRemoteOnDedicatedServerTransformer")
     public static final ModuleConfigBase vanilla_optimizeWorldIsRemoteOnDedicatedServer = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
+            "Patches Minecraft to override the number of chunk rendering threads.",
+            "This is intended to avoid starting unnecessarily many threads on systems with lots of cores. Whether or not it makes any performance difference will depend"
+            + " on your system and usage, so it isn't enabled by default.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigSetRenderThreadCount vanilla_setRenderThreadCount = new ModuleConfigSetRenderThreadCount(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches Minecraft to replace the most frequently used instances of java.util.Random and Math.random() with ThreadLocalRandom or a functionally equivalent"
