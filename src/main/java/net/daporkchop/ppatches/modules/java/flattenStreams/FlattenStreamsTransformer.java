@@ -17,7 +17,9 @@ import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
 import net.daporkchop.ppatches.util.asm.LVTReference;
 import net.daporkchop.ppatches.util.asm.LambdaFlattener;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
 import org.apache.commons.lang3.mutable.MutableInt;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
@@ -36,7 +38,7 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class FlattenStreamsTransformer implements ITreeClassTransformer.IndividualMethod {
+public class FlattenStreamsTransformer implements ITreeClassTransformer.IndividualMethod, ITreeClassTransformer.ExactInterested {
     private static boolean isStreamType(String internalName) {
         switch (internalName) {
             case "java/util/stream/Stream":
@@ -407,6 +409,11 @@ public class FlattenStreamsTransformer implements ITreeClassTransformer.Individu
             }
         }
         return Optional.empty();
+    }
+
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesClass("java/util/stream/Stream") || cpIndex.referencesClass("java/util/stream/IntStream") || cpIndex.referencesClass("java/util/stream/LongStream") || cpIndex.referencesClass("java/util/stream/DoubleStream");
     }
 
     @Override

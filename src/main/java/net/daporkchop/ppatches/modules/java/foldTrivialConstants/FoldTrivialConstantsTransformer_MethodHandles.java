@@ -6,6 +6,8 @@ import net.daporkchop.ppatches.core.transform.PPatchesTransformerRoot;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.VarargsParameterDecoder;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -29,7 +31,14 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class FoldTrivialConstantsTransformer_MethodHandles implements ITreeClassTransformer.IndividualMethod.Analyzed, ITreeClassTransformer.OptimizationPass {
+public class FoldTrivialConstantsTransformer_MethodHandles implements ITreeClassTransformer.IndividualMethod.Analyzed, ITreeClassTransformer.ExactInterested, ITreeClassTransformer.OptimizationPass {
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesClass("java/lang/invoke/MethodType");
+        //TODO: narrow this test to only check for some subset of the methods we're testing for
+        //TODO: also check for MethodHandles$Lookup
+    }
+
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
         int changeFlags = 0;

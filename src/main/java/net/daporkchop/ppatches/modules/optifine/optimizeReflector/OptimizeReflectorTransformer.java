@@ -3,6 +3,8 @@ package net.daporkchop.ppatches.modules.optifine.optimizeReflector;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -24,10 +26,15 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class OptimizeReflectorTransformer implements ITreeClassTransformer.IndividualMethod {
+public class OptimizeReflectorTransformer implements ITreeClassTransformer.IndividualMethod, ITreeClassTransformer.ExactInterested {
     @Override
     public boolean interestedInClass(String name, String transformedName) {
         return transformedName.startsWith("net.minecraft.") || (transformedName.startsWith("net.optifine.") && !"net.optifine.reflect.Reflector".equals(transformedName));
+    }
+
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesClass("net/optifine/reflect/Reflector");
     }
 
     @Override

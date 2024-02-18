@@ -234,6 +234,7 @@ public class PPatchesConfig {
             transformerClass = {
                     "net.daporkchop.ppatches.modules.java.foldTrivialConstants.FoldTrivialConstantsTransformer",
                     "net.daporkchop.ppatches.modules.java.foldTrivialConstants.FoldTrivialConstantsTransformer_MethodHandles",
+                    "net.daporkchop.ppatches.modules.java.foldTrivialConstants.FoldTrivialConstantsTransformer_RemovePointlessExceptionHandlers",
             })
     public static final ModuleConfigBase java_foldTrivialConstants = new ModuleConfigBase(ModuleState.ENABLED);
 

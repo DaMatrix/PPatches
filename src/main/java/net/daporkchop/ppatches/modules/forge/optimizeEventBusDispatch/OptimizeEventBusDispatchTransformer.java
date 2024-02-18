@@ -9,10 +9,12 @@ import net.daporkchop.ppatches.util.asm.AnonymousClassWriter;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import net.daporkchop.ppatches.util.asm.analysis.IReverseDataflowProvider;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
 import net.minecraftforge.fml.common.eventhandler.Event;
 import net.minecraftforge.fml.common.eventhandler.EventBus;
 import net.minecraftforge.fml.common.eventhandler.IEventListener;
 import net.minecraftforge.fml.common.eventhandler.ListenerList;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
@@ -38,7 +40,12 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class OptimizeEventBusDispatchTransformer implements ITreeClassTransformer.IndividualMethod.Analyzed {
+public class OptimizeEventBusDispatchTransformer implements ITreeClassTransformer.IndividualMethod.Analyzed, ITreeClassTransformer.ExactInterested {
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesMethod("net/minecraftforge/fml/common/eventhandler/EventBus", "post", "(Lnet/minecraftforge/fml/common/eventhandler/Event;)Z");
+    }
+
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
         int changeFlags = 0;

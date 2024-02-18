@@ -1,6 +1,8 @@
 package net.daporkchop.ppatches.core.transform;
 
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.MethodNode;
@@ -33,6 +35,23 @@ public interface ITreeClassTransformer extends Comparable<ITreeClassTransformer>
     }
 
     int transformClass(String name, String transformedName, ClassNode classNode);
+
+    /**
+     * Indicates that an {@link ITreeClassTransformer} is able to do a more precise check to determine whether or not it's interested in a class
+     * by checking if specific values are present in the class' constant pool.
+     *
+     * @author DaPorkchop_
+     */
+    interface ExactInterested {
+        /**
+         * @return a bitwise OR combination of flags from {@link ConstantPoolIndex} which will be used when constructing the constant pool index
+         */
+        default int cpIndexFlags() {
+            return 0;
+        }
+
+        boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex);
+    }
 
     /**
      * Marker interface to indicate that a transformer is an optimization pass, and may be repeatedly invoked until no more changes are made.

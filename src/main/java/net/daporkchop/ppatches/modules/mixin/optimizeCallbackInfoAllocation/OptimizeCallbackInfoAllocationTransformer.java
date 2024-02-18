@@ -13,6 +13,8 @@ import net.daporkchop.ppatches.util.MethodHandleUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.OptionalBytecodeType;
 import net.daporkchop.ppatches.util.asm.analysis.ResultUsageGraph;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
@@ -30,7 +32,7 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTransformer {
+public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTransformer, ITreeClassTransformer.ExactInterested {
     private static String callbackInfoInternalName(boolean callbackInfoIsReturnable) {
         return callbackInfoIsReturnable
                 ? "org/spongepowered/asm/mixin/injection/callback/CallbackInfoReturnable"
@@ -199,6 +201,12 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         public final CallbackMethod callback;
         public final VarInsnNode loadCallbackInfoInsn;
         public final MethodInsnNode useCallbackInfoInsn;
+    }
+
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesClass("org/spongepowered/asm/mixin/injection/callback/CallbackInfo")
+                || cpIndex.referencesClass("org/spongepowered/asm/mixin/injection/callback/CallbackInfoReturnable");
     }
 
     @Override

@@ -2,17 +2,16 @@ package net.daporkchop.ppatches.core.transform;
 
 import com.google.common.base.Preconditions;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.ints.IntList;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.daporkchop.ppatches.util.COWArrayUtils;
-import net.daporkchop.ppatches.util.UnsafeWrapper;
 import net.daporkchop.ppatches.util.asm.AnonymousClassWriter;
-import net.daporkchop.ppatches.util.asm.InvokeDynamicUtils;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import net.daporkchop.ppatches.util.asm.analysis.ReachabilityAnalyzer;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolConstants;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
 import net.minecraft.launchwrapper.IClassTransformer;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.ClassNode;
@@ -23,7 +22,6 @@ import org.spongepowered.asm.service.ITransformer;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.nio.file.*;
@@ -147,6 +145,14 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
         //at least one transformer is interested in optimizing this class, so we should read it
         ClassReader reader = new ClassReader(basicClass);
+
+        pipeline.determineInterestedExact(name, transformedName, reader, interestedMask);
+
+        if (interestedMask.isEmpty()) {
+            //no transformers are interested in transforming this class
+            return basicClass;
+        }
+
         ClassNode classNode = readClass(reader);
         int changeFlags = 0;
 
@@ -235,7 +241,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                 }
             }
         }
-    }
+    }*/
 
     private static List<String> referencedClassNames(ClassReader reader) {
         char[] buf = new char[reader.getMaxStringLength()];
@@ -247,7 +253,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                 continue;
             }
             switch (reader.readByte(index - 1)) {
-                case 7: { //CONSTANT_Class
+                case ConstantPoolConstants.CONSTANT_Class: {
                     String desc = reader.readUTF8(index, buf);
                     if (desc.charAt(0) == '[') {
                         int classNameStart = desc.indexOf('L');
@@ -259,7 +265,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
                     }
                     break;
                 }
-                case 16: { //CONSTANT_MethodType
+                case ConstantPoolConstants.CONSTANT_MethodType: {
                     String desc = reader.readUTF8(index, buf);
                     //this will only pick up the base object types and skip over everything else (arrays, primitives, parentheses)
                     for (int startIndex = desc.indexOf('L'); startIndex >= 0; startIndex = desc.indexOf('L', startIndex + 1)) {
@@ -272,7 +278,7 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             }
         }
         return result;
-    }*/
+    }
 
     @Override
     public String getName() {
@@ -309,8 +315,10 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         IntArrayList allAnalyzedMethodTransformers = new IntArrayList();
         IntArrayList analyzedMethodTransformers = new IntArrayList();
         IntArrayList analyzedMethodOptimizationPasses = new IntArrayList();
+        boolean anyExactInterested = false;
         for (int i = 0; i < transformers.length; i++) {
             ITreeClassTransformer transformer = transformers[i];
+            anyExactInterested |= transformer instanceof ITreeClassTransformer.ExactInterested;
             boolean optimization = transformer instanceof ITreeClassTransformer.OptimizationPass;
             if (transformer instanceof ITreeClassTransformer.IndividualMethod) {
                 allMethodTransformers.add(i);
@@ -377,6 +385,62 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
             mv.visitVarInsn(ALOAD, 3);
             mv.visitInsn(ARETURN);
+
+            mv.visitMaxs(0, 0);
+            mv.visitEnd();
+        }
+
+        { //void determineInterestedExact(String name, String internalName, ClassReader reader, BitSet interestedMask)
+            MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "determineInterestedExact", Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassReader.class), Type.getType(BitSet.class)), null, null);
+            mv.visitCode();
+
+            if (anyExactInterested) {
+                int indexFlags = 0;
+                for (ITreeClassTransformer transformer : transformers) {
+                    if (transformer instanceof ITreeClassTransformer.ExactInterested) {
+                        indexFlags |= ((ITreeClassTransformer.ExactInterested) transformer).cpIndexFlags();
+                    }
+                }
+
+                mv.visitTypeInsn(NEW, Type.getInternalName(ConstantPoolIndex.class));
+                mv.visitInsn(DUP);
+                mv.visitVarInsn(ALOAD, 3);
+                mv.visitLdcInsn(indexFlags);
+                mv.visitMethodInsn(INVOKESPECIAL, Type.getInternalName(ConstantPoolIndex.class), "<init>", Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(ClassReader.class), Type.INT_TYPE), false);
+                mv.visitVarInsn(ASTORE, 5);
+
+                for (int i = 0; i < transformers.length; i++) {
+                    ITreeClassTransformer transformer = transformers[i];
+                    if (!(transformer instanceof ITreeClassTransformer.ExactInterested)) {
+                        continue;
+                    }
+
+                    Label falseLbl = new Label();
+                    Label tailLbl = new Label();
+
+                    mv.visitVarInsn(ALOAD, 4);
+                    mv.visitLdcInsn(i);
+                    mv.visitVarInsn(ALOAD, 4);
+                    mv.visitLdcInsn(i);
+                    mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(BitSet.class), "get", "(I)Z", false);
+                    mv.visitJumpInsn(IFEQ, falseLbl);
+                    cw.addConstant(mv, transformer, Type.getInternalName(transformer.getClass()));
+                    mv.visitVarInsn(ALOAD, 1);
+                    mv.visitVarInsn(ALOAD, 2);
+                    mv.visitVarInsn(ALOAD, 3);
+                    mv.visitVarInsn(ALOAD, 5);
+                    mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(transformer.getClass()), "interestedInClass", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassReader.class), Type.getType(ConstantPoolIndex.class)), false);
+                    mv.visitJumpInsn(IFEQ, falseLbl);
+                    mv.visitInsn(ICONST_1);
+                    mv.visitJumpInsn(GOTO, tailLbl);
+                    mv.visitLabel(falseLbl);
+                    mv.visitInsn(ICONST_0);
+                    mv.visitLabel(tailLbl);
+                    mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(BitSet.class), "set", "(IZ)V", false);
+                }
+            }
+
+            mv.visitInsn(RETURN);
 
             mv.visitMaxs(0, 0);
             mv.visitEnd();
@@ -530,6 +594,8 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
         public final ITreeClassTransformer[] allTransformers;
 
         public abstract BitSet determineInterested(String name, String transformedName);
+
+        public abstract void determineInterestedExact(String name, String transformedName, ClassReader reader, BitSet interestedMask);
 
         public abstract int applyRegularTransformers(String name, String transformedName, ClassNode classNode, BitSet interestedMask);
 

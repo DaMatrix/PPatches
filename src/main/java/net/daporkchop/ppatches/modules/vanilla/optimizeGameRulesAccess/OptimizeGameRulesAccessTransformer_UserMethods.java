@@ -4,7 +4,9 @@ import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
 import net.minecraft.world.GameRules;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -26,7 +28,12 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class OptimizeGameRulesAccessTransformer_UserMethods implements ITreeClassTransformer.IndividualMethod.Analyzed {
+public class OptimizeGameRulesAccessTransformer_UserMethods implements ITreeClassTransformer.IndividualMethod.Analyzed, ITreeClassTransformer.ExactInterested {
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesClass(Type.getInternalName(GameRules.class));
+    }
+
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
         int changeFlags = 0;

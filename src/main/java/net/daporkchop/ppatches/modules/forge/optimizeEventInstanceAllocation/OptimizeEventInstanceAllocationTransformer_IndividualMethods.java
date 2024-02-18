@@ -7,8 +7,10 @@ import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.modules.forge.optimizeEventBusDispatch.OptimizeEventBusDispatchTransformer;
 import net.daporkchop.ppatches.util.MethodHandleUtils;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
 import net.minecraftforge.fml.common.eventhandler.Event;
 import net.minecraftforge.fml.common.eventhandler.EventBus;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.signature.SignatureWriter;
@@ -52,10 +54,15 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class OptimizeEventInstanceAllocationTransformer_IndividualMethods implements ITreeClassTransformer.IndividualMethod {
+public class OptimizeEventInstanceAllocationTransformer_IndividualMethods implements ITreeClassTransformer.IndividualMethod, ITreeClassTransformer.ExactInterested {
     @Override
     public int priority() {
         return 1600; //we want this to run after OptimzeCallbackInfoTransformer and OptimizeEventInstanceAllocationTransformer_Events
+    }
+
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesMethod("net/minecraftforge/fml/common/eventhandler/EventBus", "post", "(Lnet/minecraftforge/fml/common/eventhandler/Event;)Z");
     }
 
     @Override

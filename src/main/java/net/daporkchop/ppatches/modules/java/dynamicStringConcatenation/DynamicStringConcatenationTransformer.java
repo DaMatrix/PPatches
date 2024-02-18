@@ -5,6 +5,8 @@ import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.analysis.AnalyzedInsnList;
 import net.daporkchop.ppatches.util.asm.concat.DynamicConcatGenerator;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 
@@ -18,7 +20,12 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * @author DaPorkchop_
  */
-public class DynamicStringConcatenationTransformer implements ITreeClassTransformer.IndividualMethod.Analyzed {
+public class DynamicStringConcatenationTransformer implements ITreeClassTransformer.IndividualMethod.Analyzed, ITreeClassTransformer.ExactInterested {
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesMethod("java/lang/StringBuilder", "toString", "()Ljava/lang/String;");
+    }
+
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, AnalyzedInsnList instructions) {
         int changeFlags = 0;

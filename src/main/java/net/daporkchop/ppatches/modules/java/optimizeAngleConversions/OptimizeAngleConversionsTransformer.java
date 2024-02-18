@@ -3,6 +3,8 @@ package net.daporkchop.ppatches.modules.java.optimizeAngleConversions;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
+import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
@@ -18,7 +20,12 @@ import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 /**
  * @author DaPorkchop_
  */
-public class OptimizeAngleConversionsTransformer implements ITreeClassTransformer.IndividualMethod {
+public class OptimizeAngleConversionsTransformer implements ITreeClassTransformer.IndividualMethod, ITreeClassTransformer.ExactInterested {
+    @Override
+    public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
+        return cpIndex.referencesClass(Type.getInternalName(Math.class)); //TODO: we could narrow this test but for now i think this is good enough
+    }
+
     @Override
     public int transformMethod(String name, String transformedName, ClassNode classNode, MethodNode methodNode, InsnList instructions) {
         int changeFlags = 0;
