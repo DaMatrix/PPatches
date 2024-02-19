@@ -1,9 +1,11 @@
 package net.daporkchop.ppatches.modules.forge.optimizeEventBusDispatch;
 
+import com.google.common.base.Preconditions;
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.core.transform.ITreeClassTransformer;
 import net.daporkchop.ppatches.core.transform.PPatchesTransformerRoot;
 import net.daporkchop.ppatches.modules.forge.optimizeAsmEventHandler.util.ISpecializedASMEventHandler;
+import net.daporkchop.ppatches.modules.forge.optimizeEventBusDispatch.util.IMixinListenerListInst_OptimizeEventBusDispatch;
 import net.daporkchop.ppatches.modules.forge.optimizeEventBusDispatch.util.IMixinListenerList_OptimizeEventBusDispatch;
 import net.daporkchop.ppatches.util.asm.AnonymousClassWriter;
 import net.daporkchop.ppatches.util.asm.BytecodeHelper;
@@ -157,9 +159,7 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
                 exactEventType);
 
         try (AnalyzedInsnList.ChangeBatch batch = instructions.beginChanges()) {
-            batch.remove(getEventBusInsn);
-
-            batch.set(invokePostInsn, new InvokeDynamicInsnNode("post", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getObjectType(exactEventType)),
+            batch.set(invokePostInsn, new InvokeDynamicInsnNode("post", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(EventBus.class), Type.getObjectType(exactEventType)),
                     new Handle(H_INVOKESTATIC,
                             Type.getInternalName(OptimizeEventBusDispatchTransformer.class),
                             "bootstrapEventBusPost",
@@ -173,18 +173,18 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
     }
 
     public static CallSite bootstrapEventBusPost(MethodHandles.Lookup lookup, String name, MethodType type, MethodHandle eventBusGetter) throws Throwable {
-        Class<?> exactEventType = type.parameterType(0);
+        Preconditions.checkArgument(type.parameterType(0) == EventBus.class, type.parameterType(0));
+        Class<?> exactEventType = type.parameterType(1);
         ListenerList listenerList = ((Event) exactEventType.newInstance()).getListenerList();
 
         EventBus eventBus = (EventBus) eventBusGetter.invokeExact();
 
         PPatchesMod.LOGGER.info("Bootstrapping post for {}", exactEventType);
 
-        return ((IMixinListenerList_OptimizeEventBusDispatch) listenerList).ppatches_optimizeEventBusDispatch_getCallSite(eventBus, type);
+        return ((IMixinListenerList_OptimizeEventBusDispatch) listenerList).ppatches_optimizeEventBusDispatch_getCallSite(eventBus, exactEventType);
     }
 
-    public static boolean postEventSlowPath(MethodHandle rebuildAndGetListenersMethod, MethodHandle populateCallSiteMethod, Object listenerListImpl, Event event) throws Throwable {
-        //TODO: acquire this more cleanly?
+    public static boolean postEventSlowPath(MethodHandle rebuildAndGetListenersMethod, MethodHandle populateCallSiteMethod, Object listenerListImpl, EventBus bus, Event event) throws Throwable {
         Class<?> exactEventType = event.getClass();
 
         PPatchesMod.LOGGER.info("Optimizing event dispatch pipeline for {}", exactEventType);
@@ -196,36 +196,69 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
         cw.visit(V1_8, ACC_PUBLIC | ACC_FINAL, Type.getInternalName(OptimizeEventBusDispatchTransformer.class) + "__optimizedFor__" + Type.getInternalName(exactEventType), null, Type.getInternalName(Object.class), null);
 
         {
-            MethodVisitor mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "post", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(exactEventType)), null, null);
+            MethodVisitor mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "post", Type.getMethodDescriptor(Type.BOOLEAN_TYPE, Type.getType(EventBus.class), Type.getType(exactEventType)), null, null);
             mv.visitAnnotation("Ljava/lang/invoke/ForceInline;", true).visitEnd();
             mv.visitCode();
 
             Label startLbl = new Label();
             Label endLbl = new Label();
             Label handlerLbl = new Label();
+            Label returnLbl = new Label();
+
+            if (listeners.length > 0) {
+                mv.visitTryCatchBlock(startLbl, endLbl, handlerLbl, Type.getInternalName(Throwable.class));
+            }
+
+            int indexLvtIndex = 3;
+            int throwableLvtIndex = 4;
+            mv.visitInsn(ICONST_0);
+            mv.visitVarInsn(ISTORE, indexLvtIndex);
 
             mv.visitLabel(startLbl);
-            for (IEventListener listener : listeners) {
+            for (int i = 0; i < listeners.length; i++) {
+                if (i != 0) {
+                    mv.visitLdcInsn(i);
+                    mv.visitVarInsn(ISTORE, indexLvtIndex);
+                }
+
+                IEventListener listener = listeners[i];
                 if (listener instanceof ISpecializedASMEventHandler) {
                     //optimization: if forge.optimizeAsmEventHandler is enabled, we bypass the ASMEventHandler entirely and delegate directly to the actual target method
                     ISpecializedASMEventHandler specializedListener = (ISpecializedASMEventHandler) listener;
                     cw.addConstant(mv, specializedListener.getExactInvoker(), Type.getInternalName(MethodHandle.class));
-                    mv.visitVarInsn(ALOAD, 0);
+                    mv.visitVarInsn(ALOAD, 1);
                     mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(MethodHandle.class), "invokeExact", Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(specializedListener.exactEventClass())), false);
                 } else {
                     cw.addConstant(mv, listener, Type.getInternalName(IEventListener.class));
-                    mv.visitVarInsn(ALOAD, 0);
+                    mv.visitVarInsn(ALOAD, 1);
                     mv.visitMethodInsn(INVOKEINTERFACE, Type.getInternalName(IEventListener.class), "invoke", Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(Event.class)), IEventListener.class.isInterface());
                 }
             }
 
+            if (listeners.length > 0) {
+                mv.visitLabel(endLbl);
+                mv.visitJumpInsn(GOTO, returnLbl);
+
+                //exception handler
+                mv.visitLabel(handlerLbl);
+                mv.visitVarInsn(ASTORE, throwableLvtIndex);
+                mv.visitVarInsn(ALOAD, 0);
+                mv.visitVarInsn(ALOAD, 1);
+                cw.addConstant(mv, listeners, Type.getInternalName(IEventListener[].class));
+                mv.visitVarInsn(ILOAD, indexLvtIndex);
+                mv.visitVarInsn(ALOAD, throwableLvtIndex);
+                mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(EventBus.class), "ppatches_optimizeEventBusDispatch_handleException", "(Lnet/minecraftforge/fml/common/eventhandler/Event;[Lnet/minecraftforge/fml/common/eventhandler/IEventListener;ILjava/lang/Throwable;)Ljava/lang/Throwable;", false);
+                mv.visitInsn(ATHROW);
+            }
+
             {
+                mv.visitLabel(returnLbl);
                 Label falseLbl = new Label();
                 Label tailLbl = new Label();
-                mv.visitVarInsn(ALOAD, 0);
+                mv.visitVarInsn(ALOAD, 1);
                 mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(exactEventType), "isCancelable", Type.getMethodDescriptor(Type.BOOLEAN_TYPE), false);
                 mv.visitJumpInsn(IFEQ, falseLbl);
-                mv.visitVarInsn(ALOAD, 0);
+                mv.visitVarInsn(ALOAD, 1);
                 mv.visitMethodInsn(INVOKEVIRTUAL, Type.getInternalName(exactEventType), "isCanceled", Type.getMethodDescriptor(Type.BOOLEAN_TYPE), false);
                 mv.visitJumpInsn(IFEQ, falseLbl);
                 mv.visitInsn(ICONST_1);
@@ -235,14 +268,6 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
                 mv.visitLabel(tailLbl);
                 mv.visitInsn(IRETURN);
             }
-            mv.visitLabel(endLbl);
-
-            //exception handler
-            mv.visitLabel(handlerLbl);
-            //TODO: implement this
-            mv.visitInsn(ATHROW);
-
-            mv.visitTryCatchBlock(startLbl, endLbl, handlerLbl, Type.getInternalName(Throwable.class));
 
             mv.visitMaxs(0, 0);
             mv.visitEnd();
@@ -253,9 +278,9 @@ public class OptimizeEventBusDispatchTransformer implements ITreeClassTransforme
         PPatchesTransformerRoot.dumpClass(Type.getInternalName(OptimizeEventBusDispatchTransformer.class) + '/' + Type.getInternalName(exactEventType), cw);
 
         Class<?> clazz = cw.defineAnonymousClass(OptimizeEventBusDispatchTransformer.class);
-        MethodHandle optimizedCallSite = MethodHandles.publicLookup().findStatic(clazz, "post", MethodType.methodType(boolean.class, exactEventType));
+        MethodHandle optimizedCallSite = MethodHandles.publicLookup().findStatic(clazz, "post", MethodType.methodType(boolean.class, EventBus.class, exactEventType));
 
         populateCallSiteMethod.invoke(listenerListImpl, listeners, optimizedCallSite);
-        return (boolean) optimizedCallSite.invoke(event);
+        return (boolean) optimizedCallSite.invoke(bus, event);
     }
 }

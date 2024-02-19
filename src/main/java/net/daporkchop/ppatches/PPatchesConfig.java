@@ -160,7 +160,10 @@ public class PPatchesConfig {
                     //we want these mixins to be applied even if forge.optimizeEventInstanceAllocation is disabled, because they help us optimize as well
                     @MixinConfig(suffix = "optimizeEventInstanceAllocation", requires = @Requirement(moduleDisabled = "forge.optimizeEventInstanceAllocation"))
             },
-            transformerClass = "net.daporkchop.ppatches.modules.forge.optimizeEventBusDispatch.OptimizeEventBusDispatchTransformer")
+            transformerClass = {
+                    "net.daporkchop.ppatches.modules.forge.optimizeEventBusDispatch.OptimizeEventBusDispatchTransformer",
+                    "net.daporkchop.ppatches.modules.forge.optimizeEventBusDispatch.OptimizeEventBusDispatchTransformer_ListenerList",
+            })
     public static final ModuleConfigBase forge_optimizeEventBusDispatch = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({

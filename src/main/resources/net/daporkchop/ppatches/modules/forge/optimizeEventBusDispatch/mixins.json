@@ -6,6 +6,7 @@
   "target": "@env(INIT)",
   "mixins": [
     "IMixinEventBus",
+    "MixinEventBus",
     "MixinListenerList",
     "MixinListenerList$ListenerListInst"
   ]
