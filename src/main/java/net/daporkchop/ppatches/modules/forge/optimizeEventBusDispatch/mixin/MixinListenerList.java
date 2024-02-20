@@ -86,8 +86,7 @@ abstract class MixinListenerList implements IMixinListenerList_OptimizeEventBusD
         @Unique
         private MethodHandle ppatches_optimizeEventBusDispatch_genericInvoker;
 
-        @Dynamic
-        @Inject(method = "<init>()V",
+        @Inject(method = "<init>(Lnet/minecraftforge/fml/common/eventhandler/ListenerList;)V",
                 at = @At("RETURN"),
                 allow = 1, require = 1)
         private void ppatches_optimizeEventBusDispatch_$init$_setupGenericInvoker(CallbackInfo ci) {
