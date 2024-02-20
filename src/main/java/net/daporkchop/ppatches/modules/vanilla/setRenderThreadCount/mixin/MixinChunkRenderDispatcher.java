@@ -20,7 +20,7 @@ abstract class MixinChunkRenderDispatcher {
             slice = @Slice(
                     from = @At(value = "INVOKE:ONE",
                             target = "Ljava/lang/Runtime;availableProcessors()I"),
-                    to = @At(value = "FIELD:ONE",
+                    to = @At(value = "FIELD:FIRST",
                             target = "Lnet/minecraft/client/renderer/chunk/ChunkRenderDispatcher;countRenderBuilders:I",
                             opcode = Opcodes.PUTFIELD)),
             at = @At(value = "INVOKE",
@@ -35,7 +35,7 @@ abstract class MixinChunkRenderDispatcher {
 
     @ModifyConstant(method = "<init>(I)V",
             slice = @Slice(
-                    from = @At(value = "FIELD:ONE",
+                    from = @At(value = "FIELD:LAST",
                             target = "Lnet/minecraft/client/renderer/chunk/ChunkRenderDispatcher;countRenderBuilders:I",
                             opcode = Opcodes.PUTFIELD),
                     to = @At(value = "FIELD:ONE",
