@@ -10,15 +10,20 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  */
 @Mixin(ViewFrustum.class)
 abstract class MixinViewFrustum {
-    @Redirect(
-            method = {
-                    "Lnet/minecraft/client/renderer/ViewFrustum;markBlocksForUpdate(IIIIIIZ)V",
-                    "Lnet/minecraft/client/renderer/ViewFrustum;getRenderChunk(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/client/renderer/chunk/RenderChunk;",
-            },
+    @Redirect(method = "Lnet/minecraft/client/renderer/ViewFrustum;markBlocksForUpdate(IIIIIIZ)V",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/util/math/MathHelper;intFloorDiv(II)I"),
-            allow = 9, require = 9)
-    private int ppatches_optimizeMathHelper_shiftInsteadOfFloorDiv(int coord, int sixteen) {
+            allow = 6, require = 6)
+    private int ppatches_optimizeMathHelper_markBlocksForUpdate_shiftInsteadOfFloorDiv(int coord, int sixteen) {
+        if (sixteen != 16) throw new AssertionError(sixteen); //this call will be folded away once this method is inlined
+        return coord >> 4;
+    }
+
+    @Redirect(method = "Lnet/minecraft/client/renderer/ViewFrustum;getRenderChunk(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/client/renderer/chunk/RenderChunk;",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/util/math/MathHelper;intFloorDiv(II)I"),
+            allow = 3, require = 0)
+    private int ppatches_optimizeMathHelper_getRenderChunk_shiftInsteadOfFloorDiv(int coord, int sixteen) {
         if (sixteen != 16) throw new AssertionError(sixteen); //this call will be folded away once this method is inlined
         return coord >> 4;
     }
