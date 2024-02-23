@@ -349,6 +349,12 @@ public class PPatchesConfig {
     public static final ModuleConfigBase openBlocks_fanUpdateBatching = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches OpenBlocks to make rendering fan tile entities significantly faster.",
+            "This can increase FPS by as much as 10 times in cases where many OpenBlocks fans are visible at once.",
+    })
+    public static final ModuleConfigBase openBlocks_optimizeFanRendering = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches OptiFine to use MethodHandles in place of Java reflection.",
             "This could give some minor performance benefits when OptiFine is installed, and will definitely help reduce GC churn.",
     })

@@ -10,6 +10,8 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
+import org.lwjgl.util.vector.Vector3f;
+import org.lwjgl.util.vector.Vector4f;
 
 import java.util.List;
 
@@ -61,5 +63,15 @@ public class RenderUtils {
                     FMLLog.log.fatal("Unimplemented vanilla attribute upload: {}", attr.getUsage().getDisplayName());
             }
         }
+    }
+
+    public static Vector3f set(Vector3f vec, float x, float y, float z) {
+        vec.set(x, y, z);
+        return vec;
+    }
+
+    public static Vector4f set(Vector4f vec, float x, float y, float z, float w) {
+        vec.set(x, y, z, w);
+        return vec;
     }
 }
