@@ -36,14 +36,8 @@ public class TagLogMessagesTransformer implements ITreeClassTransformer.Individu
     }
 
     @Override
-    public int cpIndexFlags() {
-        return ConstantPoolIndex.INCLUDE_ANNOTATIONS_IN_REFERENCED_CLASSES;
-    }
-
-    @Override
     public boolean interestedInClass(String name, String transformedName, ClassReader reader, ConstantPoolIndex cpIndex) {
-        return cpIndex.referencesField("net/daporkchop/ppatches/PPatchesMod", "LOGGER", "Lorg/apache/logging/log4j/Logger;")
-                && (name.startsWith("net.daporkchop.ppatches.modules.") || cpIndex.referencesClass("org/spongepowered/asm/mixin/transformer/meta/MixinMerged"));
+        return cpIndex.referencesField("net/daporkchop/ppatches/PPatchesMod", "LOGGER", "Lorg/apache/logging/log4j/Logger;");
     }
 
     @Override
