@@ -14,6 +14,7 @@ import net.daporkchop.ppatches.util.asm.BytecodeHelper;
 import net.daporkchop.ppatches.util.asm.OptionalBytecodeType;
 import net.daporkchop.ppatches.util.asm.analysis.ResultUsageGraph;
 import net.daporkchop.ppatches.util.asm.cp.ConstantPoolIndex;
+import net.daporkchop.ppatches.util.mixin.ext.AlwaysCancels;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
@@ -154,6 +155,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         public final MethodNode callbackMethod;
         public final int callbackInfoLvtIndex;
         public final boolean callbackInfoIsReturnable;
+        public final boolean alwaysCancels;
 
         public final List<InfoUsage> callsGetId = new ArrayList<>();
         public final List<InfoUsage> callsIsCancellable = new ArrayList<>();
@@ -512,7 +514,8 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
         Preconditions.checkState(callbackInfoIsReturnable != null,
                 "no CallbackInfo arguments to what was assumed to be a mixin injector callback method L%s;%s%s", classNode.name, callbackMethod.name, callbackMethod.desc);
 
-        CallbackMethod result = new CallbackMethod(callbackMethod, callbackInfoLvtIndex, callbackInfoIsReturnable);
+        CallbackMethod result = new CallbackMethod(callbackMethod, callbackInfoLvtIndex, callbackInfoIsReturnable,
+                BytecodeHelper.hasAnnotationWithDesc(callbackMethod.invisibleAnnotations, Type.getDescriptor(AlwaysCancels.class)));
 
         Frame<SourceValue>[] sources = BytecodeHelper.analyzeSources(classNode.name, callbackMethod);
 
@@ -681,6 +684,7 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             returnValueVariableName = null;
             loadDefaultReturnValueInsn = null;
         } else if (BytecodeHelper.isVoid(invocationReturnType)) {
+            //TODO: add special handling if the callback method is annotated as @AlwaysCancels
             //we only have to return true/false to indicate whether or not cancel() was called
             returnValueType = OptionalBytecodeType.alwaysPresent(Type.BOOLEAN_TYPE);
             returnValueVariableName = "$ppatches_isCancelled";
@@ -689,11 +693,15 @@ public class OptimizeCallbackInfoAllocationTransformer implements ITreeClassTran
             loadDefaultReturnValueInsn = new InsnNode(ICONST_0);
         } else {
             //if cancelled, the callback method will return an 'optional return value'
-            returnValueType = OptionalBytecodeType.emulateReferenceWithFlag_NullIsDefault(invocationReturnType);
+            returnValueType = callbackMethodMeta.alwaysCancels
+                    ? OptionalBytecodeType.alwaysPresent(invocationReturnType)
+                    : OptionalBytecodeType.emulateReferenceWithFlag_NullIsDefault(invocationReturnType);
             returnValueVariableName = "$ppatches_returnValue";
 
             //return value defaults to the unset return value, indicating that it isn't cancelled
-            loadDefaultReturnValueInsn = returnValueType.loadUnsetValue();
+            loadDefaultReturnValueInsn = callbackMethodMeta.alwaysCancels
+                    ? returnValueType.loadNullValue()
+                    : returnValueType.loadUnsetValue();
         }
 
         //add a local variable to store the current cancellation state (and return value)
