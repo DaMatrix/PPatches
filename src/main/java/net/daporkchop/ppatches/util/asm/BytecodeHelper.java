@@ -348,6 +348,10 @@ public class BytecodeHelper {
         return new LdcInsnNode(cst);
     }
 
+    public static void visitLoadConstantInsn(MethodVisitor mv, Object cst) {
+        loadConstantInsn(cst).accept(mv);
+    }
+
     public static AbstractInsnNode dup(Type type) {
         switch (type.getSize()) {
             case 1:

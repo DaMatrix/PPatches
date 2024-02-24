@@ -8,6 +8,7 @@ import lombok.experimental.UtilityClass;
 import net.daporkchop.ppatches.core.bootstrap.PPatchesBootstrap;
 import net.daporkchop.ppatches.modules.misc.ModuleConfig_PerDimensionBlackList;
 import net.daporkchop.ppatches.modules.mixin.optimizeCallbackInfoAllocation.ModuleConfigOptimizeCallbackInfoAllocation;
+import net.daporkchop.ppatches.modules.vanilla.optimizeBufferBuilder.ModuleConfigOptimizeBufferBuilder;
 import net.daporkchop.ppatches.modules.vanilla.optimizeGameRulesAccess.ModuleConfigOptimizeGameRulesAccess;
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ModuleConfigOptimizeItemRendererCacheModels;
 import net.daporkchop.ppatches.modules.vanilla.optimizeSearchTree.ModuleConfigOptimizeSearchTree;
@@ -416,6 +417,14 @@ public class PPatchesConfig {
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigBase vanilla_groupTileEntityUpdatesByType = new ModuleConfigBase(ModuleState.DISABLED);
+
+    @Config.Comment({
+            "Patches the vanilla BufferBuilder class to optimize writing vertex data into the buffer.",
+            //TODO: performance analysis
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigOptimizeBufferBuilder vanilla_optimizeBufferBuilder = new ModuleConfigOptimizeBufferBuilder(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches all code which accesses a constant gamerule to avoid a TreeMap lookup and instead access the value directly.",

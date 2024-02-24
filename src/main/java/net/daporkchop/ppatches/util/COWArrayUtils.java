@@ -69,6 +69,14 @@ public class COWArrayUtils {
         return result;
     }
 
+    public static <T> T[] repeat(int count, T... arr) {
+        T[] result = Arrays.copyOf(arr, Math.multiplyExact(count, arr.length));
+        for (int i = arr.length; i < result.length; i += arr.length) {
+            System.arraycopy(arr, 0, result, i, arr.length);
+        }
+        return result;
+    }
+
     //
     // inlined COWArrayList
     //

@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.vanilla.optimizeBufferBuilder.mixin",
+  "refmap": "mixins.ppatches.refmap.json",
+  "client": [
+    "MixinBufferBuilder_GrowBuffer",
+    "MixinBufferBuilder_OptimizedFormat",
+    "MixinBufferBuilder_RemoveVanillaFields",
+    "MixinVertexFormat"
+  ]
+}

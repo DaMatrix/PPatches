@@ -35,6 +35,10 @@ public class UnsafeWrapper {
         return (T) UNSAFE.allocateInstance(clazz);
     }
 
+    public static Class<?> defineClass(String name, byte[] data, ClassLoader loader) {
+        return UNSAFE.defineClass(name, data, 0, data.length, loader, null);
+    }
+
     public static Class<?> defineAnonymousClass(Class<?> hostClass, byte[] data, Object[] cpPatches) {
         return UNSAFE.defineAnonymousClass(hostClass, data, cpPatches);
     }
