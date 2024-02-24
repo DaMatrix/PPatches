@@ -420,10 +420,14 @@ public class PPatchesConfig {
 
     @Config.Comment({
             "Patches the vanilla BufferBuilder class to optimize writing vertex data into the buffer.",
-            //TODO: performance analysis
+            "This can result in significant FPS improvements, typically somewhere between 10% and 30%. However, results will vary based on installed mods.",
     })
     @ModuleDescriptor(
-            registerPhase = PPatchesBootstrap.Phase.PREINIT)
+            registerPhase = PPatchesBootstrap.Phase.AFTER_MIXIN_DEFAULT,
+            mixins = {
+                    @MixinConfig,
+                    @MixinConfig(suffix = "OptiFine", requires = @Requirement(classPresent = "net.optifine.reflect.Reflector"))
+            })
     public static final ModuleConfigOptimizeBufferBuilder vanilla_optimizeBufferBuilder = new ModuleConfigOptimizeBufferBuilder(ModuleState.ENABLED);
 
     @Config.Comment({

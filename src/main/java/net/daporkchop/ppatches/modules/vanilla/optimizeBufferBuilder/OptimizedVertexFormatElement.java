@@ -58,6 +58,8 @@ public abstract class OptimizedVertexFormatElement {
 
     public abstract int vertexSizeInts();
 
+    public abstract OptimizedVertexFormatElement next();
+
     public abstract OptimizedVertexFormatElement tex(ByteBuffer buffer, int vertexCount, double u, double v);
 
     public abstract OptimizedVertexFormatElement lightmap(ByteBuffer buffer, int vertexCount, int skyLight, int blockLight);
@@ -262,6 +264,17 @@ public abstract class OptimizedVertexFormatElement {
             mv.visitEnd();
         }
 
+        protected void visitNext(int index) {
+            //normal()
+            MethodVisitor mv = this.cw.visitMethod(ACC_PUBLIC | ACC_FINAL, "next", Type.getMethodDescriptor(Type.getType(OptimizedVertexFormatElement.class)), null, null);
+            mv.visitCode();
+
+            this.visitGetNextAndReturn(mv, index);
+
+            mv.visitMaxs(0, 0);
+            mv.visitEnd();
+        }
+
         protected void visitCallRealSetter(MethodVisitor mv, int index, String name, Type argumentType, int argumentCount) {
             mv.visitVarInsn(ALOAD, 1); //buffer
             mv.visitVarInsn(ILOAD, 2); //vertexCount * format.getSize() + format.getOffset(index)
@@ -412,6 +425,8 @@ public abstract class OptimizedVertexFormatElement {
             if (normal >= 0) {
                 this.visitNormal(normal);
             }
+
+            this.visitNext(-1);
         }
 
         @Override
@@ -481,6 +496,7 @@ public abstract class OptimizedVertexFormatElement {
             this.visitColor(this.index);
             this.visitPos(this.index);
             this.visitNormal(this.index);
+            this.visitNext(this.index);
         }
 
         @Override

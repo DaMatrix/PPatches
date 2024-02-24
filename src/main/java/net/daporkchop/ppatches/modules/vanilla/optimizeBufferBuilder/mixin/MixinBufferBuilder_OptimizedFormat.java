@@ -2,17 +2,18 @@ package net.daporkchop.ppatches.modules.vanilla.optimizeBufferBuilder.mixin;
 
 import net.daporkchop.ppatches.modules.vanilla.optimizeBufferBuilder.OptimizedVertexFormat;
 import net.daporkchop.ppatches.modules.vanilla.optimizeBufferBuilder.OptimizedVertexFormatElement;
+import net.daporkchop.ppatches.modules.vanilla.optimizeBufferBuilder.util.IMixinBufferBuilder_OptimizeBufferBuilder;
 import net.daporkchop.ppatches.modules.vanilla.optimizeBufferBuilder.util.IMixinVertexFormat_OptimizeBufferBuilder;
 import net.daporkchop.ppatches.util.mixin.ext.AlwaysCancels;
 import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.vertex.VertexFormat;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Slice;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -22,7 +23,7 @@ import java.nio.ByteBuffer;
  * @author DaPorkchop_
  */
 @Mixin(BufferBuilder.class)
-abstract class MixinBufferBuilder_OptimizedFormat {
+abstract class MixinBufferBuilder_OptimizedFormat implements IMixinBufferBuilder_OptimizeBufferBuilder {
     @Shadow
     private ByteBuffer byteBuffer;
     @Shadow
@@ -35,9 +36,7 @@ abstract class MixinBufferBuilder_OptimizedFormat {
     @Shadow
     private double zOffset;
 
-    @Unique
     private OptimizedVertexFormat ppatches_optimizeBufferBuilder_optimizedVertexFormat;
-    @Unique
     private OptimizedVertexFormatElement ppatches_optimizeBufferBuilder_optimizedVertexFormatElement;
 
     @Inject(method = "setVertexState(Lnet/minecraft/client/renderer/BufferBuilder$State;)V",
@@ -72,13 +71,21 @@ abstract class MixinBufferBuilder_OptimizedFormat {
         this.ppatches_optimizeBufferBuilder_optimizedVertexFormatElement = this.ppatches_optimizeBufferBuilder_optimizedVertexFormat.getFirstElement();
     }
 
-    /**
-     * @author DaPorkchop_
-     * @reason we're replacing the entire method
-     */
-    @Overwrite
-    private void nextVertexFormatIndex() {
-        throw new UnsupportedOperationException("PPatches: vanilla.optimizedBufferBuilder has removed this method!");
+    @Inject(method = "nextVertexFormatIndex()V",
+            at = @At("HEAD"),
+            cancellable = true,
+            allow = 1, require = 1)
+    @AlwaysCancels
+    private void ppatches_optimizeBufferBuilder_nextVertexFormatIndex_useOptimized(CallbackInfo ci) {
+        if (!OptimizedVertexFormatElement.ASSUME_VALID_VERTEX_FORMAT) {
+            this.ppatches_optimizeBufferBuilder_optimizedVertexFormatElement = this.ppatches_optimizeBufferBuilder_optimizedVertexFormatElement.next();
+        }
+        ci.cancel();
+    }
+
+    @Override
+    public final void ppatches_optimizeBufferBuilder_resetToFirstElement() {
+        this.ppatches_optimizeBufferBuilder_optimizedVertexFormatElement = this.ppatches_optimizeBufferBuilder_optimizedVertexFormat.getFirstElement();
     }
 
     //
@@ -86,9 +93,8 @@ abstract class MixinBufferBuilder_OptimizedFormat {
     //
 
     @Inject(method = "tex(DD)Lnet/minecraft/client/renderer/BufferBuilder;",
-            at = @At(value = "FIELD",
-                    target = "Lnet/minecraft/client/renderer/BufferBuilder;vertexCount:I",
-                    opcode = Opcodes.GETFIELD,
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/vertex/VertexFormat;getSize()I",
                     shift = At.Shift.BEFORE),
             allow = 1, require = 1)
     private void ppatches_optimizeBufferBuilder_tex_dispatchOptimized(double u, double v, CallbackInfoReturnable<BufferBuilder> cir) {
@@ -99,9 +105,8 @@ abstract class MixinBufferBuilder_OptimizedFormat {
     }
 
     @Inject(method = "lightmap(II)Lnet/minecraft/client/renderer/BufferBuilder;",
-            at = @At(value = "FIELD",
-                    target = "Lnet/minecraft/client/renderer/BufferBuilder;vertexCount:I",
-                    opcode = Opcodes.GETFIELD,
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/vertex/VertexFormat;getSize()I",
                     shift = At.Shift.BEFORE),
             allow = 1, require = 1)
     private void ppatches_optimizeBufferBuilder_lightmap_dispatchOptimized(int skyLight, int blockLight, CallbackInfoReturnable<BufferBuilder> cir) {
@@ -112,9 +117,8 @@ abstract class MixinBufferBuilder_OptimizedFormat {
     }
 
     @Inject(method = "color(IIII)Lnet/minecraft/client/renderer/BufferBuilder;",
-            at = @At(value = "FIELD",
-                    target = "Lnet/minecraft/client/renderer/BufferBuilder;vertexCount:I",
-                    opcode = Opcodes.GETFIELD,
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/vertex/VertexFormat;getSize()I",
                     shift = At.Shift.BEFORE),
             allow = 1, require = 1)
     private void ppatches_optimizeBufferBuilder_color_dispatchOptimized(int r, int g, int b, int a, CallbackInfoReturnable<BufferBuilder> cir) {
@@ -125,9 +129,8 @@ abstract class MixinBufferBuilder_OptimizedFormat {
     }
 
     @Inject(method = "pos(DDD)Lnet/minecraft/client/renderer/BufferBuilder;",
-            at = @At(value = "FIELD",
-                    target = "Lnet/minecraft/client/renderer/BufferBuilder;vertexCount:I",
-                    opcode = Opcodes.GETFIELD,
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/vertex/VertexFormat;getSize()I",
                     shift = At.Shift.BEFORE),
             allow = 1, require = 1)
     private void ppatches_optimizeBufferBuilder_pos_dispatchOptimized(double x, double y, double z, CallbackInfoReturnable<BufferBuilder> cir) {
@@ -138,9 +141,8 @@ abstract class MixinBufferBuilder_OptimizedFormat {
     }
 
     @Inject(method = "normal(FFF)Lnet/minecraft/client/renderer/BufferBuilder;",
-            at = @At(value = "FIELD",
-                    target = "Lnet/minecraft/client/renderer/BufferBuilder;vertexCount:I",
-                    opcode = Opcodes.GETFIELD,
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/vertex/VertexFormat;getSize()I",
                     shift = At.Shift.BEFORE),
             allow = 1, require = 1)
     private void ppatches_optimizeBufferBuilder_normal_dispatchOptimized(float x, float y, float z, CallbackInfoReturnable<BufferBuilder> cir) {
@@ -159,8 +161,8 @@ abstract class MixinBufferBuilder_OptimizedFormat {
                     "pos(DDD)Lnet/minecraft/client/renderer/BufferBuilder;",
                     "normal(FFF)Lnet/minecraft/client/renderer/BufferBuilder;",
             },
-            at = @At(value = "FIELD",
-                    target = "Lnet/minecraft/client/renderer/BufferBuilder;vertexCount:I",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/vertex/VertexFormat;getSize()I",
                     opcode = Opcodes.GETFIELD),
             cancellable = true,
             allow = 5, require = 5)
