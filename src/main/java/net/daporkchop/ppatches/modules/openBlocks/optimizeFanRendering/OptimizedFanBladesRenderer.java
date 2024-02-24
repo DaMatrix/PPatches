@@ -29,15 +29,15 @@ public class OptimizedFanBladesRenderer {
         BLADES_SPRITE = event.getMap().getAtlasSprite("openblocks:blocks/fan_blades");
     }
 
-    public static void renderFanBladesFast(TileEntity te, float x, float y, float z, float fanAngle, float bladeAngle, BufferBuilder dst) {
+    public static void renderFanBladesFast(TileEntity te, float fanAngle, float bladeAngle, BufferBuilder dst) {
         int combinedLight = te.getWorld().getCombinedLight(te.getPos(), 0);
 
-        Matrix4f matrix = computeTransformMatrix(x, y, z, fanAngle, bladeAngle);
+        Matrix4f matrix = computeTransformMatrix(fanAngle, bladeAngle);
 
         drawFans(dst, combinedLight, matrix);
     }
 
-    private static Matrix4f computeTransformMatrix(float x, float y, float z, float fanAngle, float bladeAngle) {
+    private static Matrix4f computeTransformMatrix(float fanAngle, float bladeAngle) {
         Matrix4f matrix = CACHED_MATRIX;
         matrix.setIdentity();
 
@@ -49,9 +49,6 @@ public class OptimizedFanBladesRenderer {
         final float bladesMaxZ = 7.5f / 16.0f;
 
         if (false) {
-            //move to relative position
-            matrix.translate(new Vector3f((float) x, (float) y, (float) z));
-
             //rotate around the fan base
             matrix.translate(new Vector3f(0.5f, 0.0f, 0.5f));
             matrix.rotate(fanAngle, new Vector3f(0f, -1f, 0f));
@@ -70,10 +67,8 @@ public class OptimizedFanBladesRenderer {
         } else if (true) { //this is the same code as above, except the Vector3f instances are re-used and consecutive translations are merged together
             Vector3f vec3 = CACHED_VEC3;
 
-            //move to relative position
-            matrix.translate(RenderUtils.set(vec3, (float) x + 0.5f, (float) y, (float) z + 0.5f));
-
             //rotate around the fan base
+            matrix.translate(RenderUtils.set(vec3, 0.5f, 0f, 0.5f));
             matrix.rotate(fanAngle, RenderUtils.set(vec3, 0f, -1f, 0f));
 
             //translate into the fan blades position

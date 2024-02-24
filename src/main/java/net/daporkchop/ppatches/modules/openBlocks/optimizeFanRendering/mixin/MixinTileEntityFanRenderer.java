@@ -24,9 +24,11 @@ abstract class MixinTileEntityFanRenderer extends FastTESR<TileEntity> {
             cancellable = true,
             allow = 1, require = 1)
     private void ppatches_optimizeFanRendering_skipTESR(@Coerce TileEntity te, double x, double y, double z, float partialTicks, int destroyStage, float alpha, BufferBuilder renderer, CallbackInfo ci) {
+        renderer.setTranslation(x, y, z);
+
         float fanAngle = (float) Math.toRadians(((IMixinTileEntityFan) te).callGetAngle());
         float bladeAngle = (float) Math.toRadians(((IMixinTileEntityFan) te).callGetBladeRotation(partialTicks));
-        OptimizedFanBladesRenderer.renderFanBladesFast(te, (float) x, (float) y, (float) z, fanAngle, bladeAngle, renderer);
+        OptimizedFanBladesRenderer.renderFanBladesFast(te, fanAngle, bladeAngle, renderer);
 
         ci.cancel();
     }
