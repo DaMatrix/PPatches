@@ -4,10 +4,8 @@ import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import sun.misc.Unsafe;
 
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
+import java.nio.Buffer;
 
 /**
  * Wrapper around {@code sun.misc.Unsafe} to avoid un-suppressable compile-time warnings.
@@ -17,6 +15,7 @@ import java.lang.reflect.Field;
 @UtilityClass
 public class UnsafeWrapper {
     private static final Unsafe UNSAFE;
+    private static final long BUFFER_ADDRESS_OFFSET;
 
     static {
         try {
@@ -24,6 +23,8 @@ public class UnsafeWrapper {
             Field unsafeField = unsafeClass.getDeclaredField("theUnsafe");
             unsafeField.setAccessible(true);
             UNSAFE = (Unsafe) unsafeField.get(null);
+
+            BUFFER_ADDRESS_OFFSET = objectFieldOffset(Buffer.class, "address");
         } catch (Exception e) {
             throw new AssertionError(e);
         }
@@ -58,5 +59,29 @@ public class UnsafeWrapper {
 
     public static void putBoolean(Object o, long offset, boolean value) {
         UNSAFE.putBoolean(o, offset, value);
+    }
+    
+    public static void putByte(long address, byte value) {
+        UNSAFE.putByte(address, value);
+    }
+    
+    public static void putShort(long address, short value) {
+        UNSAFE.putShort(address, value);
+    }
+    
+    public static void putInt(long address, int value) {
+        UNSAFE.putInt(address, value);
+    }
+    
+    public static void putFloat(long address, float value) {
+        UNSAFE.putFloat(address, value);
+    }
+
+    public static long getLong(Object o, long offset) {
+        return UNSAFE.getLong(o, offset);
+    }
+
+    public static long directBufferAddress(Buffer buffer) {
+        return getLong(buffer, BUFFER_ADDRESS_OFFSET);
     }
 }

@@ -23,6 +23,7 @@ import java.lang.invoke.CallSite;
 import java.lang.invoke.ConstantCallSite;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
@@ -79,114 +80,114 @@ public abstract class OptimizedVertexFormatElement {
     //   in the vanilla attribute setter methods.
     //
 
-    protected static void texFLOAT(ByteBuffer buffer, int offset, double u, double v) {
-        buffer.putFloat(offset, (float) u);
-        buffer.putFloat(offset + 4, (float) v);
+    protected static void texFLOAT(long address, double u, double v) {
+        UnsafeWrapper.putFloat(address, (float) u);
+        UnsafeWrapper.putFloat(address + 4, (float) v);
     }
-    protected static void texINT(ByteBuffer buffer, int offset, double u, double v) {
-        buffer.putInt(offset, (int) u);
-        buffer.putInt(offset + 4, (int) v);
+    protected static void texINT(long address, double u, double v) {
+        UnsafeWrapper.putInt(address, (int) u);
+        UnsafeWrapper.putInt(address + 4, (int) v);
     }
-    protected static void texSHORT(ByteBuffer buffer, int offset, double u, double v) {
-        buffer.putShort(offset, (short) u);
-        buffer.putShort(offset + 2, (short) v);
+    protected static void texSHORT(long address, double u, double v) {
+        UnsafeWrapper.putShort(address, (short) u);
+        UnsafeWrapper.putShort(address + 2, (short) v);
     }
-    protected static void texBYTE(ByteBuffer buffer, int offset, double u, double v) {
-        buffer.put(offset, (byte) u);
-        buffer.put(offset + 1, (byte) v);
-    }
-
-    protected static void lightmapFLOAT(ByteBuffer buffer, int offset, int skyLight, int blockLight) {
-        buffer.putFloat(offset, (float) skyLight);
-        buffer.putFloat(offset + 4, (float) blockLight);
-    }
-    protected static void lightmapINT(ByteBuffer buffer, int offset, int skyLight, int blockLight) {
-        buffer.putInt(offset, skyLight);
-        buffer.putInt(offset + 4, blockLight);
-    }
-    protected static void lightmapSHORT(ByteBuffer buffer, int offset, int skyLight, int blockLight) {
-        buffer.putShort(offset, (short) skyLight);
-        buffer.putShort(offset + 2, (short) blockLight);
-    }
-    protected static void lightmapBYTE(ByteBuffer buffer, int offset, int skyLight, int blockLight) {
-        buffer.put(offset, (byte) skyLight);
-        buffer.put(offset + 1, (byte) blockLight);
+    protected static void texBYTE(long address, double u, double v) {
+        UnsafeWrapper.putByte(address, (byte) u);
+        UnsafeWrapper.putByte(address + 1, (byte) v);
     }
 
-    protected static void colorFLOAT(ByteBuffer buffer, int offset, int r, int g, int b, int a) {
-        buffer.putFloat(offset, (float) r / 255.0f);
-        buffer.putFloat(offset + 4, (float) g / 255.0f);
-        buffer.putFloat(offset + 8, (float) b / 255.0f);
-        buffer.putFloat(offset + 12, (float) a / 255.0f);
+    protected static void lightmapFLOAT(long address, int skyLight, int blockLight) {
+        UnsafeWrapper.putFloat(address, (float) skyLight);
+        UnsafeWrapper.putFloat(address + 4, (float) blockLight);
     }
-    protected static void colorINT(ByteBuffer buffer, int offset, int r, int g, int b, int a) {
+    protected static void lightmapINT(long address, int skyLight, int blockLight) {
+        UnsafeWrapper.putInt(address, skyLight);
+        UnsafeWrapper.putInt(address + 4, blockLight);
+    }
+    protected static void lightmapSHORT(long address, int skyLight, int blockLight) {
+        UnsafeWrapper.putShort(address, (short) skyLight);
+        UnsafeWrapper.putShort(address + 2, (short) blockLight);
+    }
+    protected static void lightmapBYTE(long address, int skyLight, int blockLight) {
+        UnsafeWrapper.putByte(address, (byte) skyLight);
+        UnsafeWrapper.putByte(address + 1, (byte) blockLight);
+    }
+
+    protected static void colorFLOAT(long address, int r, int g, int b, int a) {
+        UnsafeWrapper.putFloat(address, (float) r / 255.0f);
+        UnsafeWrapper.putFloat(address + 4, (float) g / 255.0f);
+        UnsafeWrapper.putFloat(address + 8, (float) b / 255.0f);
+        UnsafeWrapper.putFloat(address + 12, (float) a / 255.0f);
+    }
+    protected static void colorINT(long address, int r, int g, int b, int a) {
         //not a typo, the vanilla code is actually just this dumb
-        buffer.putFloat(offset, (float) r);
-        buffer.putFloat(offset + 4, (float) g);
-        buffer.putFloat(offset + 8, (float) b);
-        buffer.putFloat(offset + 12, (float) a);
+        UnsafeWrapper.putFloat(address, (float) r);
+        UnsafeWrapper.putFloat(address + 4, (float) g);
+        UnsafeWrapper.putFloat(address + 8, (float) b);
+        UnsafeWrapper.putFloat(address + 12, (float) a);
     }
-    protected static void colorSHORT(ByteBuffer buffer, int offset, int r, int g, int b, int a) {
-        buffer.putShort(offset, (short) r);
-        buffer.putShort(offset + 2, (short) g);
-        buffer.putShort(offset + 4, (short) b);
-        buffer.putShort(offset + 6, (short) a);
+    protected static void colorSHORT(long address, int r, int g, int b, int a) {
+        UnsafeWrapper.putShort(address, (short) r);
+        UnsafeWrapper.putShort(address + 2, (short) g);
+        UnsafeWrapper.putShort(address + 4, (short) b);
+        UnsafeWrapper.putShort(address + 6, (short) a);
     }
-    protected static void colorBYTE(ByteBuffer buffer, int offset, int r, int g, int b, int a) {
+    protected static void colorBYTE(long address, int r, int g, int b, int a) {
         //this check should be able to be constant folded
         if (ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN) {
-            buffer.put(offset, (byte) r);
-            buffer.put(offset + 1, (byte) g);
-            buffer.put(offset + 2, (byte) b);
-            buffer.put(offset + 3, (byte) a);
+            UnsafeWrapper.putByte(address, (byte) r);
+            UnsafeWrapper.putByte(address + 1, (byte) g);
+            UnsafeWrapper.putByte(address + 2, (byte) b);
+            UnsafeWrapper.putByte(address + 3, (byte) a);
         } else {
-            buffer.put(offset, (byte) a);
-            buffer.put(offset + 1, (byte) b);
-            buffer.put(offset + 2, (byte) g);
-            buffer.put(offset + 3, (byte) r);
+            UnsafeWrapper.putByte(address, (byte) a);
+            UnsafeWrapper.putByte(address + 1, (byte) b);
+            UnsafeWrapper.putByte(address + 2, (byte) g);
+            UnsafeWrapper.putByte(address + 3, (byte) r);
         }
     }
 
-    protected static void posFLOAT(ByteBuffer buffer, int offset, double x, double y, double z) {
-        buffer.putFloat(offset, (float) x);
-        buffer.putFloat(offset + 4, (float) y);
-        buffer.putFloat(offset + 8, (float) z);
+    protected static void posFLOAT(long address, double x, double y, double z) {
+        UnsafeWrapper.putFloat(address, (float) x);
+        UnsafeWrapper.putFloat(address + 4, (float) y);
+        UnsafeWrapper.putFloat(address + 8, (float) z);
     }
-    protected static void posINT(ByteBuffer buffer, int offset, double x, double y, double z) {
-        buffer.putInt(offset, Float.floatToRawIntBits((float) x));
-        buffer.putInt(offset + 4, Float.floatToRawIntBits((float) y));
-        buffer.putInt(offset + 8, Float.floatToRawIntBits((float) z));
+    protected static void posINT(long address, double x, double y, double z) {
+        UnsafeWrapper.putInt(address, Float.floatToRawIntBits((float) x));
+        UnsafeWrapper.putInt(address + 4, Float.floatToRawIntBits((float) y));
+        UnsafeWrapper.putInt(address + 8, Float.floatToRawIntBits((float) z));
     }
-    protected static void posSHORT(ByteBuffer buffer, int offset, double x, double y, double z) {
-        buffer.putShort(offset, (short) x);
-        buffer.putShort(offset + 2, (short) y);
-        buffer.putShort(offset + 4, (short) z);
+    protected static void posSHORT(long address, double x, double y, double z) {
+        UnsafeWrapper.putShort(address, (short) x);
+        UnsafeWrapper.putShort(address + 2, (short) y);
+        UnsafeWrapper.putShort(address + 4, (short) z);
     }
-    protected static void posBYTE(ByteBuffer buffer, int offset, double x, double y, double z) {
-        buffer.put(offset, (byte) x);
-        buffer.put(offset + 1, (byte) y);
-        buffer.put(offset + 2, (byte) z);
+    protected static void posBYTE(long address, double x, double y, double z) {
+        UnsafeWrapper.putByte(address, (byte) x);
+        UnsafeWrapper.putByte(address + 1, (byte) y);
+        UnsafeWrapper.putByte(address + 2, (byte) z);
     }
 
-    protected static void normalFLOAT(ByteBuffer buffer, int offset, float x, float y, float z) {
-        buffer.putFloat(offset, x);
-        buffer.putFloat(offset + 4, y);
-        buffer.putFloat(offset + 8, z);
+    protected static void normalFLOAT(long address, float x, float y, float z) {
+        UnsafeWrapper.putFloat(address, x);
+        UnsafeWrapper.putFloat(address + 4, y);
+        UnsafeWrapper.putFloat(address + 8, z);
     }
-    protected static void normalINT(ByteBuffer buffer, int offset, float x, float y, float z) {
-        buffer.putInt(offset, (int) x);
-        buffer.putInt(offset + 4, (int) y);
-        buffer.putInt(offset + 8, (int) z);
+    protected static void normalINT(long address, float x, float y, float z) {
+        UnsafeWrapper.putInt(address, (int) x);
+        UnsafeWrapper.putInt(address + 4, (int) y);
+        UnsafeWrapper.putInt(address + 8, (int) z);
     }
-    protected static void normalSHORT(ByteBuffer buffer, int offset, float x, float y, float z) {
-        buffer.putShort(offset, (short) (x * 32767.0f));
-        buffer.putShort(offset + 2, (short) (y * 32767.0f));
-        buffer.putShort(offset + 4, (short) (z * 32767.0f));
+    protected static void normalSHORT(long address, float x, float y, float z) {
+        UnsafeWrapper.putShort(address, (short) (x * 32767.0f));
+        UnsafeWrapper.putShort(address + 2, (short) (y * 32767.0f));
+        UnsafeWrapper.putShort(address + 4, (short) (z * 32767.0f));
     }
-    protected static void normalBYTE(ByteBuffer buffer, int offset, float x, float y, float z) {
-        buffer.put(offset, (byte) (x * 127.0f));
-        buffer.put(offset + 1, (byte) (y * 127.0f));
-        buffer.put(offset + 2, (byte) (z * 127.0f));
+    protected static void normalBYTE(long address, float x, float y, float z) {
+        UnsafeWrapper.putByte(address, (byte) (x * 127.0f));
+        UnsafeWrapper.putByte(address + 1, (byte) (y * 127.0f));
+        UnsafeWrapper.putByte(address + 2, (byte) (z * 127.0f));
     }
 
     static OptimizedVertexFormatElement generate(VertexFormat format) {
@@ -276,12 +277,17 @@ public abstract class OptimizedVertexFormatElement {
         }
 
         protected void visitCallRealSetter(MethodVisitor mv, int index, String name, Type argumentType, int argumentCount) {
-            mv.visitVarInsn(ALOAD, 1); //buffer
-            mv.visitVarInsn(ILOAD, 2); //vertexCount * format.getSize() + format.getOffset(index)
-            BytecodeHelper.visitLoadConstantInsn(mv, this.format.getSize());
-            mv.visitInsn(IMUL);
-            BytecodeHelper.visitLoadConstantInsn(mv, this.format.getOffset(index));
-            mv.visitInsn(IADD);
+            //UnsafeWrapper.directBufferAddress(buffer) + (vertexCount * format.getSize() + format.getOffset(index))
+            //  (parenthesizing it like this seems to result in marginally better codegen)
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitMethodInsn(INVOKESTATIC, Type.getInternalName(UnsafeWrapper.class), "directBufferAddress", Type.getMethodDescriptor(Type.LONG_TYPE, Type.getType(Buffer.class)), false);
+            mv.visitVarInsn(ILOAD, 2);
+            mv.visitInsn(I2L);
+            BytecodeHelper.visitLoadConstantInsn(mv, (long) this.format.getSize());
+            mv.visitInsn(LMUL);
+            BytecodeHelper.visitLoadConstantInsn(mv, (long) this.format.getOffset(index));
+            mv.visitInsn(LADD);
+            mv.visitInsn(LADD);
             for (int lvt = 3, i = 0; i < argumentCount; lvt += argumentType.getSize(), i++) { //load remaining arguments
                 mv.visitVarInsn(argumentType.getOpcode(ILOAD), lvt);
             }
@@ -289,7 +295,7 @@ public abstract class OptimizedVertexFormatElement {
                     Type.getInternalName(OptimizedVertexFormatElement.class),
                     name + signedName(this.format.getElement(index).getType()),
                     Type.getMethodDescriptor(Type.VOID_TYPE,
-                            COWArrayUtils.concat(new Type[]{Type.getType(ByteBuffer.class), Type.INT_TYPE}, COWArrayUtils.repeat(argumentCount, argumentType))),
+                            COWArrayUtils.concat(new Type[]{Type.LONG_TYPE}, COWArrayUtils.repeat(argumentCount, argumentType))),
                     false);
         }
 
