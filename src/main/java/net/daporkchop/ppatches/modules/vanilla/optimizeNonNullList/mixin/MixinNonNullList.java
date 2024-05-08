@@ -46,9 +46,9 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     private E defaultElement;
 
     @Unique
-    private E[] arr;
+    private E[] ppatches_optimizeNonNullList_arr;
     @Unique
-    private int size;
+    private int ppatches_optimizeNonNullList_size;
 
     /**
      * This is {@code true} if the list may be resized.
@@ -57,7 +57,7 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
      * {@link Arrays#asList(Object[])}.
      */
     @Unique
-    private boolean resizable;
+    private boolean ppatches_optimizeNonNullList_resizable;
 
     @SuppressWarnings("unchecked")
     @Inject(method = "<init>(Ljava/util/List;Ljava/lang/Object;)V",
@@ -69,16 +69,16 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
             Preconditions.checkArgument(delegateIn.isEmpty(), "resizable NonNullList must be constructed with an empty ArrayList");
             Preconditions.checkArgument(defaultElement == null, "resizable NonNullList must be constructed with a null default element");
 
-            this.arr = (E[]) DEFAULTCAPACITY_EMPTY_ELEMENTDATA;
-            this.resizable = true;
+            this.ppatches_optimizeNonNullList_arr = (E[]) ppatches_optimizeNonNullList_DEFAULTCAPACITY_EMPTY_ELEMENTDATA;
+            this.ppatches_optimizeNonNullList_resizable = true;
         } else {
             Preconditions.checkArgument(delegateClass == ppatches_optimizeNonNullList_Arrays_asList_class, "non-resizable NonNullList must be constructed with a list supplied by Arrays.asList(): %s", delegateClass);
             //this would be a nice check, but for some unfathomable reason Mekanism overrides this class for no reason other than to construct it with nonsensical parameters
             // which i now have to handle in order to keep stuff from breaking.
             // Preconditions.checkArgument(defaultElement != null, "non-resizable NonNullList must be constructed with a non-null default element");
 
-            this.arr = (E[]) delegateIn.toArray();
-            this.size = this.arr.length;
+            this.ppatches_optimizeNonNullList_arr = (E[]) delegateIn.toArray();
+            this.ppatches_optimizeNonNullList_size = this.ppatches_optimizeNonNullList_arr.length;
         }
     }
 
@@ -89,8 +89,8 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Override
     @Overwrite(remap = false)
     public E get(int index) {
-        this.rangeCheck(index);
-        return this.arr[index];
+        this.ppatches_optimizeNonNullList_rangeCheck(index);
+        return this.ppatches_optimizeNonNullList_arr[index];
     }
 
     /**
@@ -101,20 +101,20 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Overwrite(remap = false)
     public E set(int index, E element) {
         Validate.notNull(element);
-        this.rangeCheck(index);
+        this.ppatches_optimizeNonNullList_rangeCheck(index);
 
-        E oldValue = this.arr[index];
-        this.arr[index] = element;
+        E oldValue = this.ppatches_optimizeNonNullList_arr[index];
+        this.ppatches_optimizeNonNullList_arr[index] = element;
         return oldValue;
     }
 
     @Override
     public boolean add(E element) {
         Validate.notNull(element);
-        this.resizableCheck();
-        this.ensureCapacityInternal(this.size + 1);
+        this.ppatches_optimizeNonNullList_resizableCheck();
+        this.ppatches_optimizeNonNullList_ensureCapacityInternal(this.ppatches_optimizeNonNullList_size + 1);
 
-        this.arr[this.size++] = element;
+        this.ppatches_optimizeNonNullList_arr[this.ppatches_optimizeNonNullList_size++] = element;
         return true;
     }
 
@@ -126,13 +126,13 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Overwrite(remap = false)
     public void add(int index, E element) {
         Validate.notNull(element);
-        this.resizableCheck();
-        this.rangeCheckForAdd(index);
+        this.ppatches_optimizeNonNullList_resizableCheck();
+        this.ppatches_optimizeNonNullList_rangeCheckForAdd(index);
 
-        this.ensureCapacityInternal(this.size + 1);
-        System.arraycopy(this.arr, index, this.arr, index + 1, this.size - index);
-        this.arr[index] = element;
-        this.size++;
+        this.ppatches_optimizeNonNullList_ensureCapacityInternal(this.ppatches_optimizeNonNullList_size + 1);
+        System.arraycopy(this.ppatches_optimizeNonNullList_arr, index, this.ppatches_optimizeNonNullList_arr, index + 1, this.ppatches_optimizeNonNullList_size - index);
+        this.ppatches_optimizeNonNullList_arr[index] = element;
+        this.ppatches_optimizeNonNullList_size++;
     }
 
     /**
@@ -142,11 +142,11 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Override
     @Overwrite(remap = false)
     public E remove(int index) {
-        this.resizableCheck();
-        this.rangeCheck(index);
-        E oldValue = this.arr[index];
+        this.ppatches_optimizeNonNullList_resizableCheck();
+        this.ppatches_optimizeNonNullList_rangeCheck(index);
+        E oldValue = this.ppatches_optimizeNonNullList_arr[index];
 
-        this.fastRemove(index);
+        this.ppatches_optimizeNonNullList_fastRemove(index);
         return oldValue;
     }
 
@@ -157,7 +157,7 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Override
     @Overwrite(remap = false)
     public int size() {
-        return this.size;
+        return this.ppatches_optimizeNonNullList_size;
     }
 
     /**
@@ -167,8 +167,8 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Override
     @Overwrite(remap = false)
     public void clear() {
-        if (this.size > 0) {
-            if (!this.resizable && this.defaultElement == null) {
+        if (this.ppatches_optimizeNonNullList_size > 0) {
+            if (!this.ppatches_optimizeNonNullList_resizable && this.defaultElement == null) {
                 //the list isn't resizable (it's backed by an Arrays.asList()), but the default element is null! vanilla code would
                 // delegate to super.clear() in this case, which would eventually cause the list from Arrays.asList() to throw an
                 // UnsupportedOperationException().
@@ -176,17 +176,17 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
             }
 
             //fill the whole list with the default element (null for resizable lists)
-            Arrays.fill(this.arr, 0, this.size, this.defaultElement);
+            Arrays.fill(this.ppatches_optimizeNonNullList_arr, 0, this.ppatches_optimizeNonNullList_size, this.defaultElement);
 
-            if (this.resizable) { //this is a resizable list, we need to reset the size to 0
-                this.size = 0;
+            if (this.ppatches_optimizeNonNullList_resizable) { //this is a resizable list, we need to reset the size to 0
+                this.ppatches_optimizeNonNullList_size = 0;
             }
         }
     }
 
     @Override
     public boolean isEmpty() {
-        return this.size == 0;
+        return this.ppatches_optimizeNonNullList_size == 0;
     }
 
     @Override
@@ -197,8 +197,8 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Override
     public int indexOf(Object o) {
         if (o != null) {
-            E[] arr = this.arr;
-            int size = this.size;
+            E[] arr = this.ppatches_optimizeNonNullList_arr;
+            int size = this.ppatches_optimizeNonNullList_size;
             for (int i = 0; i < size; i++) {
                 if (o.equals(arr[i])) {
                     return i;
@@ -211,8 +211,8 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Override
     public int lastIndexOf(Object o) {
         if (o != null) {
-            E[] arr = this.arr;
-            int size = this.size;
+            E[] arr = this.ppatches_optimizeNonNullList_arr;
+            int size = this.ppatches_optimizeNonNullList_size;
             for (int i = size - 1; i >= 0; i--) {
                 if (o.equals(arr[i])) {
                     return i;
@@ -230,7 +230,7 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
 
             @Override
             public boolean hasNext() {
-                return this.pos < MixinNonNullList.this.size;
+                return this.pos < MixinNonNullList.this.ppatches_optimizeNonNullList_size;
             }
 
             @Override
@@ -238,12 +238,12 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
                 if (!this.hasNext()) {
                     throw new NoSuchElementException();
                 }
-                return MixinNonNullList.this.arr[this.last = this.pos++];
+                return MixinNonNullList.this.ppatches_optimizeNonNullList_arr[this.last = this.pos++];
             }
 
             @Override
             public void remove() {
-                MixinNonNullList.this.resizableCheck();
+                MixinNonNullList.this.ppatches_optimizeNonNullList_resizableCheck();
                 if (this.last < 0) {
                     throw new IllegalStateException();
                 }
@@ -258,15 +258,15 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
 
     @Override
     public Spliterator<E> spliterator() {
-        return Arrays.spliterator(this.arr, 0, this.size);
+        return Arrays.spliterator(this.ppatches_optimizeNonNullList_arr, 0, this.ppatches_optimizeNonNullList_size);
     }
 
     @Override
     public void forEach(Consumer<? super E> action) {
         Objects.requireNonNull(action);
 
-        E[] arr = this.arr;
-        int size = this.size;
+        E[] arr = this.ppatches_optimizeNonNullList_arr;
+        int size = this.ppatches_optimizeNonNullList_size;
         for (int i = 0; i < size; i++) {
             action.accept(arr[i]);
         }
@@ -274,14 +274,14 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
 
     @Override
     public Object[] toArray() {
-        return Arrays.copyOf(this.arr, this.size);
+        return Arrays.copyOf(this.ppatches_optimizeNonNullList_arr, this.ppatches_optimizeNonNullList_size);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T[] toArray(T[] a) {
-        E[] arr = this.arr;
-        int size = this.size;
+        E[] arr = this.ppatches_optimizeNonNullList_arr;
+        int size = this.ppatches_optimizeNonNullList_size;
 
         if (a.length < size) {
             a = (T[]) Array.newInstance(a.getClass().getComponentType(), size);
@@ -297,13 +297,13 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
 
     @Override
     public boolean addAll(Collection<? extends E> c) {
-        this.resizableCheck();
+        this.ppatches_optimizeNonNullList_resizableCheck();
 
         Object[] src = c.toArray();
         if (src.length > 0) {
-            this.ensureCapacityInternal(this.size + src.length);
-            System.arraycopy(src, 0, this.arr, this.size, src.length);
-            this.size += src.length;
+            this.ppatches_optimizeNonNullList_ensureCapacityInternal(this.ppatches_optimizeNonNullList_size + src.length);
+            System.arraycopy(src, 0, this.ppatches_optimizeNonNullList_arr, this.ppatches_optimizeNonNullList_size, src.length);
+            this.ppatches_optimizeNonNullList_size += src.length;
             return true;
         } else {
             return false;
@@ -312,12 +312,12 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
 
     @Override
     public boolean remove(Object o) {
-        this.resizableCheck();
+        this.ppatches_optimizeNonNullList_resizableCheck();
 
         if (o != null) {
-            for (int i = 0; i < this.size; i++) {
-                if (o.equals(this.arr[i])) {
-                    this.fastRemove(i);
+            for (int i = 0; i < this.ppatches_optimizeNonNullList_size; i++) {
+                if (o.equals(this.ppatches_optimizeNonNullList_arr[i])) {
+                    this.ppatches_optimizeNonNullList_fastRemove(i);
                     return true;
                 }
             }
@@ -325,19 +325,20 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
         return false;
     }
 
-    private void fastRemove(int index) {
-        int numMoved = this.size - index - 1;
+    @Unique
+    private void ppatches_optimizeNonNullList_fastRemove(int index) {
+        int numMoved = this.ppatches_optimizeNonNullList_size - index - 1;
         if (numMoved > 0) {
-            System.arraycopy(this.arr, index + 1, this.arr, index, numMoved);
+            System.arraycopy(this.ppatches_optimizeNonNullList_arr, index + 1, this.ppatches_optimizeNonNullList_arr, index, numMoved);
         }
-        this.arr[--this.size] = null;
+        this.ppatches_optimizeNonNullList_arr[--this.ppatches_optimizeNonNullList_size] = null;
     }
 
     @Override
     public void replaceAll(UnaryOperator<E> operator) {
         Objects.requireNonNull(operator);
-        E[] arr = this.arr;
-        int size = this.size;
+        E[] arr = this.ppatches_optimizeNonNullList_arr;
+        int size = this.ppatches_optimizeNonNullList_size;
 
         for (int i = 0; i < size; i++) {
             arr[i] = Validate.notNull(operator.apply(arr[i]));
@@ -346,40 +347,40 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
 
     @Override
     public void sort(Comparator<? super E> c) {
-        Arrays.sort(this.arr, 0, this.size, c);
+        Arrays.sort(this.ppatches_optimizeNonNullList_arr, 0, this.ppatches_optimizeNonNullList_size, c);
     }
 
     @Unique
-    private void resizableCheck() {
-        if (!this.resizable) {
+    private void ppatches_optimizeNonNullList_resizableCheck() {
+        if (!this.ppatches_optimizeNonNullList_resizable) {
             throw new UnsupportedOperationException("this list may not be resized!");
         }
     }
 
     @Unique
-    private void rangeCheck(int index) {
-        if (index >= this.size) {
-            throw new IndexOutOfBoundsException(this.outOfBoundsMsg(index));
+    private void ppatches_optimizeNonNullList_rangeCheck(int index) {
+        if (index >= this.ppatches_optimizeNonNullList_size) {
+            throw new IndexOutOfBoundsException(this.ppatches_optimizeNonNullList_outOfBoundsMsg(index));
         }
     }
 
     @Unique
-    private void rangeCheckForAdd(int index) {
-        if (index > this.size || index < 0) {
-            throw new IndexOutOfBoundsException(this.outOfBoundsMsg(index));
+    private void ppatches_optimizeNonNullList_rangeCheckForAdd(int index) {
+        if (index > this.ppatches_optimizeNonNullList_size || index < 0) {
+            throw new IndexOutOfBoundsException(this.ppatches_optimizeNonNullList_outOfBoundsMsg(index));
         }
     }
 
     @Unique
-    private String outOfBoundsMsg(int index) {
-        return "Index: " + index + ", Size: " + this.size;
+    private String ppatches_optimizeNonNullList_outOfBoundsMsg(int index) {
+        return "Index: " + index + ", Size: " + this.ppatches_optimizeNonNullList_size;
     }
 
     /**
      * Default initial capacity.
      */
     @Unique
-    private static final int DEFAULT_CAPACITY = 10;
+    private static final int ppatches_optimizeNonNullList_DEFAULT_CAPACITY = 10;
 
     /**
      * Shared empty array instance used for default sized empty instances. We
@@ -387,18 +388,19 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
      * first element is added.
      */
     @Unique
-    private static final Object[] DEFAULTCAPACITY_EMPTY_ELEMENTDATA = {};
+    private static final Object[] ppatches_optimizeNonNullList_DEFAULTCAPACITY_EMPTY_ELEMENTDATA = {};
 
-    private void ensureCapacityInternal(int minCapacity) {
+    @Unique
+    private void ppatches_optimizeNonNullList_ensureCapacityInternal(int minCapacity) {
         //noinspection ArrayEquality
-        if (this.arr == DEFAULTCAPACITY_EMPTY_ELEMENTDATA) {
-            minCapacity = Math.max(DEFAULT_CAPACITY, minCapacity);
+        if (this.ppatches_optimizeNonNullList_arr == ppatches_optimizeNonNullList_DEFAULTCAPACITY_EMPTY_ELEMENTDATA) {
+            minCapacity = Math.max(ppatches_optimizeNonNullList_DEFAULT_CAPACITY, minCapacity);
         }
 
-        int oldCapacity = this.arr.length;
+        int oldCapacity = this.ppatches_optimizeNonNullList_arr.length;
         if (oldCapacity < minCapacity) {
             int newCapacity = (int) Math.max(Math.min((long) (oldCapacity + (oldCapacity >> 1)), it.unimi.dsi.fastutil.Arrays.MAX_ARRAY_SIZE), minCapacity);
-            this.arr = Arrays.copyOf(this.arr, newCapacity);
+            this.ppatches_optimizeNonNullList_arr = Arrays.copyOf(this.ppatches_optimizeNonNullList_arr, newCapacity);
         }
     }
 }
