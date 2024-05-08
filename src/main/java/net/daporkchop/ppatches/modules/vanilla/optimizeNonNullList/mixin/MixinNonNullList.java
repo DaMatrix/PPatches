@@ -32,6 +32,10 @@ import java.util.function.UnaryOperator;
  */
 @Mixin(NonNullList.class)
 abstract class MixinNonNullList<E> extends AbstractList<E> {
+    @Unique
+    @SuppressWarnings("ArraysAsListWithZeroOrOneArgument")
+    private static final Class<?> ppatches_optimizeNonNullList_Arrays_asList_class = Arrays.asList().getClass();
+
     @Delete(removeInstanceInitializer = true)
     @Shadow
     @Final
@@ -41,22 +45,37 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Final
     private E defaultElement;
 
+    @Unique
     private E[] arr;
+    @Unique
     private int size;
+
+    /**
+     * This is {@code true} if the list may be resized.
+     * <p>
+     * Resizable lists behave (more or less) as if backed by an {@link ArrayList}, while non-resizable lists behave as if backed by a list supplied by
+     * {@link Arrays#asList(Object[])}.
+     */
+    @Unique
+    private boolean resizable;
 
     @SuppressWarnings("unchecked")
     @Inject(method = "<init>(Ljava/util/List;Ljava/lang/Object;)V",
             at = @At("RETURN"),
             allow = 1, require = 1)
     private void ppatches_optimizeNonNullList_$init$_checkArgs(List<E> delegateIn, E defaultElement, CallbackInfo ci) {
-        if (delegateIn instanceof ArrayList) {
+        Class<?> delegateClass = delegateIn.getClass();
+        if (delegateClass == ArrayList.class) {
             Preconditions.checkArgument(delegateIn.isEmpty(), "resizable NonNullList must be constructed with an empty ArrayList");
             Preconditions.checkArgument(defaultElement == null, "resizable NonNullList must be constructed with a null default element");
 
             this.arr = (E[]) DEFAULTCAPACITY_EMPTY_ELEMENTDATA;
+            this.resizable = true;
         } else {
-            Preconditions.checkArgument(delegateIn.getClass() == Arrays.asList().getClass(), "non-resizable NonNullList must be constructed with a list supplied by Arrays.asList()");
-            Preconditions.checkArgument(defaultElement != null, "non-resizable NonNullList must be constructed with a non-null default element");
+            Preconditions.checkArgument(delegateClass == ppatches_optimizeNonNullList_Arrays_asList_class, "non-resizable NonNullList must be constructed with a list supplied by Arrays.asList(): %s", delegateClass);
+            //this would be a nice check, but for some unfathomable reason Mekanism overrides this class for no reason other than to construct it with nonsensical parameters
+            // which i now have to handle in order to keep stuff from breaking.
+            // Preconditions.checkArgument(defaultElement != null, "non-resizable NonNullList must be constructed with a non-null default element");
 
             this.arr = (E[]) delegateIn.toArray();
             this.size = this.arr.length;
@@ -149,10 +168,17 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
     @Overwrite(remap = false)
     public void clear() {
         if (this.size > 0) {
+            if (!this.resizable && this.defaultElement == null) {
+                //the list isn't resizable (it's backed by an Arrays.asList()), but the default element is null! vanilla code would
+                // delegate to super.clear() in this case, which would eventually cause the list from Arrays.asList() to throw an
+                // UnsupportedOperationException().
+                throw new UnsupportedOperationException();
+            }
+
             //fill the whole list with the default element (null for resizable lists)
             Arrays.fill(this.arr, 0, this.size, this.defaultElement);
 
-            if (this.defaultElement == null) { //this is a resizable list, we need to reset the size to 0
+            if (this.resizable) { //this is a resizable list, we need to reset the size to 0
                 this.size = 0;
             }
         }
@@ -325,7 +351,7 @@ abstract class MixinNonNullList<E> extends AbstractList<E> {
 
     @Unique
     private void resizableCheck() {
-        if (this.defaultElement != null) {
+        if (!this.resizable) {
             throw new UnsupportedOperationException("this list may not be resized!");
         }
     }
