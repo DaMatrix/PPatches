@@ -4,8 +4,8 @@ import net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.A
 import net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.UpdateItemList;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.util.IMixinTextureAtlasSprite;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.util.SpriteOrigin;
-import net.daporkchop.ppatches.util.mixin.ext.AlwaysCancels;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.client.renderer.texture.TextureUtil;
 import net.minecraft.client.resources.data.AnimationMetadataSection;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -67,11 +67,17 @@ abstract class MixinTextureAtlasSprite implements IMixinTextureAtlasSprite {
             allow = 1, require = 1)
     private void ppatches_optimizeTextureAnimationUpdates_updateAnimation_addToUpdateList(
             int[][] frameTextureData, int width, int height, int originX, int originY, boolean doBlur, boolean doClamp) {
-        int frameIndex = this.animationMetadata.getFrameIndex(this.frameCounter);
-        SpriteOrigin frameBounds = this.ppatches_optimizeTextureAnimationUpdates_spriteBounds[frameIndex];
-        this.ppatches_optimizeTextureAnimationUpdates_animationUpdateList.add(
-                frameBounds.originX, frameBounds.originY,
-                originX, originY);
+        if (this.ppatches_optimizeTextureAnimationUpdates_animationUpdateList == null) {
+            //animationUpdateList may be null, specifically in the case where OptiFine multitexturing is enabled. if that's the case, this
+            //  sprite isn't even on the main texture atlas at all, so we don't care and will use the slow approach.
+            TextureUtil.uploadTextureMipmap(frameTextureData, width, height, originX, originY, doBlur, doClamp);
+        } else {
+            int frameIndex = this.animationMetadata.getFrameIndex(this.frameCounter);
+            SpriteOrigin frameBounds = this.ppatches_optimizeTextureAnimationUpdates_spriteBounds[frameIndex];
+            this.ppatches_optimizeTextureAnimationUpdates_animationUpdateList.add(
+                    frameBounds.originX, frameBounds.originY,
+                    originX, originY);
+        }
     }
 
     @Inject(method = "updateAnimationInterpolated()V",
@@ -81,16 +87,17 @@ abstract class MixinTextureAtlasSprite implements IMixinTextureAtlasSprite {
             cancellable = true,
             locals = LocalCapture.CAPTURE_FAILHARD,
             allow = 1, require = 1)
-    @AlwaysCancels
     private void ppatches_optimizeTextureAnimationUpdates_updateAnimationInterpolated_addToUpdateList(CallbackInfo ci, double factor, int prevFrameIndex, int frames, int nextFrameIndex) {
-        SpriteOrigin prevFrameBounds = this.ppatches_optimizeTextureAnimationUpdates_spriteBounds[prevFrameIndex];
-        SpriteOrigin nextFrameBounds = this.ppatches_optimizeTextureAnimationUpdates_spriteBounds[nextFrameIndex];
-        this.ppatches_optimizeTextureAnimationUpdates_animationUpdateList.addInterpolate(
-                prevFrameBounds.originX, prevFrameBounds.originY,
-                nextFrameBounds.originX, nextFrameBounds.originY,
-                this.originX, this.originY,
-                (float) factor);
-        ci.cancel();
+        if (this.ppatches_optimizeTextureAnimationUpdates_animationUpdateList != null) {
+            SpriteOrigin prevFrameBounds = this.ppatches_optimizeTextureAnimationUpdates_spriteBounds[prevFrameIndex];
+            SpriteOrigin nextFrameBounds = this.ppatches_optimizeTextureAnimationUpdates_spriteBounds[nextFrameIndex];
+            this.ppatches_optimizeTextureAnimationUpdates_animationUpdateList.addInterpolate(
+                    prevFrameBounds.originX, prevFrameBounds.originY,
+                    nextFrameBounds.originX, nextFrameBounds.originY,
+                    this.originX, this.originY,
+                    (float) factor);
+            ci.cancel();
+        }
     }
 
     /*@Inject(method = "loadSpriteFrames(Lnet/minecraft/client/resources/IResource;I)V",

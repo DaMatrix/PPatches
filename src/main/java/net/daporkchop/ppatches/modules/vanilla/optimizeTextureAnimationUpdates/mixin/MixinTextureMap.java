@@ -3,6 +3,7 @@ package net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.
 import net.daporkchop.ppatches.PPatchesMod;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.AnimationUpdater;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.util.IMixinTextureAtlasSprite;
+import net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.util.IMixinTextureMap;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.util.SpriteOrigin;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
@@ -28,7 +29,7 @@ import java.util.List;
  * @author DaPorkchop_
  */
 @Mixin(TextureMap.class)
-abstract class MixinTextureMap extends AbstractTexture {
+abstract class MixinTextureMap extends AbstractTexture implements IMixinTextureMap {
     @Shadow
     private int mipmapLevels;
 
@@ -53,10 +54,8 @@ abstract class MixinTextureMap extends AbstractTexture {
                 Paths.get(".ppatches_textureAtlas", "primary"));
     }*/
 
-    @Inject(method = "finishLoading(Lnet/minecraft/client/renderer/texture/Stitcher;Lnet/minecraftforge/fml/common/ProgressManager$ProgressBar;II)V",
-            at = @At("RETURN"),
-            allow = 1, require = 1)
-    private void ppatches_optimizeTextureAnimationUpdates_finishLoading_constructAnimationFramesAtlas(Stitcher stitcher, ProgressManager.ProgressBar bar, int j, int k, CallbackInfo ci) {
+    @Override
+    public void ppatches_optimizeTextureAnimationUpdates_constructAnimationFramesAtlas() {
         if (this.ppatches_optimizeTextureAnimationUpdates_animationUpdater != null) {
             this.ppatches_optimizeTextureAnimationUpdates_animationUpdater.close();
             this.ppatches_optimizeTextureAnimationUpdates_animationUpdater = null;

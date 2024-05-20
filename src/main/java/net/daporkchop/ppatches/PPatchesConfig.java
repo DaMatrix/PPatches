@@ -515,7 +515,18 @@ public class PPatchesConfig {
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTessellatorDraw = new ModuleConfigOptimizeTessellatorDraw(ModuleState.DISABLED);
 
-    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    @Config.Comment({
+            "Patches Minecraft's texture atlas to avoid updating animated textures from the CPU every frame.",
+            "Specifically, this will construct a secondary texture atlas containing all frames from all animated textures, and then uses a compute shader to efficiently"
+                    + " modify relevant parts of the texture atlas when an animated texture transitions to the next frame.",
+            "Because the compute shader is able to handle all possible animation updates, this is substantially more effective than FoamFix's texture animation optimization,"
+                    + " which still relies on CPU data transfer in some (but not all) cases, which prevents any potential benefits from being visible.",
+            "This gives roughly a 15-25% performance increase on an NVIDIA GPU. For best results, disable (!!!) OptiFine's \"Smart Animations\", as the extra work it does"
+                    + " to avoid updating invisible textures actually ends up being slower than doing unnecessary extra work on the GPU.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            eventHandlerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.EventHandler")
     public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTextureAnimationUpdates = new ModuleConfigOptimizeTessellatorDraw(ModuleState.ENABLED);
 
     @Config.Comment({
@@ -1191,6 +1202,8 @@ public class PPatchesConfig {
         MixinConfig[] mixins() default @MixinConfig;
 
         String[] transformerClass() default {};
+
+        String[] eventHandlerClass() default {};
     }
 
     /**
