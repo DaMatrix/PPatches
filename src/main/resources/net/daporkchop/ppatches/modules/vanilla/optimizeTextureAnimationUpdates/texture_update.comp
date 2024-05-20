@@ -1,0 +1,48 @@
+// The resolution of a texture tile
+#define BASE_RESOLUTION (16)
+
+// The lowest mipmap level being processed
+//#define BASE_MIPMAP (0)
+
+// The number of mipmap levels which will be updated
+//#define MIPMAP_LEVELS (4)
+
+layout(local_size_x = BASE_RESOLUTION, local_size_y = BASE_RESOLUTION, local_size_z = 1) in;
+
+uniform layout(rgba8) restrict readonly image2D u_srcTexture[MIPMAP_LEVELS];
+uniform layout(rgba8) restrict writeonly image2D u_dstTexture[MIPMAP_LEVELS];
+
+struct UpdateItem {
+    ivec2 src0_offset;
+    ivec2 src1_offset;
+    ivec2 dst_offset;
+    float factor;
+};
+
+layout(std430, binding = 0) readonly buffer UpdateItems {
+    UpdateItem update_items[];
+};
+
+void main() {
+    UpdateItem update_item = update_items[gl_WorkGroupID.x];
+
+    ivec2 src0_offset = update_item.src0_offset + ivec2(uvec2(gl_WorkGroupID.yz) * uint(BASE_RESOLUTION));
+    ivec2 src1_offset = update_item.src1_offset + ivec2(uvec2(gl_WorkGroupID.yz) * uint(BASE_RESOLUTION));
+    ivec2 dst_offset = update_item.dst_offset + ivec2(uvec2(gl_WorkGroupID.yz) * uint(BASE_RESOLUTION));
+    float factor = update_item.factor;
+
+    for (int level = 0; level < MIPMAP_LEVELS; level++) {
+        if (uint(max(gl_LocalInvocationID.x, gl_LocalInvocationID.y)) >= uint(BASE_RESOLUTION >> (level + BASE_MIPMAP))) {
+            break;
+        }
+
+        ivec2 src0_coord = (src0_offset >> (level + BASE_MIPMAP)) + ivec2(gl_LocalInvocationID.xy);
+        ivec2 src1_coord = (src1_offset >> (level + BASE_MIPMAP)) + ivec2(gl_LocalInvocationID.xy);
+        ivec2 dst_coord = (dst_offset >> (level + BASE_MIPMAP)) + ivec2(gl_LocalInvocationID.xy);
+
+        vec4 color0 = imageLoad(u_srcTexture[level], src0_coord);
+        vec4 color1 = imageLoad(u_srcTexture[level], src1_coord);
+        vec4 color = mix(color1, color0, factor);
+        imageStore(u_dstTexture[level], dst_coord, color);
+    }
+}

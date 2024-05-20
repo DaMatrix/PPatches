@@ -515,6 +515,9 @@ public class PPatchesConfig {
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTessellatorDraw = new ModuleConfigOptimizeTessellatorDraw(ModuleState.DISABLED);
 
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTextureAnimationUpdates = new ModuleConfigOptimizeTessellatorDraw(ModuleState.ENABLED);
+
     @Config.Comment({
             "Patches Minecraft's TextureUtil class to avoid allocating a 4MiB buffer on the Java heap every time part of an OpenGL texture is updated, even if the part"
                     + " of the texture being updated is much smaller than that.",
