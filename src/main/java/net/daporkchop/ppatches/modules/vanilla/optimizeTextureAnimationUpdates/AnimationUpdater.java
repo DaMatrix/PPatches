@@ -16,6 +16,8 @@ import org.lwjgl.opengl.ARBMultiBind;
 import org.lwjgl.opengl.ARBShaderImageLoadStore;
 import org.lwjgl.opengl.ARBShaderStorageBufferObject;
 import org.lwjgl.opengl.ARBUniformBufferObject;
+import org.lwjgl.opengl.ContextCapabilities;
+import org.lwjgl.opengl.GLContext;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,6 +37,15 @@ import static org.lwjgl.opengl.GL20.glUniform1i;
  * @author DaPorkchop_
  */
 public final class AnimationUpdater implements AutoCloseable {
+    public static boolean isSupported(ContextCapabilities capabilities) {
+        return UpdateItemList.isSupported(capabilities)
+                & (capabilities.OpenGL43 | capabilities.GL_ARB_compute_shader)
+                & (capabilities.OpenGL42 | capabilities.GL_ARB_shader_image_load_store)
+                & (capabilities.OpenGL43 | capabilities.GL_ARB_shader_storage_buffer_object)
+                & (capabilities.OpenGL31 | capabilities.GL_ARB_uniform_buffer_object)
+                & capabilities.OpenGL43; //required for compute shaders, i'm too lazy to deal with enabling GLSL extensions as needed
+    }
+
     public final int baseResolution = 16; //prevent inlining
     public final int mipmapLevels;
 
@@ -184,8 +195,15 @@ public final class AnimationUpdater implements AutoCloseable {
         this.updateLists.values().forEach(UpdateItemList::clear);
 
         //reset bindings to 0
-        ARBMultiBind.glBindImageTextures(0, Math.min(this.maxTextureImageUnits, this.mipmapLevels * 2), null);
         ARBUniformBufferObject.glBindBufferBase(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, 0, 0);
+        ContextCapabilities capabilities = GLContext.getCapabilities();
+        if (capabilities.OpenGL44 | capabilities.GL_ARB_multi_bind) {
+            ARBMultiBind.glBindImageTextures(0, Math.min(this.maxTextureImageUnits, this.mipmapLevels * 2), null);
+        } else {
+            for (int i = 0, limit = Math.min(this.maxTextureImageUnits, this.mipmapLevels * 2); i < limit; i++) {
+                ARBShaderImageLoadStore.glBindImageTexture(i, 0, 0, false, 0, GL_READ_ONLY, GL_RGBA8);
+            }
+        }
 
         //ensure that texture writes are completed before rendering begins
         ARBShaderImageLoadStore.glMemoryBarrier(ARBShaderImageLoadStore.GL_TEXTURE_FETCH_BARRIER_BIT);

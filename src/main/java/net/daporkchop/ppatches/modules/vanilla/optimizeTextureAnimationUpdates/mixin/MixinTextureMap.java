@@ -12,7 +12,6 @@ import net.minecraft.client.renderer.texture.Stitcher;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.renderer.texture.TextureUtil;
-import net.minecraftforge.fml.common.ProgressManager;
 import org.spongepowered.asm.mixin.Dynamic;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -136,7 +135,9 @@ abstract class MixinTextureMap extends AbstractTexture implements IMixinTextureM
             at = @At("TAIL"),
             allow = 1, require = 1)
     private void ppatches_optimizeTextureAnimationUpdates_updateAnimations_dispatchUpdater(CallbackInfo ci) {
-        this.ppatches_optimizeTextureAnimationUpdates_animationUpdater.dispatch();
+        if (this.ppatches_optimizeTextureAnimationUpdates_animationUpdater != null) { //could be null if not supported
+            this.ppatches_optimizeTextureAnimationUpdates_animationUpdater.dispatch();
+        }
     }
 
     /**
@@ -153,7 +154,7 @@ abstract class MixinTextureMap extends AbstractTexture implements IMixinTextureM
             method = {
                     "deleteGlTexture()V",
                     "func_147631_c()V", //need to explicitly add the obfuscated method name, since the method doesn't exist in vanilla
-            },
+            }, remap = false,
             at = @At(value = "HEAD"),
             allow = 1, require = 1)
     private void ppatches_optimizeTextureAnimationUpdates_deleteGlTexture_deleteAnimationFramesAtlas(CallbackInfo ci) {

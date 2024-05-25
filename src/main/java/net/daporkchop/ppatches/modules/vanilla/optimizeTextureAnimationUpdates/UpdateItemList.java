@@ -1,6 +1,7 @@
 package net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates;
 
 import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.ContextCapabilities;
 
 import java.nio.IntBuffer;
 
@@ -14,6 +15,12 @@ import static org.lwjgl.opengl.GL15.glDeleteBuffers;
  * @author DaPorkchop_
  */
 public final class UpdateItemList implements AutoCloseable {
+    public static boolean isSupported(ContextCapabilities capabilities) {
+        return (capabilities.OpenGL45 | capabilities.GL_ARB_direct_state_access)
+                & (capabilities.OpenGL44 | capabilities.GL_ARB_buffer_storage)
+                & (capabilities.OpenGL43 | capabilities.GL_ARB_invalidate_subdata);
+    }
+
     private static final int SIZE_INTS = 8;
 
     private final IntBuffer cpuBuffer;

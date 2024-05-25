@@ -108,10 +108,8 @@ public class PPatchesConfig {
 
     @Config.Comment({
             "Patches Extra Utilities 2 to optimize the redstone clock texture to use whatever the currently configured texture animation update system is.",
-            "This will make it respect OptiFine's \"Smart Animations\", FoamFix's faster animations, and PPatches' vanilla.optimizeTextureAnimationUpdates.",
+            "This will make it respect OptiFine's \"Smart Animations\" and PPatches' vanilla.optimizeTextureAnimationUpdates.",
     })
-    @ModuleDescriptor(
-            eventHandlerClass = "net.daporkchop.ppatches.modules.foamFix.FoamFixLogSlowAnimationsEventHandler")
     public static final ModuleConfigBase extraUtilities2_optimizeAnimatedTextures = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
@@ -130,8 +128,6 @@ public class PPatchesConfig {
             "Patches FoamFix to optimize the algorithm used for blending between frames of animated textures with interpolation enabled, such as lava or command blocks.",
             "This is unlikely to give any meaningful performance benefits.",
     })
-    @ModuleDescriptor(
-            eventHandlerClass = "net.daporkchop.ppatches.modules.foamFix.FoamFixLogSlowAnimationsEventHandler")
     public static final ModuleConfigBase foamFix_optimizeTextureInterpolation = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
@@ -139,16 +135,13 @@ public class PPatchesConfig {
             "Without this patch, OptiFine's \"Smart Animations\" will have no effect if FoamFix is installed.",
     })
     @ModuleDescriptor(
-            requires = @Requirement(classPresent = "net.optifine.SmartAnimations"),
-            eventHandlerClass = "net.daporkchop.ppatches.modules.foamFix.FoamFixLogSlowAnimationsEventHandler")
+            requires = @Requirement(classPresent = "net.optifine.SmartAnimations"))
     public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches Forestry to optimize the habitat locator texture to use whatever the currently configured texture animation update system is.",
-            "This will make it respect OptiFine's \"Smart Animations\", FoamFix's faster animations, and PPatches' vanilla.optimizeTextureAnimationUpdates.",
+            "This will make it respect OptiFine's \"Smart Animations\" and PPatches' vanilla.optimizeTextureAnimationUpdates.",
     })
-    @ModuleDescriptor(
-            eventHandlerClass = "net.daporkchop.ppatches.modules.foamFix.FoamFixLogSlowAnimationsEventHandler")
     public static final ModuleConfigBase forestry_optimizeAnimatedTextures = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({

@@ -66,11 +66,11 @@ abstract class MixinTextureAtlasSprite implements IMixinTextureAtlasSprite {
                     target = "Lnet/minecraft/client/renderer/texture/TextureUtil;uploadTextureMipmap([[IIIIIZZ)V"),
             allow = 1, require = 1)
     private void ppatches_optimizeTextureAnimationUpdates_updateAnimation_addToUpdateList(
-            int[][] frameTextureData, int width, int height, int originX, int originY, boolean doBlur, boolean doClamp) {
+            int[][] frameTextureData, int width, int height, int originX, int originY, boolean linearFiltering, boolean clamp) {
         if (this.ppatches_optimizeTextureAnimationUpdates_animationUpdateList == null) {
             //animationUpdateList may be null, specifically in the case where OptiFine multitexturing is enabled. if that's the case, this
             //  sprite isn't even on the main texture atlas at all, so we don't care and will use the slow approach.
-            TextureUtil.uploadTextureMipmap(frameTextureData, width, height, originX, originY, doBlur, doClamp);
+            TextureUtil.uploadTextureMipmap(frameTextureData, width, height, originX, originY, linearFiltering, clamp);
         } else {
             int frameIndex = this.animationMetadata.getFrameIndex(this.frameCounter);
             SpriteOrigin frameBounds = this.ppatches_optimizeTextureAnimationUpdates_spriteBounds[frameIndex];
@@ -145,12 +145,50 @@ abstract class MixinTextureAtlasSprite implements IMixinTextureAtlasSprite {
     private void ppatches_optimizeTextureAnimationUpdates_loadSpriteFrames_disableInterpolatedTextures(CallbackInfo ci) {
         //make interpolated textures not be interpolated
         if (this.animationMetadata != null && this.animationMetadata.isInterpolate()) {
+            PPatchesMod.LOGGER.info("Disabling interpolated animated texture for {}", this.getIconName());
             this.animationMetadata = new AnimationMetadataSection(
-                    ((ATAnimationMetadataSection) this.animationMetadata).getAnimationFrames(),
+                    IntStream.range(0, this.animationMetadata.getFrameCount())
+                            .mapToObj(frame -> new AnimationFrame(this.animationMetadata.getFrameIndex(frame), this.animationMetadata.frameHasTime(frame) ? this.animationMetadata.getFrameTimeSingle(frame) : -1))
+                            .collect(Collectors.toList()),
                     this.animationMetadata.getFrameWidth(),
                     this.animationMetadata.getFrameHeight(),
                     this.animationMetadata.getFrameTime(),
                     false);
+        }
+    }*/
+
+    /*@Inject(method = "loadSpriteFrames(Lnet/minecraft/client/resources/IResource;I)V",
+            at = @At(value = "FIELD",
+                    target = "Lnet/minecraft/client/renderer/texture/TextureAtlasSprite;animationMetadata:Lnet/minecraft/client/resources/data/AnimationMetadataSection;",
+                    opcode = Opcodes.PUTFIELD,
+                    shift = At.Shift.AFTER),
+            allow = 2, require = 2)
+    private void ppatches_optimizeTextureAnimationUpdates_loadSpriteFrames_disableInterpolatedTextures(CallbackInfo ci) {
+        //make interpolated textures not be interpolated
+        if (this.animationMetadata != null && this.animationMetadata.isInterpolate()) {
+            PPatchesMod.LOGGER.info("Disabling animated texture interpolation for {}", this.getIconName());
+            this.animationMetadata = new AnimationMetadataSection(
+                    IntStream.range(0, this.animationMetadata.getFrameCount())
+                            .mapToObj(frame -> new AnimationFrame(this.animationMetadata.getFrameIndex(frame), this.animationMetadata.frameHasTime(frame) ? this.animationMetadata.getFrameTimeSingle(frame) : -1))
+                            .collect(Collectors.toList()),
+                    this.animationMetadata.getFrameWidth(),
+                    this.animationMetadata.getFrameHeight(),
+                    this.animationMetadata.getFrameTime(),
+                    false);
+        }
+    }*/
+
+    /*@Inject(method = "loadSpriteFrames(Lnet/minecraft/client/resources/IResource;I)V",
+            at = @At(value = "FIELD",
+                    target = "Lnet/minecraft/client/renderer/texture/TextureAtlasSprite;animationMetadata:Lnet/minecraft/client/resources/data/AnimationMetadataSection;",
+                    opcode = Opcodes.PUTFIELD,
+                    shift = At.Shift.AFTER),
+            allow = 2, require = 2)
+    private void ppatches_optimizeTextureAnimationUpdates_loadSpriteFrames_disableSingleFrameAnimations(CallbackInfo ci) {
+        //make interpolated textures not be interpolated
+        if (this.animationMetadata != null && this.animationMetadata.getFrameCount() == 1) {
+            PPatchesMod.LOGGER.info("Disabling animated texture for {} as it only has one frame", this.getIconName());
+            this.animationMetadata = null;
         }
     }*/
 
