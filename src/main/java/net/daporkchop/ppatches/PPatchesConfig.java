@@ -107,10 +107,17 @@ public class PPatchesConfig {
     public static final ModuleConfigBase extraUtilities2_loadQuarryChunks = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
+            "Patches Extra Utilities 2 to optimize the redstone clock texture to use whatever the currently configured texture animation update system is.",
+            "This will make it respect OptiFine's \"Smart Animations\", FoamFix's faster animations, and PPatches' vanilla.optimizeTextureAnimationUpdates.",
+    })
+    @ModuleDescriptor(
+            eventHandlerClass = "net.daporkchop.ppatches.modules.foamFix.FoamFixLogSlowAnimationsEventHandler")
+    public static final ModuleConfigBase extraUtilities2_optimizeAnimatedTextures = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
             "Patches Extra Utilities 2 to optimize the DropsHandler class to eliminate an expensive HashMultimap lookup every time a block is harvested.",
             "This can increase server performance by a few percent in scenarios where many blocks are being harvested quickly.",
     })
-    @ModuleDescriptor
     public static final ModuleConfigBase extraUtilities2_optimizeDropsHandler = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
@@ -123,14 +130,26 @@ public class PPatchesConfig {
             "Patches FoamFix to optimize the algorithm used for blending between frames of animated textures with interpolation enabled, such as lava or command blocks.",
             "This is unlikely to give any meaningful performance benefits.",
     })
+    @ModuleDescriptor(
+            eventHandlerClass = "net.daporkchop.ppatches.modules.foamFix.FoamFixLogSlowAnimationsEventHandler")
     public static final ModuleConfigBase foamFix_optimizeTextureInterpolation = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
             "Patches FoamFix to make OptiFine's \"Smart Animations\" work.",
             "Without this patch, OptiFine's \"Smart Animations\" will have no effect if FoamFix is installed.",
     })
-    @ModuleDescriptor(requires = @Requirement(classPresent = "net.optifine.SmartAnimations"))
+    @ModuleDescriptor(
+            requires = @Requirement(classPresent = "net.optifine.SmartAnimations"),
+            eventHandlerClass = "net.daporkchop.ppatches.modules.foamFix.FoamFixLogSlowAnimationsEventHandler")
     public static final ModuleConfigBase foamFix_respectOptiFineSmartAnimations = new ModuleConfigBase(ModuleState.AUTO);
+
+    @Config.Comment({
+            "Patches Forestry to optimize the habitat locator texture to use whatever the currently configured texture animation update system is.",
+            "This will make it respect OptiFine's \"Smart Animations\", FoamFix's faster animations, and PPatches' vanilla.optimizeTextureAnimationUpdates.",
+    })
+    @ModuleDescriptor(
+            eventHandlerClass = "net.daporkchop.ppatches.modules.foamFix.FoamFixLogSlowAnimationsEventHandler")
+    public static final ModuleConfigBase forestry_optimizeAnimatedTextures = new ModuleConfigBase(ModuleState.AUTO);
 
     @Config.Comment({
             "Patches FML networking code to make splitting of large modded packets into multipart packets behave correctly.",
@@ -336,6 +355,7 @@ public class PPatchesConfig {
     @Config.Comment({
             "Patches all Mixin injection points to replace eligible allocations of CallbackInfo with a static instance which can be re-used.",
             "This can dramatically improve performance and/or reduce GC churn in some situations, especially when there are other mods installed which use Mixin.",
+            "Note for developers: this will cause Mixin hot swapping to fail when reloading classes whose Mixins got optimized away.",
     })
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
@@ -527,7 +547,7 @@ public class PPatchesConfig {
     @ModuleDescriptor(
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             eventHandlerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeTextureAnimationUpdates.EventHandler")
-    public static final ModuleConfigOptimizeTessellatorDraw vanilla_optimizeTextureAnimationUpdates = new ModuleConfigOptimizeTessellatorDraw(ModuleState.ENABLED);
+    public static final ModuleConfigBase vanilla_optimizeTextureAnimationUpdates = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft's TextureUtil class to avoid allocating a 4MiB buffer on the Java heap every time part of an OpenGL texture is updated, even if the part"
