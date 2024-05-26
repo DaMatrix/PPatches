@@ -1,6 +1,7 @@
 package net.daporkchop.ppatches.util.client.render;
 
 import lombok.experimental.UtilityClass;
+import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.vertex.VertexFormat;
@@ -73,5 +74,57 @@ public class RenderUtils {
     public static Vector4f set(Vector4f vec, float x, float y, float z, float w) {
         vec.set(x, y, z, w);
         return vec;
+    }
+
+    /**
+     * Draws a rectangle to a BufferBuilder using {@link net.minecraft.client.renderer.vertex.DefaultVertexFormats#POSITION}.
+     *
+     * @see net.minecraft.client.gui.Gui#drawRect(int, int, int, int, int)
+     */
+    public static void drawRect(BufferBuilder buffer, int left, int top, int right, int bottom) {
+        if (left < right) {
+            int i = left;
+            left = right;
+            right = i;
+        }
+
+        if (top < bottom) {
+            int j = top;
+            top = bottom;
+            bottom = j;
+        }
+
+        buffer.pos(left, bottom, 0.0d).endVertex();
+        buffer.pos(right, bottom, 0.0d).endVertex();
+        buffer.pos(right, top, 0.0d).endVertex();
+        buffer.pos(left, top, 0.0d).endVertex();
+    }
+
+    /**
+     * Draws a colored rectangle to a BufferBuilder using {@link net.minecraft.client.renderer.vertex.DefaultVertexFormats#POSITION_COLOR}.
+     *
+     * @see net.minecraft.client.gui.Gui#drawRect(int, int, int, int, int)
+     */
+    public static void drawColoredRect(BufferBuilder buffer, int left, int top, int right, int bottom, int color) {
+        if (left < right) {
+            int i = left;
+            left = right;
+            right = i;
+        }
+
+        if (top < bottom) {
+            int j = top;
+            top = bottom;
+            bottom = j;
+        }
+
+        int a = color >>> 24;
+        int r = (color >>> 16) & 0xFF;
+        int g = (color >>> 8) & 0xFF;
+        int b = color & 0xFF;
+        buffer.pos(left, bottom, 0.0d).color(r, g, b, a).endVertex();
+        buffer.pos(right, bottom, 0.0d).color(r, g, b, a).endVertex();
+        buffer.pos(right, top, 0.0d).color(r, g, b, a).endVertex();
+        buffer.pos(left, top, 0.0d).color(r, g, b, a).endVertex();
     }
 }

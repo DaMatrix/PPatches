@@ -1,5 +1,7 @@
 package net.daporkchop.ppatches.modules.vanilla.fontRendererBatching.mixin;
 
+import com.google.common.base.Preconditions;
+import net.daporkchop.ppatches.modules.vanilla.fontRendererBatching.IBatchingFontRenderer;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.GlStateManager;
@@ -29,7 +31,7 @@ import java.util.Properties;
  * @author DaPorkchop_
  */
 @Mixin(FontRenderer.class)
-public abstract class MixinFontRenderer {
+abstract class MixinFontRenderer implements IBatchingFontRenderer {
     @Shadow
     @Final
     protected ResourceLocation locationFontTexture;
@@ -70,6 +72,22 @@ public abstract class MixinFontRenderer {
     @Unique
     protected boolean ppatches_fontRendererBatching_drawnAnyUnicode;
 
+    @Unique
+    protected boolean ppatches_fontRendererBatching_isRenderingBatch;
+
+    @Override
+    public final void ppatches_fontRendererBatching_beginBatchedRendering() {
+        Preconditions.checkState(!this.ppatches_fontRendererBatching_isRenderingBatch, "a font rendering batch has already been started!");
+        this.ppatches_fontRendererBatching_isRenderingBatch = true;
+    }
+
+    @Override
+    public final void ppatches_fontRendererBatching_endBatchedRendering() {
+        Preconditions.checkState(this.ppatches_fontRendererBatching_isRenderingBatch, "no font rendering batch is currently active!");
+        this.ppatches_fontRendererBatching_isRenderingBatch = false;
+        this.ppatches_fontRendererBatching_flushTessellators();
+    }
+
     @Inject(method = "<init>", at = @At("RETURN"))
     private void ppatches_fontRendererBatching_init(CallbackInfo ci) {
         (this.ppatches_fontRendererBatching_defaultCharTessellator = new Tessellator(16)).getBuffer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
@@ -100,10 +118,11 @@ public abstract class MixinFontRenderer {
             require = 1, allow = 1)
     private void ppatches_fontRendererBatching_renderStringAtPos_flushTessellatorBuffers(String text, boolean shadow, CallbackInfo ci) {
         //we don't flush the tessellators if we're drawing the shadow pass, since we know this method will be called again immediately afterwards with the same string
-        //  for the non-shadow pass, so we can keep appending to the same buffer and draw everything in one go.
+        //  for the non-shadow pass, so we can keep appending to the same buffer and draw everything in one go. this is also the case if we're currently drawing a multi-
+        //  string batch - we won't flush the tessellator and will keep appending to the same buffer until explicitly instructed to flush.
         //however, this optimization isn't possible if any unicode symbols were present in the string, as they're not present in the buffer and are therefore
         //  out-of-order with respect to the other characters, which will cause them to overlap strangely with the shadow text
-        if (!shadow | this.ppatches_fontRendererBatching_drawnAnyUnicode) {
+        if ((!shadow & !this.ppatches_fontRendererBatching_isRenderingBatch) | this.ppatches_fontRendererBatching_drawnAnyUnicode) {
             this.ppatches_fontRendererBatching_drawnAnyUnicode = false;
             this.ppatches_fontRendererBatching_flushTessellators();
         }

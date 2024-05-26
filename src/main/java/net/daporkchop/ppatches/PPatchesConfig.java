@@ -225,6 +225,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase forge_optimizeGetPersistentChunksIterable = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Patches the vanilla game overlay class to improve rendering performance.",
+            "For instance, this will increase the FPS while the F3 screen is enabled by roughly 15%.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase forge_optimizeOverlayGui = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Prevents the FML splash screen from automatically disabling itself in config if the splash renderer thread throws an exception.",
             "This is mainly intended for mod developers who may regularly cause the game to crash during startup and don't want to have to re-enable the splash screen every time.",
     })

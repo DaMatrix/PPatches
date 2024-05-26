@@ -1,0 +1,10 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.forge.optimizeOverlayGui.mixin",
+  "refmap": "mixins.ppatches.refmap.json",
+  "client": [
+    "MixinGuiIngameForge",
+    "MixinGuiOverlayDebug"
+  ]
+}
