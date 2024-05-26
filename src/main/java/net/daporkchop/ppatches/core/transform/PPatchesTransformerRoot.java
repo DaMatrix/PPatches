@@ -40,6 +40,8 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
     public static final boolean DUMP_CLASSES = Boolean.getBoolean("ppatches.dumpTransformedClasses");
     private static final boolean DUMP_CLASSES_DELETE_OLD = DUMP_CLASSES && Boolean.getBoolean("ppatches.dumpTransformedClasses.deleteOld");
 
+    private static final boolean LOG_CHANGES = Boolean.getBoolean("ppatches.logTransformerChanges");
+
     private static final List<PPatchesTransformerRoot> INSTANCES = new ArrayList<>();
     private static TransformerPipeline PIPELINE = buildTransformerPipeline();
 
@@ -153,6 +155,10 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
             return basicClass;
         }
 
+        if (LOG_CHANGES) {
+            PPatchesMod.LOGGER.info("Beginning to transform {}", name);
+        }
+
         ClassNode classNode = readClass(reader);
         int changeFlags = 0;
 
@@ -220,10 +226,24 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
             dumpClass(transformedName, writer);
 
+            if (LOG_CHANGES) {
+                PPatchesMod.LOGGER.info("Finished transforming class {}!", name);
+            }
             return writer.toByteArray();
         } else {
+            if (LOG_CHANGES) {
+                PPatchesMod.LOGGER.info("Class {} transformers made no changes.", name);
+            }
             return basicClass;
         }
+    }
+
+    public static int updateChangeFlags(int currentChangeFlags, ITreeClassTransformer transformer, int transformerChangeFlags) {
+        //if ((transformerChangeFlags & ~currentChangeFlags) != 0) {
+        if (transformerChangeFlags != 0) {
+            PPatchesMod.LOGGER.info("  Transformer {} made changes!", transformer);
+        }
+        return currentChangeFlags | transformerChangeFlags;
     }
 
     /*@SneakyThrows({ClassNotFoundException.class, IOException.class})
@@ -463,11 +483,18 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
                 mv.visitVarInsn(ILOAD, 5);
                 cw.addConstant(mv, transformers[i], Type.getInternalName(ITreeClassTransformer.class));
+                if (LOG_CHANGES) {
+                    mv.visitInsn(DUP);
+                }
                 mv.visitVarInsn(ALOAD, 1);
                 mv.visitVarInsn(ALOAD, 2);
                 mv.visitVarInsn(ALOAD, 3);
                 mv.visitMethodInsn(INVOKEINTERFACE, Type.getInternalName(ITreeClassTransformer.class), "transformClass", Type.getMethodDescriptor(Type.INT_TYPE, Type.getType(String.class), Type.getType(String.class), Type.getType(ClassNode.class)), true);
-                mv.visitInsn(IOR);
+                if (LOG_CHANGES) {
+                    mv.visitMethodInsn(INVOKESTATIC, Type.getInternalName(PPatchesTransformerRoot.class), "updateChangeFlags", Type.getMethodDescriptor(Type.INT_TYPE, Type.INT_TYPE, Type.getType(ITreeClassTransformer.class), Type.INT_TYPE), false);
+                } else {
+                    mv.visitInsn(IOR);
+                }
                 mv.visitVarInsn(ISTORE, 5);
 
                 mv.visitLabel(tailLbl);
@@ -561,13 +588,20 @@ public final class PPatchesTransformerRoot implements IClassTransformer, ITransf
 
             mv.visitVarInsn(ILOAD, accumulatorLvtIndex);
             cw.addConstant(mv, transformers[i], transformerClassInternalName);
+            if (LOG_CHANGES) {
+                mv.visitInsn(DUP);
+            }
             mv.visitVarInsn(ALOAD, 1);
             mv.visitVarInsn(ALOAD, 2);
             mv.visitVarInsn(ALOAD, 3);
             mv.visitVarInsn(ALOAD, 4);
             mv.visitVarInsn(ALOAD, 5);
             mv.visitMethodInsn(INVOKEINTERFACE, transformerClassInternalName, "transformMethod", transformMethodDesc, true);
-            mv.visitInsn(IOR);
+            if (LOG_CHANGES) {
+                mv.visitMethodInsn(INVOKESTATIC, Type.getInternalName(PPatchesTransformerRoot.class), "updateChangeFlags", Type.getMethodDescriptor(Type.INT_TYPE, Type.INT_TYPE, Type.getType(ITreeClassTransformer.class), Type.INT_TYPE), false);
+            } else {
+                mv.visitInsn(IOR);
+            }
             mv.visitVarInsn(ISTORE, accumulatorLvtIndex);
 
             mv.visitLabel(tailLbl);
