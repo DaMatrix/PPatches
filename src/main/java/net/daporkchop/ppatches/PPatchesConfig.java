@@ -292,6 +292,16 @@ public class PPatchesConfig {
     public static final ModuleConfigBase java_optimizeAngleConversions = new ModuleConfigBase(ModuleState.DISABLED);
 
     @Config.Comment({
+            "Optimizes simple calls to String.format() into equivalent string concatenations.",
+            "This can result in minor performance increases overall.",
+    })
+    @ModuleDescriptor(
+            registerPhase = PPatchesBootstrap.Phase.PREINIT,
+            mixins = {},
+            transformerClass = "net.daporkchop.ppatches.modules.java.optimizeStringFormat.OptimizeStringFormatTransformer")
+    public static final ModuleConfigBase java_optimizeStringFormat = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Patches all Java code to move construction of exception objects out of the main method body and into a separate INVOKEDYNAMIC instruction.",
             "This could theoretically improve performance in specific scenarios and on specific JVMs, but don't expect to see measurable improvements.",
     })
