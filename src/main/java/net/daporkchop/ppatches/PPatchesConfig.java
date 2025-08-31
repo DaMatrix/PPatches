@@ -2,6 +2,7 @@ package net.daporkchop.ppatches;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
@@ -58,6 +59,10 @@ import java.util.TreeSet;
 public class PPatchesConfig {
     public static final Configuration CONFIGURATION;
     private static ImmutableMap<String, ModuleConfigBase> MODULES;
+
+    private static final ImmutableSet<String> MODULE_NAME_WHITELIST = System.getProperty("ppatches.moduleWhitelist") != null
+            ? ImmutableSet.copyOf(System.getProperty("ppatches.moduleWhitelist").split(":"))
+            : null;
 
     @Config.Comment({
             "Patches all references to the ObjectWeb ASM library's Type class to limit the number of temporary object allocations.",
@@ -709,6 +714,10 @@ public class PPatchesConfig {
         }
 
         private String computeDisabledReason() {
+            if (MODULE_NAME_WHITELIST != null && !MODULE_NAME_WHITELIST.contains(this.field.getName().replace('_', '.'))) {
+                return "module isn't whitelisted!";
+            }
+
             ModuleState state = this.state;
             do {
                 switch (state) {
