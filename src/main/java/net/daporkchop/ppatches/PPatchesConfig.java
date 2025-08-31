@@ -526,6 +526,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase vanilla_optimizeNonNullList = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Patches Minecraft's RenderChunk class to avoid re-computing the same projection matrix for every chunk on every update.",
+            "This will slightly reduce memory usage and slightly improve render performance, especially with a high render distance.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase vanilla_optimizeRenderChunkMatrix = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Patches Minecraft's ViewFrustum class to only update the positions of RenderChunks which actually changed when the player moves.",
             "This can dramatically reduce stuttering when moving around, especially with a high render distance.",
     })
