@@ -526,6 +526,13 @@ public class PPatchesConfig {
     public static final ModuleConfigBase vanilla_optimizeNonNullList = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Patches Minecraft's ViewFrustum class to only update the positions of RenderChunks which actually changed when the player moves.",
+            "This can dramatically reduce stuttering when moving around, especially with a high render distance.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase vanilla_optimizeRenderChunkPositionUpdates = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Patches Minecraft's ResourceLocation class to make equality checks faster.",
             "This will slightly improve overall performance in certain cases.",
     })

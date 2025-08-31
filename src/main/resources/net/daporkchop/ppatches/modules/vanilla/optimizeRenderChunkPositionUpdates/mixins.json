@@ -1,0 +1,9 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.vanilla.optimizeRenderChunkPositionUpdates.mixin",
+  "refmap": "mixins.ppatches.refmap.json",
+  "client": [
+    "MixinViewFrustum"
+  ]
+}
