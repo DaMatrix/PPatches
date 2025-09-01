@@ -18,6 +18,8 @@ import java.lang.reflect.Field;
 public class OFCompatHelper {
     public static final boolean OPTIFINE = Launch.classLoader.getResource("net/optifine/SmartAnimations.class") != null;
 
+    private static final MethodHandle Config_isRenderRegions; // boolean()
+
     private static final MethodHandle SmartAnimations_checkAnimationActiveForSprite; // boolean(TextureAtlasSprite)
     private static final MethodHandle SmartAnimations_TextureAtlasSprite_setAnimationActive; // void(TextureAtlasSprite, boolean)
     private static final MethodHandle SmartAnimations_TextureAtlasSprite_getAnimationActive; // boolean(TextureAtlasSprite)
@@ -26,7 +28,10 @@ public class OFCompatHelper {
         if (OPTIFINE) {
             try {
                 MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+                Class<?> configClass = Class.forName("Config");
                 Class<?> smartAnimationsClass = Class.forName("net.optifine.SmartAnimations");
+
+                Config_isRenderRegions = lookup.findStatic(configClass, "isRenderRegions", MethodType.methodType(boolean.class));
 
                 MethodHandle SmartAnimations_isActive = lookup.findStatic(smartAnimationsClass, "isActive", MethodType.methodType(boolean.class));
                 MethodHandle SmartAnimations_isSpriteRendered = lookup.findStatic(smartAnimationsClass, "isSpriteRendered", MethodType.methodType(boolean.class, int.class));
@@ -49,6 +54,7 @@ public class OFCompatHelper {
                 throw new RuntimeException("PPatches: unable to find OptiFine \"Smart Animations\" methods", e);
             }
         } else {
+            Config_isRenderRegions = null;
             SmartAnimations_checkAnimationActiveForSprite = null;
             SmartAnimations_TextureAtlasSprite_setAnimationActive = null;
             SmartAnimations_TextureAtlasSprite_getAnimationActive = null;
@@ -59,6 +65,13 @@ public class OFCompatHelper {
         if (!OPTIFINE) {
             throw new UnsupportedOperationException("OptiFine is not present!");
         }
+    }
+
+    @SneakyThrows
+    public static boolean Config_isRenderRegions() {
+        checkOptiFine();
+
+        return (boolean) Config_isRenderRegions.invokeExact();
     }
 
     @SneakyThrows

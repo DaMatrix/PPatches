@@ -587,6 +587,15 @@ public class PPatchesConfig {
     public static final ModuleConfigBase vanilla_optimizeTextureUtilHeapAllocations = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
+            "Allocate all OpenGL buffer objects for RenderChunks in a single call to glGenBuffers() instead of calling it individually for each RenderChunk.",
+            "For some GPU drivers, this can significantly reduce the time required to construct RenderChunks (which happens e.g. when entering a world, "
+                    + " switching dimensions, changing some video settings or pressing F3+A).",
+            "Using an NVIDIA GPU and a render distance of 32 chunks, this reduced the freeze when pressing F3+A from ~900ms to ~10ms.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigBase vanilla_optimizeVertexBufferCreation = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
             "Patches Minecraft's World class to cache its hash code, instead of using Java's default implementation.",
             "For some reason, the default Object#hashCode() implementation appears to be very slow in some circumstances, even though it just delegates to"
                     + " System.identityHashCode(Object). This causes very bad performance anywhere a World is used as a key in a map (such as in"
