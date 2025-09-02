@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "compatibilityLevel": "JAVA_8",
+  "package": "net.daporkchop.ppatches.modules.vanilla.reduceNetworkThreadCount.mixin",
+  "refmap": "mixins.ppatches.refmap.json",
+  "mixins": [
+    "network.MixinNetworkSystem",
+    "network.MixinNetworkSystem$MixinServerNetworkEventLoopLoaders"
+  ],
+  "client": [
+    "client.gui.MixinServerListEntryNormal",
+    "client.network.MixinServerPinger",
+    "network.MixinNetworkManager_Client",
+    "network.MixinNetworkManager_Client$MixinEventLoopLoaders",
+    "network.MixinNetworkSystem_Client",
+    "server.integrated.MixinIntegratedServer"
+  ]
+}

@@ -14,6 +14,7 @@ import net.daporkchop.ppatches.modules.vanilla.optimizeGameRulesAccess.ModuleCon
 import net.daporkchop.ppatches.modules.vanilla.optimizeItemRendererCacheModel.ModuleConfigOptimizeItemRendererCacheModels;
 import net.daporkchop.ppatches.modules.vanilla.optimizeSearchTree.ModuleConfigOptimizeSearchTree;
 import net.daporkchop.ppatches.modules.vanilla.optimizeTessellatorDraw.ModuleConfigOptimizeTessellatorDraw;
+import net.daporkchop.ppatches.modules.vanilla.reduceNetworkThreadCount.ModuleConfigReduceNetworkThreadCount;
 import net.daporkchop.ppatches.modules.vanilla.setRenderThreadCount.ModuleConfigSetRenderThreadCount;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraftforge.common.config.Config;
@@ -615,6 +616,13 @@ public class PPatchesConfig {
             registerPhase = PPatchesBootstrap.Phase.PREINIT,
             transformerClass = "net.daporkchop.ppatches.modules.vanilla.optimizeWorldIsRemoteOnDedicatedServer.OptimizeWorldIsRemoteOnDedicatedServerTransformer")
     public static final ModuleConfigBase vanilla_optimizeWorldIsRemoteOnDedicatedServer = new ModuleConfigBase(ModuleState.ENABLED);
+
+    @Config.Comment({
+            "Patches a few things in Minecraft to reduce the number of background network threads.",
+            "This could provide a very small performance benefit in some scenarios, especially on systems with low core counts or not much memory.",
+    })
+    @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
+    public static final ModuleConfigReduceNetworkThreadCount vanilla_reduceNetworkThreadCount = new ModuleConfigReduceNetworkThreadCount(ModuleState.ENABLED);
 
     @Config.Comment({
             "Patches Minecraft to override the number of chunk rendering threads.",
