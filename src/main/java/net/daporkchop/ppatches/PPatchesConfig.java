@@ -635,8 +635,8 @@ public class PPatchesConfig {
     public static final ModuleConfigBase vanilla_useFasterRandom = new ModuleConfigBase(ModuleState.ENABLED);
 
     @Config.Comment({
-            "Patches Minecraft to use a Netty FastThreadLocalThread when creating the server thread.",
-            "This will slightly improve server thread performance.",
+            "Patches Minecraft to use a Netty FastThreadLocalThread when creating the server thread, networking threads and render threads.",
+            "This will slightly improve server and network performance, and may slightly improve chunk render performance.",
     })
     @ModuleDescriptor(registerPhase = PPatchesBootstrap.Phase.PREINIT)
     public static final ModuleConfigBase vanilla_useFastThreadLocalThread = new ModuleConfigBase(ModuleState.ENABLED);

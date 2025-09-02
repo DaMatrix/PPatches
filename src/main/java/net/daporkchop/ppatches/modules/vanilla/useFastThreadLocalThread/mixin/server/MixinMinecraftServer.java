@@ -1,5 +1,6 @@
-package net.daporkchop.ppatches.modules.vanilla.useFastThreadLocalThread.mixin;
+package net.daporkchop.ppatches.modules.vanilla.useFastThreadLocalThread.mixin.server;
 
+import io.netty.util.concurrent.FastThreadLocal;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import io.netty.util.internal.InternalThreadLocalMap;
 import net.minecraft.server.MinecraftServer;
@@ -28,5 +29,14 @@ abstract class MixinMinecraftServer {
     private void ppatches_useFastThreadLocalThread_run_initInternalThreadLocalMap(CallbackInfo ci) {
         //ensure that the InternalThreadLocalMap is already initialized before we do anything
         InternalThreadLocalMap.get();
+    }
+
+    @Inject(method = "systemExitNow()V",
+            at = @At("HEAD"),
+            allow = 1, require = 1)
+    private void ppatches_useFastThreadLocalThread_systemExitNow_removeAllFastThreadLocals(CallbackInfo ci) {
+        //clean up all the FastThreadLocals on the server thread. this will only run on the integrated server, which is fine since the dedicated server doesn't have
+        //  to worry about cleaning up anything (after all, the entire JVM is about to terminate).
+        FastThreadLocal.removeAll();
     }
 }

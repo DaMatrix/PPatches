@@ -4,6 +4,16 @@
   "package": "net.daporkchop.ppatches.modules.vanilla.useFastThreadLocalThread.mixin",
   "refmap": "mixins.ppatches.refmap.json",
   "mixins": [
-    "MixinMinecraftServer"
+    "fml.common.thread.MixinSidedThreadGroup",
+    "server.MixinMinecraftServer",
+    "util.MixinHttpUtil"
+  ],
+  "client": [
+    "client.gui.MixinServerListEntryNormal",
+    "client.renderer.chunk.MixinChunkRenderDispatcher",
+
+    "network.MixinNetworkManager$CLIENT_EPOLL_EVENTLOOP",
+    "network.MixinNetworkManager$CLIENT_LOCAL_EVENTLOOP",
+    "network.MixinNetworkManager$CLIENT_NIO_EVENTLOOP"
   ]
 }
