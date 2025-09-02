@@ -26,16 +26,38 @@ abstract class MixinNetworkManager_Client {
     /**
      * @author DaPorkchop_
      */
-    @Mixin(targets = {
-            "net.minecraft.network.NetworkManager$1", // CLIENT_NIO_EVENTLOOP
-            "net.minecraft.network.NetworkManager$2", // CLIENT_EPOLL_EVENTLOOP
-            "net.minecraft.network.NetworkManager$3", // CLIENT_LOCAL_EVENTLOOP
-    })
-    static abstract class MixinEventLoopLoaders {
-        @ModifyConstant(method = "load*",
+    @Mixin(targets = "net.minecraft.network.NetworkManager$1")
+    static abstract class MixinCLIENT_NIO_EVENTLOOP {
+        @ModifyConstant(method = "load()Lio/netty/channel/nio/NioEventLoopGroup;",
                 constant = @Constant(intValue = 0),
                 allow = 1, require = 1)
-        private int ppatches_reduceNetworkThreadCount_load_useSingleClientNetworkThread(int zero) {
+        private int ppatches_reduceNetworkThreadCount_load_useConfiguredClientNetworkThreadCount(int zero) {
+            return PPatchesConfig.vanilla_reduceNetworkThreadCount.clientNetworkEventLoopSize;
+        }
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @Mixin(targets = "net.minecraft.network.NetworkManager$2")
+    static abstract class MixinCLIENT_EPOLL_EVENTLOOP {
+        @ModifyConstant(method = "load()Lio/netty/channel/epoll/EpollEventLoopGroup;",
+                constant = @Constant(intValue = 0),
+                allow = 1, require = 1)
+        private int ppatches_reduceNetworkThreadCount_load_useConfiguredClientNetworkThreadCount(int zero) {
+            return PPatchesConfig.vanilla_reduceNetworkThreadCount.clientNetworkEventLoopSize;
+        }
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @Mixin(targets = "net.minecraft.network.NetworkManager$3")
+    static abstract class MixinCLIENT_LOCAL_EVENTLOOP {
+        @ModifyConstant(method = "load()Lio/netty/channel/local/LocalEventLoopGroup;",
+                constant = @Constant(intValue = 0),
+                allow = 1, require = 1)
+        private int ppatches_reduceNetworkThreadCount_load_useConfiguredClientNetworkThreadCount(int zero) {
             return PPatchesConfig.vanilla_reduceNetworkThreadCount.clientNetworkEventLoopSize;
         }
     }

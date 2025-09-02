@@ -5,13 +5,16 @@
   "refmap": "mixins.ppatches.refmap.json",
   "mixins": [
     "network.MixinNetworkSystem",
-    "network.MixinNetworkSystem$MixinServerNetworkEventLoopLoaders"
+    "network.MixinNetworkSystem$MixinSERVER_NIO_EVENTLOOP",
+    "network.MixinNetworkSystem$MixinSERVER_EPOLL_EVENTLOOP"
   ],
   "client": [
     "client.gui.MixinServerListEntryNormal",
     "client.network.MixinServerPinger",
     "network.MixinNetworkManager_Client",
-    "network.MixinNetworkManager_Client$MixinEventLoopLoaders",
+    "network.MixinNetworkManager_Client$MixinCLIENT_NIO_EVENTLOOP",
+    "network.MixinNetworkManager_Client$MixinCLIENT_EPOLL_EVENTLOOP",
+    "network.MixinNetworkManager_Client$MixinCLIENT_LOCAL_EVENTLOOP",
     "network.MixinNetworkSystem_Client",
     "server.integrated.MixinIntegratedServer"
   ]

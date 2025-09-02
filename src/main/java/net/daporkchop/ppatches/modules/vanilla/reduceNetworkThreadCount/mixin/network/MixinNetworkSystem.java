@@ -26,12 +26,22 @@ abstract class MixinNetworkSystem {
     /**
      * @author DaPorkchop_
      */
-    @Mixin(targets = {
-            "net.minecraft.network.NetworkSystem$1", // SERVER_NIO_EVENTLOOP
-            "net.minecraft.network.NetworkSystem$2", // SERVER_EPOLL_EVENTLOOP
-    })
-    static abstract class MixinServerNetworkEventLoopLoaders {
-        @ModifyConstant(method = "load*",
+    @Mixin(targets = "net.minecraft.network.NetworkSystem$1")
+    static abstract class MixinSERVER_NIO_EVENTLOOP {
+        @ModifyConstant(method = "load()Lio/netty/channel/nio/NioEventLoopGroup;",
+                constant = @Constant(intValue = 0),
+                allow = 1, require = 1)
+        private int ppatches_reduceNetworkThreadCount_load_useConfiguredServerNetworkThreadCount(int zero) {
+            return PPatchesConfig.vanilla_reduceNetworkThreadCount.serverNetworkEventLoopSize;
+        }
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @Mixin(targets = "net.minecraft.network.NetworkSystem$2")
+    static abstract class MixinSERVER_EPOLL_EVENTLOOP {
+        @ModifyConstant(method = "load()Lio/netty/channel/epoll/EpollEventLoopGroup;",
                 constant = @Constant(intValue = 0),
                 allow = 1, require = 1)
         private int ppatches_reduceNetworkThreadCount_load_useConfiguredServerNetworkThreadCount(int zero) {
